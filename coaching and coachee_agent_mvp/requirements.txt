@@ -1,0 +1,4 @@
+gradio>=6.8,<7
+openai>=2.24,<3
+python-dotenv>=1.2,<2
+websockets>=16,<17

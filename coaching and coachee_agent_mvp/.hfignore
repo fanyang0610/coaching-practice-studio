@@ -1,0 +1,6 @@
+.env
+.DS_Store
+__pycache__/
+*.pyc
+user_profile.json
+Erickson Coach.app/
