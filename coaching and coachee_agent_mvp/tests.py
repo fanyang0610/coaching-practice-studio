@@ -480,6 +480,11 @@ class TestManualUiProbe(unittest.TestCase):
         self.assertIn("row alignment", manual_ui_probe.READY_JS)
         self.assertIn(".intro-md", manual_ui_probe.READY_JS)
         self.assertIn(".tracker-shell", manual_ui_probe.READY_JS)
+        self.assertIn("clipped text", manual_ui_probe.READY_JS)
+        self.assertIn("outer-page scrolling", manual_ui_probe.READY_JS)
+        self.assertIn("module card balance", manual_ui_probe.READY_JS)
+        self.assertIn("scrollHeight", manual_ui_probe.READY_JS)
+        self.assertIn(".module-card-btn", manual_ui_probe.READY_JS)
 
 
 class TestStaticModuleBoundaries(unittest.TestCase):

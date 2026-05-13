@@ -30,6 +30,71 @@ READY_JS = """
     const scrollWidth = document.documentElement ? document.documentElement.scrollWidth : 0;
     const clientWidth = document.documentElement ? document.documentElement.clientWidth : 0;
     const noHorizontalOverflow = clientWidth > 0 && scrollWidth <= clientWidth + 1;
+    const scrollHeight = Math.max(
+        document.documentElement ? document.documentElement.scrollHeight : 0,
+        document.body ? document.body.scrollHeight : 0
+    );
+    const viewportHeight = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 0);
+    const noOuterPageScrolling = viewportHeight > 0 && scrollHeight <= viewportHeight + 2;
+    const isVisible = (element) => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    const visibleElements = (selector) =>
+        Array.from(document.querySelectorAll(selector)).filter(isVisible);
+    const textCheckSelectors = [
+        ".module-card-btn",
+        ".mode-context-label",
+        ".mode-context-title",
+        ".mode-context-card p",
+        "#settings-sheet > .label-wrap button",
+        ".tracker-eyebrow",
+        ".tracker-stage",
+        ".send-btn-custom",
+        "#next-btn",
+        "#reset-btn",
+    ];
+    const clippedText = textCheckSelectors.flatMap((selector) =>
+        visibleElements(selector)
+            .filter((element) => (element.innerText || element.textContent || "").trim())
+            .filter((element) =>
+                element.scrollWidth > element.clientWidth + 2 ||
+                element.scrollHeight > element.clientHeight + 3
+            )
+            .map((element) => ({
+                selector,
+                text: (element.innerText || element.textContent || "").trim().slice(0, 48),
+                scrollWidth: element.scrollWidth,
+                clientWidth: element.clientWidth,
+                scrollHeight: element.scrollHeight,
+                clientHeight: element.clientHeight,
+            }))
+    );
+    const noClippedText = clippedText.length === 0;
+    const moduleCards = visibleElements(".module-card-btn").map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+            text: (element.innerText || element.textContent || "").trim().replace(/\\s+/g, " "),
+            left: Math.round(rect.left),
+            top: Math.round(rect.top),
+            right: Math.round(rect.right),
+            bottom: Math.round(rect.bottom),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+        };
+    });
+    const moduleWidths = moduleCards.map((card) => card.width);
+    const moduleHeights = moduleCards.map((card) => card.height);
+    const moduleTops = moduleCards.map((card) => card.top);
+    const moduleBottoms = moduleCards.map((card) => card.bottom);
+    const moduleMinWidth = clientWidth <= 480 ? 120 : 240;
+    const moduleBalanceOk = moduleCards.length === 2
+        && Math.max(...moduleWidths) - Math.min(...moduleWidths) <= 4
+        && Math.max(...moduleHeights) - Math.min(...moduleHeights) <= 4
+        && Math.max(...moduleTops) - Math.min(...moduleTops) <= 2
+        && Math.max(...moduleBottoms) - Math.min(...moduleBottoms) <= 2
+        && moduleCards.every((card) => card.width >= moduleMinWidth);
     const rowSelectors = [
         ".intro-md",
         "#topbar.module-tabs",
@@ -64,13 +129,20 @@ READY_JS = """
     if (!hasTracker) reasons.push("missing tracker text");
     if (processing) reasons.push("page still processing");
     if (!noHorizontalOverflow) reasons.push(`horizontal overflow ${scrollWidth}/${clientWidth}`);
+    if (!noOuterPageScrolling) reasons.push(`outer-page scrolling ${scrollHeight}/${viewportHeight}`);
+    if (!noClippedText) reasons.push(`clipped text ${JSON.stringify(clippedText)}`);
+    if (!moduleBalanceOk) reasons.push(`module card balance failed ${JSON.stringify(moduleCards)}`);
     if (!rowAlignmentOk) reasons.push(`row alignment failed ${JSON.stringify(rows)}`);
 
     return {
-        ready: hasInput && hasMic && hasSend && hasTracker && !processing && noHorizontalOverflow && rowAlignmentOk,
+        ready: hasInput && hasMic && hasSend && hasTracker && !processing && noHorizontalOverflow && noOuterPageScrolling && noClippedText && moduleBalanceOk && rowAlignmentOk,
         reasons,
         scrollWidth,
         clientWidth,
+        scrollHeight,
+        viewportHeight,
+        clippedText,
+        moduleCards,
         rows,
     };
 })()
