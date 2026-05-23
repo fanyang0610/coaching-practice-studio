@@ -71,6 +71,45 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
                 (root / "app.py").read_bytes(),
             )
 
+    def test_hf_upload_decision_reports_local_verification_changes_only(self):
+        root = Path(__file__).resolve().parent
+        helper_path = root / "scripts" / "needs_hf_upload.py"
+        spec = importlib.util.spec_from_file_location("needs_hf_upload", helper_path)
+        needs_hf_upload = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(needs_hf_upload)
+
+        decision = needs_hf_upload.decide_upload_need(
+            root,
+            [Path("manual_ui_probe.py"), Path("tests.py")],
+        )
+
+        self.assertFalse(decision.needs_upload)
+        self.assertEqual(decision.deploy_worthy, [])
+        self.assertEqual([item.path for item in decision.local_only], [Path("manual_ui_probe.py"), Path("tests.py")])
+        self.assertTrue(all("local verification" in item.reason for item in decision.local_only))
+
+    def test_hf_upload_decision_uses_deploy_entrypoint_mapping(self):
+        root = Path(__file__).resolve().parent
+        deploy_path = root / "scripts" / "deploy_hf_space.py"
+        deploy_spec = importlib.util.spec_from_file_location("deploy_hf_space", deploy_path)
+        deploy_hf_space = importlib.util.module_from_spec(deploy_spec)
+        deploy_spec.loader.exec_module(deploy_hf_space)
+
+        helper_path = root / "scripts" / "needs_hf_upload.py"
+        helper_spec = importlib.util.spec_from_file_location("needs_hf_upload", helper_path)
+        needs_hf_upload = importlib.util.module_from_spec(helper_spec)
+        helper_spec.loader.exec_module(needs_hf_upload)
+
+        decision = needs_hf_upload.decide_upload_need(root, [Path("web_app.py"), Path("app.py")])
+
+        self.assertTrue(decision.needs_upload)
+        self.assertEqual(len(decision.deploy_worthy), 1)
+        self.assertEqual(decision.deploy_worthy[0].path, Path("web_app.py"))
+        self.assertEqual(decision.deploy_worthy[0].remote_path, Path(deploy_hf_space.REMOTE_ENTRYPOINT))
+        self.assertIn("Space entrypoint", decision.deploy_worthy[0].reason)
+        self.assertEqual(decision.local_only[0].path, Path("app.py"))
+        self.assertIn("local wrapper", decision.local_only[0].reason)
+
     def test_macos_launcher_disables_default_browser_auto_open(self):
         root = Path(__file__).resolve().parent
         launcher_text = (root / "Erickson Coach Launcher.applescript").read_text(encoding="utf-8")

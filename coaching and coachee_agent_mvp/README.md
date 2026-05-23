@@ -61,6 +61,8 @@ python3 scripts/deploy_hf_space.py
 
 The helper stages a temporary Space folder using `.hfignore`, excludes the local wrapper `app.py`, copies local `web_app.py` to staged `app.py`, verifies that `web_app.py` is not uploaded under its own name, and then runs `hf upload`. Use `python3 scripts/deploy_hf_space.py --dry-run` to inspect the staged file list without uploading.
 
+Before deploying an in-progress local diff, run `python3 scripts/needs_hf_upload.py` to report whether the changed files affect the hosted Space boundary or are local-only verification/development tooling.
+
 ## 1. One-Click Launch (macOS)
 
 The project includes an **Erickson Coach.app** which can be double-clicked to start the application.

@@ -15,6 +15,9 @@ import tempfile
 
 DEFAULT_SPACE_ID = "fanyang0610/Erickson-Coach-App"
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_ENTRYPOINT = "app.py"
+LOCAL_ENTRYPOINT_SOURCE = "web_app.py"
+EXPLICIT_LOCAL_ONLY = {"app.py", "web_app.py", ".git"}
 
 
 def _load_hfignore(root: Path) -> list[str]:
@@ -59,7 +62,6 @@ def stage_space(root: Path, stage_dir: Path) -> list[Path]:
     root = root.resolve()
     stage_dir = stage_dir.resolve()
     patterns = _load_hfignore(root)
-    explicit_local_only = {"app.py", "web_app.py", ".git"}
 
     if stage_dir == root or root in stage_dir.parents:
         raise SystemExit("Stage directory must be outside the project folder.")
@@ -74,7 +76,7 @@ def stage_space(root: Path, stage_dir: Path) -> list[Path]:
         kept_dirs = []
         for dirname in dirnames:
             relative_path = relative_dir / dirname
-            if relative_path.as_posix() in explicit_local_only:
+            if relative_path.as_posix() in EXPLICIT_LOCAL_ONLY:
                 continue
             if _is_ignored(relative_path, True, patterns):
                 continue
@@ -84,7 +86,7 @@ def stage_space(root: Path, stage_dir: Path) -> list[Path]:
         for filename in filenames:
             relative_path = relative_dir / filename
             relative_name = relative_path.as_posix()
-            if relative_name in explicit_local_only:
+            if relative_name in EXPLICIT_LOCAL_ONLY:
                 continue
             if _is_ignored(relative_path, False, patterns):
                 continue
@@ -93,19 +95,19 @@ def stage_space(root: Path, stage_dir: Path) -> list[Path]:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root / relative_path, destination)
 
-    shutil.copy2(root / "web_app.py", stage_dir / "app.py")
+    shutil.copy2(root / LOCAL_ENTRYPOINT_SOURCE, stage_dir / REMOTE_ENTRYPOINT)
     _verify_stage(root, stage_dir)
     return sorted(path.relative_to(stage_dir) for path in stage_dir.rglob("*") if path.is_file())
 
 
 def _verify_stage(root: Path, stage_dir: Path) -> None:
-    staged_app = stage_dir / "app.py"
-    local_web_app = root / "web_app.py"
-    local_wrapper = root / "app.py"
+    staged_app = stage_dir / REMOTE_ENTRYPOINT
+    local_web_app = root / LOCAL_ENTRYPOINT_SOURCE
+    local_wrapper = root / REMOTE_ENTRYPOINT
 
     if not staged_app.exists():
         raise SystemExit("Staged Space is missing remote app.py.")
-    if (stage_dir / "web_app.py").exists():
+    if (stage_dir / LOCAL_ENTRYPOINT_SOURCE).exists():
         raise SystemExit("Staged Space must not upload web_app.py under its local name.")
     if staged_app.read_bytes() != local_web_app.read_bytes():
         raise SystemExit("Staged app.py must be copied from local web_app.py.")
