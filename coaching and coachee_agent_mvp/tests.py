@@ -357,7 +357,8 @@ class TestWebAppLayout(unittest.TestCase):
         mode_html = web_app._mode_context_html({"agent": web_app._new_session()["agent"], "module": "coach"})
 
         self.assertIn("studio-header", header_html)
-        self.assertIn('src="data:image/png;base64,', header_html)
+        self.assertIn('src="/gradio_api/file=assets/icons/erickson-icon-192.png"', header_html)
+        self.assertNotIn("base64", header_html)
         self.assertIn("埃里克森教练", header_html)
         self.assertNotIn("transformation-hero", header_html)
         self.assertIn("mode-context-card", mode_html)
@@ -367,7 +368,7 @@ class TestWebAppLayout(unittest.TestCase):
         self.assertIn("mic-glyph", source)
         self.assertIn("M12 15a3 3 0 0 0 3-3V8", source)
         import re
-        visible_header_html = re.sub(r'src="data:image/png;base64,[^"]+"', 'src="[icon]"', header_html)
+        visible_header_html = re.sub(r'src="[^"]+"', 'src="[icon]"', header_html)
 
         for customer_hidden_text in (
             "Recommended Redesign Direction",
@@ -456,7 +457,7 @@ class TestWebAppLayout(unittest.TestCase):
 
         session = web_app._new_session(module="coach", mode="template", language="zh")
 
-        result = web_app.respond("", [], session, "coach", "模板", "中文")
+        result = list(web_app.respond("", [], session, "coach", "模板", "中文"))[-1]
 
         self.assertEqual(web_app.RESPOND_OUTPUT_COUNT, len(result))
 
@@ -760,6 +761,297 @@ class TestMemoryPrivacy(unittest.TestCase):
         self.assertIn("openai", requirements)
         self.assertNotIn("requests", requirements)
         self.assertNotIn("cryptography", requirements)
+
+
+def _fake_llm_client(replies, calls):
+    """Stand-in OpenAI client: each create() returns the next reply, streamed in small chunks when stream=True."""
+
+    class FakeStream:
+        def __init__(self, text):
+            self.text = text
+
+        def __iter__(self):
+            for i in range(0, len(self.text), 4):
+                delta = type("Delta", (), {"content": self.text[i:i + 4]})()
+                yield type("Chunk", (), {"choices": [type("Choice", (), {"delta": delta})()]})()
+
+        def close(self):
+            pass
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            text = replies.pop(0)
+            if kwargs.get("stream"):
+                return FakeStream(text)
+            message = type("Message", (), {"content": text, "refusal": None})()
+            return type("Response", (), {"choices": [type("Choice", (), {"message": message})()]})()
+
+    return type("FakeClient", (), {"chat": type("Chat", (), {"completions": FakeCompletions()})()})()
+
+
+class TestSingleCallStageDecisions(unittest.TestCase):
+    def _deepening_coach(self):
+        from coaching_core import CoachingSubPhase
+
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [
+            {"role": "coach", "content": "What would you like to focus on?"},
+            {"role": "client", "content": "My time management."},
+        ]
+        agent.current_sub_phase = CoachingSubPhase.DEEPEN
+        agent.turns_in_current_stage = 2
+        return agent
+
+    def test_split_stage_signal_hides_markers_while_streaming(self):
+        from coaching_core import _split_stage_signal
+
+        self.assertEqual(_split_stage_signal("[[NE"), (None, ""))
+        self.assertEqual(_split_stage_signal("[[NEXT]] Great"), ("NEXT", "Great"))
+        self.assertEqual(_split_stage_signal("Sounds good [[ST"), (None, "Sounds good"))
+        self.assertEqual(_split_stage_signal("Plain reply"), (None, "Plain reply"))
+
+    def test_coach_reply_decides_next_stage_in_one_streamed_call(self):
+        from coaching_core import CoachingSubPhase
+
+        agent = self._deepening_coach()
+        calls = []
+        client = _fake_llm_client(["[[NEXT]] You have a clear goal. What is happening right now?"], calls)
+
+        with patch("coach_agent._build_client", return_value=client):
+            partials = list(agent.stream_response("I want two focused hours a day.", api_key="server-key"))
+
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0]["stream"])
+        self.assertIn("[[NEXT]]", calls[0]["messages"][0]["content"])
+        self.assertTrue(all("[[" not in text for text in partials))
+        self.assertEqual(partials[-1], "You have a clear goal. What is happening right now?")
+        self.assertEqual(agent.current_sub_phase, CoachingSubPhase.BRIDGE)
+        self.assertEqual(agent.context[-1], {"role": "coach", "content": partials[-1]})
+
+    def test_coach_reply_can_end_the_session(self):
+        agent = self._deepening_coach()
+        calls = []
+        client = _fake_llm_client(["[[END]] Thank you for the work you did today."], calls)
+
+        with patch("coach_agent._build_client", return_value=client):
+            reply = agent.generate_response("That's all I need, thanks!", api_key="server-key")
+
+        self.assertEqual(reply, "Thank you for the work you did today.")
+        self.assertTrue(agent.is_session_ended())
+        self.assertEqual(len(calls), 1)
+
+    def test_coach_reply_without_marker_stays_in_stage(self):
+        from coaching_core import CoachingSubPhase
+
+        agent = self._deepening_coach()
+        calls = []
+        client = _fake_llm_client(["What else matters about that?"], calls)
+
+        with patch("coach_agent._build_client", return_value=client):
+            reply = agent.generate_response("It matters a lot.", api_key="server-key")
+
+        self.assertEqual(reply, "What else matters about that?")
+        self.assertEqual(agent.current_state, CoachingState.CONTRACT)
+        self.assertEqual(agent.current_sub_phase, CoachingSubPhase.DEEPEN)
+
+    def test_coach_reply_without_marker_paces_stage_like_template_mode(self):
+        from coaching_core import CoachingSubPhase
+
+        agent = self._deepening_coach()
+        agent.turns_in_current_stage = 3
+        calls = []
+        client = _fake_llm_client(["Let's look at where things stand now."], calls)
+
+        with patch("coach_agent._build_client", return_value=client):
+            agent.generate_response("Yes, that's the goal.", api_key="server-key")
+
+        self.assertEqual(agent.current_sub_phase, CoachingSubPhase.BRIDGE)
+
+    def test_reply_emptied_by_language_cleanup_falls_back_to_template(self):
+        agent = EricksonCoachingAgent(mode="llm", language="zh")
+        agent.context = [{"role": "coach", "content": "你今天想聚焦什么？"}]
+        calls = []
+        client = _fake_llm_client(["What would help most this week?"], calls)
+
+        with patch("coach_agent._build_client", return_value=client):
+            partials = list(agent.stream_response("我想更好地管理时间。", api_key="server-key"))
+
+        self.assertTrue(partials[-1])
+        self.assertEqual(agent.context[-1]["content"], partials[-1])
+        self.assertNotIn("What would help", partials[-1])
+
+    def test_coachee_end_marker_stops_reply_and_returns_review(self):
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent._llm_scenario_ready = True
+        agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
+        calls = []
+        client = _fake_llm_client(
+            ["[[END]] Thanks, I feel ready.", "Session Result: Solid start.\nScore: 70/100"],
+            calls,
+        )
+
+        with patch("coachee_agent._build_client", return_value=client):
+            partials = list(agent.stream_response("Goodbye and good luck!", api_key="server-key"))
+
+        self.assertEqual(partials, ["Session Result: Solid start.\nScore: 70/100"])
+        self.assertTrue(agent.is_session_ended())
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[0]["stream"])
+        self.assertFalse(calls[1].get("stream", False))
+
+    def test_coachee_next_marker_moves_to_bridge_without_extra_call(self):
+        from coaching_core import CoachingSubPhase
+
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent._llm_scenario_ready = True
+        agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
+        calls = []
+        client = _fake_llm_client(["[[NEXT]] I want to feel calmer at work."], calls)
+
+        with patch("coachee_agent._build_client", return_value=client):
+            reply = agent.generate_response("What do you want from today?", api_key="server-key")
+
+        self.assertEqual(reply, "I want to feel calmer at work.")
+        self.assertEqual(agent.current_sub_phase, CoachingSubPhase.BRIDGE)
+        self.assertEqual(len(calls), 1)
+
+    def test_history_translation_is_one_call(self):
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [
+            {"role": "coach", "content": "What brings you here?"},
+            {"role": "client", "content": "Stress."},
+            {"role": "coach", "content": "What would help most?"},
+        ]
+        calls = []
+        client = _fake_llm_client(['["是什么让你来到这里？", "什么最有帮助？"]'], calls)
+
+        with patch("coaching_core._build_client", return_value=client):
+            agent.translate_history("zh", api_key="server-key")
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(agent.context[0]["content"], "是什么让你来到这里？")
+        self.assertEqual(agent.context[2]["content"], "什么最有帮助？")
+        self.assertEqual(agent.language, "zh")
+
+    def test_llm_client_is_shared_and_fails_fast(self):
+        import coaching_core
+
+        first = coaching_core._build_client("server-key", "http://127.0.0.1:9/v1")
+        second = coaching_core._build_client("server-key", "http://127.0.0.1:9/v1")
+
+        self.assertIs(first, second)
+        self.assertEqual(first.timeout, coaching_core.LLM_TIMEOUT_SECONDS)
+        self.assertEqual(first.max_retries, coaching_core.LLM_MAX_RETRIES)
+
+
+class TestHostedAccessAndLimits(unittest.TestCase):
+    def test_invited_logins_are_parsed_from_environment(self):
+        import web_app
+
+        users = web_app._auth_users({"ERICKSON_USERS": "amy:pw1, bo:p:w2\ncy:pw3,broken,:nouser"})
+
+        self.assertEqual(users, {"amy": "pw1", "bo": "p:w2", "cy": "pw3"})
+
+    def test_public_launch_without_logins_refuses_to_start(self):
+        import web_app
+
+        with patch.dict(os.environ, {"SPACE_ID": "fanyang0610/Erickson-Coach-App"}, clear=True):
+            with patch.object(web_app.demo, "launch") as launch:
+                with self.assertRaises(SystemExit):
+                    web_app.launch_demo()
+
+        launch.assert_not_called()
+        self.assertTrue(web_app._requires_auth({"GRADIO_SERVER_NAME": "0.0.0.0"}))
+        self.assertFalse(web_app._requires_auth({}))
+
+    def test_launch_checks_invited_logins(self):
+        import web_app
+
+        with patch.dict(os.environ, {"SPACE_ID": "x", "ERICKSON_USERS": "amy:pw1"}, clear=True):
+            with patch.object(web_app.demo, "launch") as launch:
+                web_app.launch_demo()
+
+        check = launch.call_args.kwargs["auth"]
+        self.assertTrue(check("amy", "pw1"))
+        self.assertFalse(check("amy", "wrong"))
+        self.assertFalse(check("zed", "pw1"))
+        self.assertNotIn("api", launch.call_args.kwargs["footer_links"])
+
+    def test_model_events_share_one_concurrency_pool_and_stay_off_the_api_page(self):
+        import web_app
+
+        backend_fns = [fn for fn in web_app.demo.fns.values() if fn.fn is not None]
+
+        self.assertGreaterEqual(len(backend_fns), 8)
+        for fn in backend_fns:
+            self.assertEqual(fn.concurrency_id, "llm", fn.name)
+            self.assertEqual(fn.concurrency_limit, web_app.LLM_CONCURRENCY, fn.name)
+            self.assertEqual(fn.api_visibility, "private", fn.name)
+
+    def test_respond_streams_partial_transcripts(self):
+        import web_app
+
+        session = web_app._new_session(module="coach", mode="template", language="en")
+        outputs = list(web_app.respond("I want more focus.", [], session, "coach", "Template", "English"))
+
+        self.assertGreaterEqual(len(outputs), 2)
+        self.assertTrue(all(len(output) == web_app.RESPOND_OUTPUT_COUNT for output in outputs))
+        self.assertEqual(outputs[0][1], [{"role": "user", "content": "I want more focus."}])
+        self.assertEqual(outputs[-1][1][-1]["role"], "assistant")
+
+    def test_respond_rejects_overlong_messages_before_calling_the_agent(self):
+        import web_app
+
+        session = web_app._new_session(module="coach", mode="template", language="en")
+        with patch.object(web_app.gr, "Warning") as warning:
+            outputs = list(web_app.respond("x" * (web_app.MAX_MESSAGE_CHARS + 1), [], session, "coach", "Template", "English"))
+
+        self.assertEqual(len(outputs), 1)
+        self.assertIn(str(web_app.MAX_MESSAGE_CHARS), warning.call_args.args[0])
+        self.assertEqual(session["agent"].context, [])
+
+    def test_respond_stops_at_session_turn_limit(self):
+        import web_app
+
+        session = web_app._new_session(module="coach", mode="template", language="en")
+        agent = session["agent"]
+        agent.context = [{"role": agent.user_role, "content": "hi"}] * web_app.MAX_USER_TURNS_PER_SESSION
+        with patch.object(web_app.gr, "Warning") as warning:
+            outputs = list(web_app.respond("one more", [], session, "coach", "Template", "English"))
+
+        self.assertEqual(warning.call_args.args[0], web_app.UI["en"]["turn_limit"])
+        self.assertFalse(outputs[-1][0]["interactive"])
+        self.assertEqual(len(agent.context), web_app.MAX_USER_TURNS_PER_SESSION)
+
+    def test_respond_refuses_overlapping_sends_on_one_conversation(self):
+        import web_app
+
+        session = web_app._new_session(module="coach", mode="template", language="en")
+        lock = web_app._agent_lock(session["agent"])
+        lock.acquire()
+        try:
+            with patch.object(web_app.gr, "Warning") as warning:
+                list(web_app.respond("hello", [], session, "coach", "Template", "English"))
+        finally:
+            lock.release()
+
+        self.assertEqual(warning.call_args.args[0], web_app.UI["en"]["busy_warning"])
+        self.assertEqual(session["agent"].context, [])
+
+    def test_model_errors_are_logged_not_shown_to_users(self):
+        import web_app
+
+        session = web_app._new_session(module="coach", mode="llm", language="en")
+        session["agent"].context = [{"role": "coach", "content": "What would you like to focus on?"}]
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}, clear=True):
+            with patch.object(session["agent"], "_get_llm_response", side_effect=RuntimeError("upstream 502 from https://internal")):
+                with patch.object(web_app.gr, "Warning") as warning, patch.object(web_app.logger, "exception"):
+                    outputs = list(web_app.respond("hello", [], session, "coach", "AI", "English"))
+
+        self.assertEqual(warning.call_args.args[0], web_app.UI["en"]["ai_reply_error"])
+        self.assertEqual(outputs[-1][0]["value"], "hello")
+        self.assertEqual(outputs[-1][1], [])
 
 
 if __name__ == "__main__":

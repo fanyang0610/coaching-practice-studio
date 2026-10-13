@@ -32,6 +32,7 @@ PYTHON_FILES = [
     "manual_ui_probe.py",
     "scripts/deploy_hf_space.py",
     "scripts/check_project.py",
+    "scripts/load_test.py",
 ]
 
 

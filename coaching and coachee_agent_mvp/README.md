@@ -27,6 +27,26 @@ export OPENAI_BASE_URL="https://your-compatible-base-url"
 
 If `OPENAI_API_KEY` is missing, AI mode stays selected and the chat shows a server-configuration message.
 
+### Invited users and limits
+
+The hosted app is invite-only. List the logins you hand out in `ERICKSON_USERS` as `name:password` pairs separated by commas (on Hugging Face, add it as a Space secret):
+
+```zsh
+export ERICKSON_USERS="amy:first-password,bo:second-password"
+```
+
+Startup refuses to run on a Space, or on any non-loopback address, when `ERICKSON_USERS` is empty. A plain local run on 127.0.0.1 stays open. If the login page keeps looping inside the huggingface.co Space page, share the direct `https://fanyang0610-erickson-coach-app.hf.space` URL instead.
+
+Use a paid model for real users. `openrouter/free` sends each call to a random free model: some return nothing, one is a safety classifier, and all of them hit shared rate limits quickly. Set `OPENAI_MODEL=openai/gpt-4o-mini` (about a cent per full session at current OpenRouter prices), and put a credit limit on the OpenRouter key.
+
+Limits live at the top of `web_app.py`: `MAX_MESSAGE_CHARS` (2000), `MAX_USER_TURNS_PER_SESSION` (40), and `LLM_CONCURRENCY` (24 model calls at once, shared by every event). Replies stream in; within one reply call the model also decides whether the coaching stage moves on (the `[[STAY]]`/`[[NEXT]]`/`[[END]]` markers), so a turn costs one call instead of two.
+
+To check concurrency before inviting people, simulate users against a fake model (nothing is billed):
+
+```zsh
+python3 scripts/load_test.py --users 50 --messages 3
+```
+
 ## Launch Commands
 
 Run the web app locally with either entrypoint:
@@ -92,7 +112,7 @@ For every change to the project:
 1. **Re-verify State Transitions**: Run `python3 tests.py` to ensure the Erickson coaching logic is intact.
 2. **Re-compile App Bundle**: Run the `osacompile` command above to ensure the `.app` remains synced with the latest codebase.
 3. **Check iOS Viewport**: Verify that no new elements break the "One Page" layout on mobile Safari.
-4. **Compile Check**: Run `python3 -m py_compile app.py cli_app.py mac_launcher.py coach_agent.py coach_data.py coachee_agent.py coachee_data.py coaching_core.py memory.py web_assets.py web_app.py tests.py manual_ui_probe.py scripts/deploy_hf_space.py scripts/check_project.py`.
+4. **Compile Check**: Run `python3 -m py_compile app.py cli_app.py mac_launcher.py coach_agent.py coach_data.py coachee_agent.py coachee_data.py coaching_core.py memory.py web_assets.py web_app.py tests.py manual_ui_probe.py scripts/deploy_hf_space.py scripts/check_project.py scripts/load_test.py`.
 
 `python3 scripts/check_project.py --browser --launcher` runs these checks through the project helper.
 

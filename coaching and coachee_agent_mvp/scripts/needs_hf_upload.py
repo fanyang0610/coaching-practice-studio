@@ -20,6 +20,7 @@ LOCAL_VERIFICATION_TOOLING = {
     "tests.py",
     "scripts/check_project.py",
     "scripts/needs_hf_upload.py",
+    "scripts/load_test.py",
     "Erickson Coach Launcher.applescript",
     "Erickson Coach.app",
     "cli_app.py",

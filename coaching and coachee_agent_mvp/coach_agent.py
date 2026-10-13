@@ -2,7 +2,7 @@ import json
 import random
 import uuid
 
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _language_output_rule, _response_text
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coach_data import (
     ACKNOWLEDGMENTS,
     BRIDGE_PHRASES,
@@ -46,19 +46,29 @@ class EricksonCoachingAgent:
         return self.current_state == CoachingState.CLOSING
 
     def get_stage_prompt(self, api_key: str | None = None) -> str:
+        prompt = ""
+        for prompt, _ in self._stream_stage_prompt(api_key):
+            pass
+        return prompt
+
+    def _stream_stage_prompt(self, api_key: str | None = None, decide_stage: bool = False):
+        """Yield (text so far, stage signal) pairs; the last pair holds the final prompt."""
         if self.current_state == CoachingState.CLOSING:
-            return random.choice(CLOSING_MESSAGES[self.language])
+            yield random.choice(CLOSING_MESSAGES[self.language]), None
+            return
 
         if self.mode == "template":
-            return self._get_template_response()
+            yield self._get_template_response(), None
+            return
 
         if not api_key:
             raise ValueError("Please provide an API Key in the settings panel to use LLM mode.")
 
         if not self.context and self.current_sub_phase == CoachingSubPhase.OPEN:
-            return self._get_llm_opening_response(api_key)
+            yield self._get_llm_opening_response(api_key), None
+            return
 
-        return self._get_llm_response(api_key)
+        yield from self._get_llm_response(api_key, decide_stage)
 
     def force_next_state(self) -> bool:
         states = list(CoachingState)
@@ -71,6 +81,13 @@ class EricksonCoachingAgent:
         return False
 
     def generate_response(self, user_input: str, api_key: str | None = None) -> str:
+        response = ""
+        for response in self.stream_response(user_input, api_key):
+            pass
+        return response
+
+    def stream_response(self, user_input: str, api_key: str | None = None):
+        """Yield the coach reply as it streams in; the last value is the final reply."""
         if self.mode == "llm" and not api_key:
             raise ValueError("Please provide an API Key in the settings panel to use LLM mode.")
 
@@ -78,11 +95,12 @@ class EricksonCoachingAgent:
         old_sub = self.current_sub_phase
         old_turns = self.turns_in_current_stage
         old_context_len = len(self.context)
+        decide_stage = False
 
         if user_input and user_input.strip():
             self.context.append({"role": "client", "content": user_input.strip()})
             self.turns_in_current_stage += 1
-            self._evaluate_state_transition(api_key)
+            decide_stage = self._evaluate_state_transition(api_key)
 
         if self.current_state == CoachingState.CLOSING:
             if self.mode == "llm" and api_key:
@@ -93,10 +111,14 @@ class EricksonCoachingAgent:
             else:
                 response = random.choice(CLOSING_MESSAGES[self.language])
             self.context.append({"role": "coach", "content": response})
-            return response
+            yield response
+            return
 
         try:
-            response = self.get_stage_prompt(api_key)
+            response, signal = "", None
+            for response, signal in self._stream_stage_prompt(api_key, decide_stage):
+                if response:
+                    yield response
         except Exception as exc:
             if self.mode == "llm" and "Model returned no text content" in str(exc):
                 original_mode = self.mode
@@ -106,7 +128,8 @@ class EricksonCoachingAgent:
                 finally:
                     self.mode = original_mode
                 self.context.append({"role": "coach", "content": response})
-                return response
+                yield response
+                return
 
             self.current_state = old_state
             self.current_sub_phase = old_sub
@@ -114,8 +137,9 @@ class EricksonCoachingAgent:
             self.context = self.context[:old_context_len]
             raise exc
 
+        if decide_stage:
+            self._apply_stage_signal(signal)
         self.context.append({"role": "coach", "content": response})
-        return response
 
     def _get_llm_closing_summary(self, api_key: str) -> str:
         client = _build_client(api_key)
@@ -170,56 +194,32 @@ class EricksonCoachingAgent:
 
     def _batch_translate_llm(self, items: list[tuple[int, str]], target_lang: str, api_key: str):
         try:
-            client = _build_client(api_key)
-            target = "Simplified Chinese" if target_lang == "zh" else "English"
-
-            for idx, text in items:
-                resp = client.chat.completions.create(
-                    model=_chat_model(),
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                f"Translate the following text accurately to {target}. "
-                                f"{_language_output_rule(target_lang)} Output only the translation."
-                            ),
-                        },
-                        {"role": "user", "content": text},
-                    ],
-                    max_tokens=250,
-                    temperature=0.1,
-                )
-                self.context[idx]["content"] = _clean_response_language(_response_text(resp), target_lang)
+            translated = _translate_texts(api_key, [text for _, text in items], target_lang)
         except Exception as exc:
             print(f"Failed to translate history via LLM: {exc}")
+            return
+        for (idx, _), text in zip(items, translated):
+            self.context[idx]["content"] = text
 
-    def _evaluate_state_transition(self, api_key: str | None = None):
+    def _evaluate_state_transition(self, api_key: str | None = None) -> bool:
+        """Advance the stage flow for a new client turn. Returns True when the LLM reply should decide it."""
         if self.current_sub_phase == CoachingSubPhase.OPEN:
             self.current_sub_phase = CoachingSubPhase.DEEPEN
-            return
+            return False
 
         if self.current_sub_phase == CoachingSubPhase.DEEPEN:
             if self.turns_in_current_stage <= 2:
-                return
+                return False
 
             if self.turns_in_current_stage >= 6:
                 self.current_sub_phase = CoachingSubPhase.BRIDGE
-                return
+                return False
 
             if self.mode == "llm" and api_key:
-                signal = self._llm_check_transition(api_key)
-                if signal == "END":
-                    self.current_state = CoachingState.CLOSING
-                    self.current_sub_phase = CoachingSubPhase.OPEN
-                    self.turns_in_current_stage = 0
-                    return
-                elif signal == "NEXT":
-                    self.current_sub_phase = CoachingSubPhase.BRIDGE
-                    return
-                return # Stay in DEEPEN if signal is NO/None
-            elif self.turns_in_current_stage >= 4:
+                return True
+            if self.turns_in_current_stage >= 4:
                 self.current_sub_phase = CoachingSubPhase.BRIDGE
-            return
+            return False
 
         states = list(CoachingState)
         idx = states.index(self.current_state)
@@ -227,49 +227,28 @@ class EricksonCoachingAgent:
             self.current_state = states[idx + 1]
             self.current_sub_phase = CoachingSubPhase.OPEN
             self.turns_in_current_stage = 0
+        return False
 
-    def _llm_check_transition(self, api_key: str) -> str:
-        """Determines if we should move to NEXT stage, END the session, or stay (NO)."""
-        try:
-            client = _build_client(api_key)
-            stage_desc = STAGE_DESCRIPTIONS[self.current_state]
-            system_prompt = f"""You are evaluating the flow of a coaching session.
-Current stage: **{self.current_state.name}** ({stage_desc})
+    def _apply_stage_signal(self, signal: str | None):
+        if signal == "END":
+            self.current_state = CoachingState.CLOSING
+            self.current_sub_phase = CoachingSubPhase.OPEN
+            self.turns_in_current_stage = 0
+        elif signal == "NEXT" or (signal is None and self.turns_in_current_stage >= 4):
+            # No marker means the model ignored the format; pace the stage like template mode does.
+            self.current_sub_phase = CoachingSubPhase.BRIDGE
 
-Your task is to determine the next logical step for the conversation.
-Signals to END the session:
-- The client explicitly says they want to stop, wrap up, or that they have enough.
-- The client says 'Goodbye', 'Thank you', 'That's all', etc.
-- The conversation has reached a natural conclusion.
+    def _stage_decision_rules(self) -> str:
+        states = list(CoachingState)
+        next_state = states[states.index(self.current_state) + 1]
+        return f"""
 
-Signals to move to the NEXT stage:
-- The client has answered the primary goal of the current stage clearly.
-- The client explicitly expresses readiness to move forward.
-
-Otherwise, we should stay in the current stage to explore deeper.
-
-Reply with exactly one of these tokens:
-END - if the session should conclude immediately.
-NEXT - if we are ready for the next coaching stage.
-NO - if we should continue exploring the current stage."""
-
-            messages = [{"role": "system", "content": system_prompt}]
-            for msg in self.context[-8:]:
-                role = "user" if msg["role"] == "client" else "assistant"
-                messages.append({"role": role, "content": msg["content"]})
-
-            resp = client.chat.completions.create(
-                model=_chat_model(),
-                messages=messages,
-                max_tokens=10,
-                temperature=0.1,
-            )
-            content = _response_text(resp).upper()
-            if "END" in content: return "END"
-            if "NEXT" in content: return "NEXT"
-            return "NO"
-        except Exception:
-            return "NO"
+REQUIRED OUTPUT FORMAT: the very first characters of your output must be one stage marker, then your reply.
+[[STAY]] - keep exploring this stage: follow the DEEPEN guidance above.
+[[NEXT]] - the client has clearly answered this stage's goal or wants to move on: briefly summarise what they gained here, then ask one opening question for the next stage ({next_state.name}: {STAGE_DESCRIPTIONS[next_state]}).
+[[END]] - the client wants to stop, says goodbye or thanks to wrap up, or the conversation has reached a natural conclusion: give a brief, warm closing summary that acknowledges their progress and commitments, with no question.
+Example output: [[STAY]] It sounds like mornings are when you feel strongest. What makes them work for you?
+Never mention the marker or stage names in the reply itself."""
 
     def _get_template_response(self) -> str:
         lang = self.language
@@ -321,7 +300,8 @@ Variation lens: choose a fresh entry point among clarity, desired outcome, usefu
         )
         return _clean_response_language(_response_text(resp), self.language)
 
-    def _get_llm_response(self, api_key: str) -> str:
+    def _get_llm_response(self, api_key: str, decide_stage: bool = False):
+        """Stream the coach reply as (text so far, stage signal) pairs; the last pair is final."""
         try:
             client = _build_client(api_key)
             lang_instr = "respond in English" if self.language == "en" else "respond in Simplified Chinese (简体中文)"
@@ -349,19 +329,22 @@ Guidelines:
 5. If in BRIDGE phase, summarise the current success of this stage and pivot to the next.
 6. Always {lang_instr}. {_language_output_rule(self.language)}
 7. Never repeat yourself or generic template questions.{persona_extension}"""
+            if decide_stage:
+                system_prompt += self._stage_decision_rules()
 
             messages = [{"role": "system", "content": system_prompt}]
             for msg in self.context[-10:]:
                 role = "user" if msg["role"] == "client" else "assistant"
                 messages.append({"role": role, "content": msg["content"]})
 
-            resp = client.chat.completions.create(
-                model=_chat_model(),
-                messages=messages,
-                max_tokens=250,
-                temperature=0.7,
-            )
-            return _clean_response_language(_response_text(resp), self.language)
+            raw = ""
+            for raw in _stream_text(client, model=_chat_model(), messages=messages, max_tokens=250, temperature=0.7):
+                yield _split_stage_signal(raw)[1], None
+            signal, text = _split_stage_signal(raw)
+            text = _clean_response_language(text, self.language)
+            if not text:
+                raise ValueError("Model returned no text content.")
+            yield text, signal
         except Exception as exc:
             raise Exception(f"LLM error: {exc}")
 

@@ -1,7 +1,10 @@
-import base64
+import hmac
+import logging
 import os
 from pathlib import Path
+import threading
 import time
+import weakref
 
 import gradio as gr
 
@@ -23,8 +26,10 @@ from web_assets import (
 
 
 ROOT = Path(__file__).resolve().parent
-HEADER_ICON_PATH = ROOT / "assets" / "icons" / "erickson-icon-192.png"
-HEADER_ICON_SRC = f"data:image/png;base64,{base64.b64encode(HEADER_ICON_PATH.read_bytes()).decode('ascii')}"
+# Served as a static file (see allowed_paths) so the header doesn't carry a 50 KB base64 image on every reply.
+HEADER_ICON_SRC = "/gradio_api/file=assets/icons/erickson-icon-192.png"
+
+logger = logging.getLogger("erickson_coach")
 
 
 def _load_dotenv():
@@ -36,19 +41,46 @@ def _load_dotenv():
         pass
 
 
+_load_dotenv()
+
+
 def get_server_api_key() -> str:
-    _load_dotenv()
     return os.environ.get("OPENAI_API_KEY", "").strip()
 
 
 def get_server_base_url() -> str | None:
-    _load_dotenv()
     return os.environ.get("OPENAI_BASE_URL", "").strip() or None
 
 
 def get_server_model() -> str:
-    _load_dotenv()
     return os.environ.get("OPENAI_MODEL", "").strip() or "gpt-4o-mini"
+
+
+def _auth_users(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Parse ERICKSON_USERS: "name:password" pairs separated by commas or new lines."""
+    env = os.environ if env is None else env
+    users = {}
+    for entry in env.get("ERICKSON_USERS", "").replace("\n", ",").split(","):
+        name, sep, password = entry.strip().partition(":")
+        if sep and name.strip() and password:
+            users[name.strip()] = password
+    return users
+
+
+def _requires_auth(env: dict[str, str] | None = None) -> bool:
+    """Anything reachable beyond this machine (a Space, or a non-loopback bind) must have a login."""
+    env = os.environ if env is None else env
+    if env.get("SPACE_ID"):
+        return True
+    return env.get("GRADIO_SERVER_NAME", "127.0.0.1").strip() not in ("127.0.0.1", "localhost", "::1")
+
+
+def _login_checker(users: dict[str, str]):
+    def check(username: str, password: str) -> bool:
+        expected = users.get((username or "").strip())
+        return expected is not None and hmac.compare_digest(expected.encode(), (password or "").encode())
+
+    return check
 
 
 def _launch_inbrowser(env: dict[str, str] | None = None) -> bool:
@@ -64,6 +96,27 @@ default_lang = "zh"
 default_module = "coach"
 RESPOND_OUTPUT_COUNT = 10
 NEXT_STAGE_OUTPUT_COUNT = 10
+
+# Every event that can call the model shares one pool of worker slots. Calls mostly wait on
+# the network, so 24 at once is comfortable for a 2-vCPU host and stays under Gradio's 40 threads.
+LLM_CONCURRENCY = 24
+MAX_MESSAGE_CHARS = 2000
+MAX_USER_TURNS_PER_SESSION = 40
+# Login is the real gate; hiding the endpoints just keeps them off the public API page.
+LLM_EVENT = {"concurrency_id": "llm", "concurrency_limit": LLM_CONCURRENCY, "api_visibility": "private"}
+
+_agent_locks: "weakref.WeakKeyDictionary[object, threading.Lock]" = weakref.WeakKeyDictionary()
+_agent_locks_guard = threading.Lock()
+_memory_lock = threading.Lock()
+
+
+def _agent_lock(agent) -> threading.Lock:
+    """One lock per conversation, so a double send can't interleave two replies on the same agent."""
+    with _agent_locks_guard:
+        lock = _agent_locks.get(agent)
+        if lock is None:
+            lock = _agent_locks[agent] = threading.Lock()
+        return lock
 
 
 
@@ -395,6 +448,25 @@ def _next_stage_outputs(message_update, chat_history, agent, session, tts_update
     )
 
 
+def _streaming_outputs(chat_history, session):
+    """Mid-reply update: only the transcript changes, so the other panels are left untouched."""
+    return (gr.update(value=""), chat_history) + (gr.update(),) * (RESPOND_OUTPUT_COUNT - 3) + (session,)
+
+
+def _learn_from_session(agent, api_key: str):
+    """Update the user's profile from a finished session. Runs off the request thread so the final reply isn't delayed."""
+    try:
+        analysis = agent.analyze_session_for_memory(api_key)
+        if not analysis:
+            return
+        with _memory_lock:
+            memory = _get_memory()
+            memory.update_from_analysis(analysis)
+        agent.user_profile = memory.profile
+    except Exception:
+        logger.exception("Updating the user profile from a finished session failed")
+
+
 def respond(message, chat_history, session, module_sel, mode_sel, lang_sel):
     session = _ensure_session(session, module_sel, mode_sel, lang_sel)
     agent = session["agent"]
@@ -403,14 +475,39 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel):
 
     if not user_msg:
         gr.Warning(s["empty_warning"])
-        return _respond_outputs(gr.update(), chat_history, agent, session)
+        yield _respond_outputs(gr.update(), chat_history, agent, session)
+        return
+
+    if len(user_msg) > MAX_MESSAGE_CHARS:
+        gr.Warning(s["message_too_long"].format(limit=MAX_MESSAGE_CHARS))
+        yield _respond_outputs(gr.update(), chat_history, agent, session)
+        return
 
     if agent.is_session_ended():
         gr.Info(s["session_ended"])
-        return _respond_outputs(gr.update(value="", interactive=False), chat_history, agent, session)
+        yield _respond_outputs(gr.update(value="", interactive=False), chat_history, agent, session)
+        return
 
+    if sum(1 for item in agent.context if item["role"] == agent.user_role) >= MAX_USER_TURNS_PER_SESSION:
+        gr.Warning(s["turn_limit"])
+        yield _respond_outputs(gr.update(value="", interactive=False), chat_history, agent, session)
+        return
+
+    lock = _agent_lock(agent)
+    if not lock.acquire(blocking=False):
+        gr.Warning(s["busy_warning"])
+        yield _respond_outputs(gr.update(), chat_history, agent, session)
+        return
+    try:
+        yield from _stream_reply(user_msg, chat_history, agent, session)
+    finally:
+        lock.release()
+
+
+def _stream_reply(user_msg, chat_history, agent, session):
     chat_history = list(chat_history or [])
     chat_history.append({"role": "user", "content": user_msg})
+    yield _streaming_outputs(list(chat_history), session)
     old_state = agent.current_state
 
     api_key = _safe_key()
@@ -419,12 +516,16 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel):
         agent.context.append({"role": agent.user_role, "content": user_msg})
         agent.context.append({"role": agent.assistant_role, "content": coach_response})
     else:
+        coach_response = ""
         try:
-            coach_response = agent.generate_response(user_msg, api_key=api_key or None)
-        except Exception as exc:
-            gr.Warning(str(exc))
+            for coach_response in agent.stream_response(user_msg, api_key=api_key or None):
+                yield _streaming_outputs(chat_history + [{"role": "assistant", "content": coach_response}], session)
+        except Exception:
+            logger.exception("Model reply failed")
+            gr.Warning(UI[agent.language]["ai_reply_error"])
             chat_history.pop()
-            return _respond_outputs(gr.update(), chat_history, agent, session)
+            yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
+            return
 
     if agent.current_state != old_state:
         stage_name = STAGE_NAMES[agent.language].get(agent.current_state, "")
@@ -437,21 +538,11 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel):
     if is_ended:
         msg = "会话已结束" if agent.language == "zh" else "Session Complete"
         gr.Info(msg)
-        
-        # TRIGGER LEARNING
         if agent.mode == "llm" and api_key:
-            try:
-                analysis = agent.analyze_session_for_memory(api_key)
-                if analysis:
-                    memory = _get_memory()
-                    memory.update_from_analysis(analysis)
-                    agent.user_profile = memory.profile
-                    gr.Info("AI has updated your personality profile based on this session." if agent.language == "en" else "AI 已根据本次会话更新了你的个性化画像。")
-            except Exception:
-                pass
+            threading.Thread(target=_learn_from_session, args=(agent, api_key), daemon=True).start()
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
-    return _respond_outputs(
+    yield _respond_outputs(
         gr.update(value="", interactive=not is_ended),
         chat_history,
         agent,
@@ -463,6 +554,18 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel):
 
 def next_stage(chat_history, session, module_sel, mode_sel, lang_sel):
     session = _ensure_session(session, module_sel, mode_sel, lang_sel)
+    agent = session["agent"]
+    lock = _agent_lock(agent)
+    if not lock.acquire(blocking=False):
+        gr.Warning(UI[agent.language]["busy_warning"])
+        return _next_stage_outputs(gr.update(), chat_history, agent, session)
+    try:
+        return _advance_stage(chat_history, session)
+    finally:
+        lock.release()
+
+
+def _advance_stage(chat_history, session):
     agent = session["agent"]
     s = UI[agent.language]
 
@@ -483,11 +586,12 @@ def next_stage(chat_history, session, module_sel, mode_sel, lang_sel):
 
     try:
         new_prompt = _append_opening_prompt(agent)
-    except Exception as exc:
+    except Exception:
+        logger.exception("Next-stage prompt failed")
         agent.current_state = old_state
         agent.current_sub_phase = old_sub
         agent.turns_in_current_stage = old_turns
-        gr.Warning(str(exc))
+        gr.Warning(s["ai_reply_error"])
         return _next_stage_outputs(gr.update(), chat_history, agent, session)
 
     chat_history = list(chat_history or [])
@@ -684,6 +788,7 @@ with gr.Blocks(
                             elem_id="chat-input-msg",
                             lines=4,
                             max_lines=6,
+                            max_length=MAX_MESSAGE_CHARS,
                         )
 
                     with gr.Column(elem_id="action-panel", scale=0, min_width=0):
@@ -705,30 +810,35 @@ with gr.Blocks(
         [session_state, module_state, mode_radio, lang_radio],
         [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, session_state],
         js=force_light_js,
+        **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js)
 
     send_btn.click(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
         [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, session_state],
+        **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     msg.submit(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
         [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, session_state],
+        **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     next_btn.click(
         next_stage,
         [chatbot, session_state, module_state, mode_radio, lang_radio],
         [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, session_state],
+        **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     reset_btn.click(
         reset_session,
         [lang_radio, module_state, mode_radio],
         [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, session_state],
+        **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     lang_radio.change(
@@ -757,22 +867,37 @@ with gr.Blocks(
             module_state,
             session_state,
         ],
+        **LLM_EVENT,
     )
 
     coach_module_btn.click(
         select_module,
         [coach_module_value, lang_radio, mode_radio],
         [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, session_state],
+        **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     coachee_module_btn.click(
         select_module,
         [coachee_module_value, lang_radio, mode_radio],
         [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, session_state],
+        **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
 
+    demo.queue(max_size=100)
+
+
+AUTH_MESSAGE = "Erickson Coach is invite-only. Sign in with the account you were given. / 埃里克森教练仅限受邀用户，请使用分配给你的账号登录。"
+
+
 def launch_demo():
+    users = _auth_users()
+    if _requires_auth() and not users:
+        raise SystemExit(
+            "ERICKSON_USERS is not set. Add invited logins as name:password pairs (comma separated) "
+            "before exposing Erickson Coach beyond this machine."
+        )
     return demo.launch(
         theme=clean_indigo_theme,
         css=css,
@@ -780,6 +905,9 @@ def launch_demo():
         inbrowser=_launch_inbrowser(),
         favicon_path="assets/icons/erickson-icon-192.png",
         allowed_paths=["assets", "site.webmanifest"],
+        auth=_login_checker(users) if users else None,
+        auth_message=AUTH_MESSAGE,
+        footer_links=["gradio", "settings"],
     )
 
 

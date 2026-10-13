@@ -1,7 +1,7 @@
 import random
 from dataclasses import dataclass, field
 
-from coaching_core import CoachingState
+from coaching_core import CoachingState, _strip_json_fence
 
 COACHEE_STAGE_ORDER = [
     CoachingState.CONTRACT,
@@ -446,18 +446,6 @@ def _choice(options: list[str], used: set[str]) -> str:
         used.add(pick)
         return pick
     return random.choice(options)
-
-
-def _strip_json_fence(raw: str) -> str:
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        if lines:
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        cleaned = "\n".join(lines).strip()
-    return cleaned
 
 
 def _mirror_lang_payload(text_or_lines):
