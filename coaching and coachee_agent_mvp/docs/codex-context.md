@@ -28,15 +28,23 @@ The intended product feel is a calm, credible coaching practice environment, not
 
 ## 3. Current Code Structure
 
-- `web_app.py`: Gradio UI, theme/CSS, event wiring, launch configuration, server-side environment config, TTS/mic JavaScript, and UI callback glue.
+- `web_app.py`: Gradio UI, theme/CSS, event wiring, UI callbacks tied to the signed-in user and stored session, and `create_app()`, which mounts Gradio inside FastAPI behind sign-in and runs it with uvicorn.
+- `account_pages.py`: Server-rendered sign-in, invite signup, password reset, privacy, account, transcript, trainer and admin pages, plus public icons and `/healthz`.
+- `db.py`: SQLAlchemy Core storage (SQLite locally, Postgres via `DATABASE_URL`) for users, invites, resets, sessions, profiles, usage, feedback and the audit log.
+- `accounts.py`: Password hashing, signed sign-in cookies, CSRF tokens, login throttling, transcript visibility rules.
+- `quota.py`: Rolling-24h AI allowances per role and person, and the per-minute message limit.
+- `safety.py`: Crisis-language check and the fixed safety reply for the AI Coach module.
 - `web_assets.py`: Static UI copy, CSS, viewport style, and browser JavaScript used by `web_app.py`.
 - `coach_agent.py` and `coach_data.py`: Coach Assistant behavior plus static template prompts.
 - `coachee_agent.py` and `coachee_data.py`: AI Coachee Lab behavior plus static scenario data, manual advance guard, scoring/review flow.
-- `coaching_core.py`: Shared enums, OpenAI-compatible client construction, model selection, response parsing, language cleanup.
-- `memory.py`: Local `user_profile.json` persistence and optional encrypted remote-sync scaffolding.
+- `coaching_core.py`: Shared enums, the shared OpenAI-compatible client (timeouts, usage metering), streaming, stage markers, batched translation, response parsing, language cleanup.
+- `memory.py`: The per-user, per-module insight profile and how session analyses merge into it (stored by `db.py`).
 - `tests.py`: Regression and behavior tests for agent progression, module boundaries, response parsing, server config, mobile layout contracts, and callback output counts.
 - `manual_ui_probe.py`: Chrome screenshot utility for desktop and iPhone-sized visual verification with an isolated browser profile.
-- `scripts/check_project.py`: Repeatable local verification runner for tests, compile checks, HF dry-run, optional screenshots, and optional launcher compilation.
+- `scripts/check_project.py`: Repeatable local verification runner for tests, compile checks, HF dry-run, optional signed-in screenshots, and optional launcher compilation.
+- `scripts/load_test.py`: Simulated concurrent signed-in users against a fake model.
+- `scripts/manage.py`: Shell commands for creating admins, invites and reset links.
+- `Dockerfile`: Always-on deployment for Docker hosts (kept out of the HF upload).
 - `README.md`: Maintenance and launch instructions.
 - `AGENTS.md`: Project-specific operating rules for Codex.
 - `Erickson Coach Launcher.applescript` and `Erickson Coach.app`: local macOS launcher.
@@ -71,7 +79,8 @@ Older generic files such as `agent.py` should not be reintroduced. Tests assert 
 - Headless Chrome may need sandbox escalation on this macOS/Codex environment. The documented `manual_ui_probe.py` path avoids normal browser profile prompts.
 - `osacompile` may print macOS `hiservices` connection warnings while still exiting 0. Treat exit code as the important signal unless the app bundle is actually not updated.
 - iOS audio and microphone APIs are gesture-gated. Keep the TTS unlock and mic binding logic tied to user interactions.
-- `MemoryManager` local persistence writes `user_profile.json`. Remote sync is disabled by default and should remain optional unless explicitly productized.
+- Insight profiles live in the database per user and module. The old single `user_profile.json` is gone because it mixed every user's data.
+- Gradio passes the signed-in user id as `request.username` (via `auth_dependency`). Handlers must look the user up and never trust a session object that belongs to someone else.
 
 ## 6. Suggested Next Development Steps
 
@@ -79,7 +88,6 @@ Older generic files such as `agent.py` should not be reintroduced. Tests assert 
 - Keep consolidating layout rules around the one-page contract: no outer document scroll, no horizontal scroll, chat transcript scrolls internally.
 - Add tests around server-side key behavior for hosted deployment, especially missing `OPENAI_API_KEY`, custom `OPENAI_BASE_URL`, and `OPENAI_MODEL`.
 - Consider extracting long CSS and JavaScript strings from `web_app.py` only if edits become risky. Do not refactor just for cleanliness.
-- Decide whether `MemoryManager` remote sync should be removed, documented as experimental, or made production-ready with a real backend.
 - Before any UI change, reread `DESIGN.md` and `DESIGN.erickson-edu.md`, then verify desktop and `390x844` screenshots.
 - Before reporting any fix complete, run:
   - `python3 scripts/check_project.py --browser --launcher`

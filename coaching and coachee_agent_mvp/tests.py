@@ -1003,6 +1003,28 @@ class TestHostedAccessAndLimits(unittest.TestCase):
         self.assertTrue(web_app._is_public({"GRADIO_SERVER_NAME": "0.0.0.0"}))
         self.assertFalse(web_app._is_public({}))
 
+    def test_server_port_follows_host_conventions(self):
+        import web_app
+
+        self.assertEqual(web_app._server_port({"GRADIO_SERVER_PORT": "8800", "PORT": "9000"}), 8800)
+        self.assertEqual(web_app._server_port({"PORT": "9000"}), 9000)
+
+    def test_error_reports_never_include_transcripts(self):
+        import sys
+        import types
+        import web_app
+
+        fake_sentry = types.SimpleNamespace(init=lambda **kwargs: calls.append(kwargs))
+        calls = []
+        with patch.dict(sys.modules, {"sentry_sdk": fake_sentry}):
+            web_app._init_error_reporting({})
+            web_app._init_error_reporting({"SENTRY_DSN": "https://key@example.ingest.sentry.io/1"})
+
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(calls[0]["send_default_pii"])
+        self.assertFalse(calls[0]["include_local_variables"])
+        self.assertEqual(calls[0]["max_request_body_size"], "never")
+
     def test_first_admin_comes_from_environment_once(self):
         import web_app
 

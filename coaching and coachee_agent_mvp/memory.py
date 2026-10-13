@@ -41,7 +41,7 @@ def _merge_items(new_items, old_items) -> list[str]:
 
 def merge_analysis(profile: UserProfile, analysis: dict, now: datetime.datetime | None = None) -> UserProfile:
     """Fold one session's LLM analysis into the profile."""
-    now = now or datetime.datetime.now(datetime.UTC)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
     return UserProfile(
         coaching_style_insights=analysis.get("coaching_style") or profile.coaching_style_insights,
         learning_patterns=analysis.get("learning_patterns") or profile.learning_patterns,

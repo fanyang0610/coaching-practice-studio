@@ -1057,8 +1057,9 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
 
 
 def _server_port(env: dict[str, str]) -> int:
-    if env.get("GRADIO_SERVER_PORT"):
-        return int(env["GRADIO_SERVER_PORT"])
+    for name in ("GRADIO_SERVER_PORT", "PORT"):  # PORT is what Render, Railway and similar hosts set.
+        if env.get(name):
+            return int(env[name])
     for port in range(7860, 7960):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             if probe.connect_ex(("127.0.0.1", port)) != 0:
@@ -1066,11 +1067,26 @@ def _server_port(env: dict[str, str]) -> int:
     raise SystemExit("No free port between 7860 and 7959; set GRADIO_SERVER_PORT.")
 
 
+def _init_error_reporting(env: dict[str, str]) -> None:
+    """Send crashes to Sentry when SENTRY_DSN is set, without request bodies or local variables (they hold transcripts)."""
+    dsn = env.get("SENTRY_DSN", "").strip()
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+    except ImportError:
+        logger.warning("SENTRY_DSN is set but sentry-sdk isn't installed; error reports are off.")
+        return
+    sentry_sdk.init(dsn=dsn, send_default_pii=False, include_local_variables=False, max_request_body_size="never",
+                    traces_sample_rate=0)
+
+
 def launch_demo():
     import uvicorn
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     env = os.environ
+    _init_error_reporting(env)
     app = create_app(env=env)
     host = env.get("GRADIO_SERVER_NAME", "127.0.0.1").strip()
     port = _server_port(env)

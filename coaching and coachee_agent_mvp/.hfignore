@@ -6,3 +6,5 @@ user_profile.json
 Erickson Coach.app/
 erickson.db
 erickson.db-*
+Dockerfile
+.dockerignore

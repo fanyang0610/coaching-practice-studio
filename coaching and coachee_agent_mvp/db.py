@@ -130,7 +130,7 @@ audit_log = sa.Table(
 
 
 def utcnow() -> dt.datetime:
-    return dt.datetime.now(dt.UTC).replace(tzinfo=None, microsecond=0)
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None, microsecond=0)
 
 
 def database_url(env: dict[str, str] | None = None) -> str:
