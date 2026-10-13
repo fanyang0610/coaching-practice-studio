@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 user_profile.json
 Erickson Coach.app/
+erickson.db
+erickson.db-*

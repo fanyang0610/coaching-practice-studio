@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -33,6 +35,12 @@ PYTHON_FILES = [
     "scripts/deploy_hf_space.py",
     "scripts/check_project.py",
     "scripts/load_test.py",
+    "scripts/manage.py",
+    "db.py",
+    "accounts.py",
+    "account_pages.py",
+    "quota.py",
+    "safety.py",
 ]
 
 
@@ -55,10 +63,25 @@ def wait_for_url(url: str, timeout_seconds: float = 30.0) -> None:
     raise RuntimeError(f"Timed out waiting for {url}: {last_error}")
 
 
+def probe_login(database_url: str, secret: str) -> str:
+    """Create a throwaway probe account and return a signed-in session cookie for it."""
+    sys.path.insert(0, str(ROOT))
+    import accounts
+    import db
+
+    store = db.Store(database_url)
+    user_id = store.create_user("probe@example.com", "Probe", accounts.hash_password(secrets.token_urlsafe(16)), role="admin", consented=True)
+    return f"{accounts.SESSION_COOKIE}={accounts.make_session_cookie(store.get_user(user_id), secret)}"
+
+
 def run_browser_check(port: int) -> None:
+    workdir = tempfile.mkdtemp(prefix="erickson-check-")
     env = os.environ.copy()
     env["ERICKSON_INBROWSER"] = "0"
     env["GRADIO_SERVER_PORT"] = str(port)
+    env["DATABASE_URL"] = f"sqlite:///{workdir}/check.db"
+    env["ERICKSON_SECRET_KEY"] = secrets.token_hex(32)
+    cookie = probe_login(env["DATABASE_URL"], env["ERICKSON_SECRET_KEY"])
     proc = subprocess.Popen(
         [sys.executable, "web_app.py"],
         cwd=ROOT,
@@ -70,7 +93,7 @@ def run_browser_check(port: int) -> None:
     try:
         url = f"http://127.0.0.1:{port}"
         wait_for_url(url)
-        run([sys.executable, "manual_ui_probe.py", "--url", url, "--out-dir", "/private/tmp/erickson-check"])
+        run([sys.executable, "manual_ui_probe.py", "--url", url, "--out-dir", "/private/tmp/erickson-check", "--cookie", cookie])
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -78,6 +101,7 @@ def run_browser_check(port: int) -> None:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def compile_launcher() -> None:

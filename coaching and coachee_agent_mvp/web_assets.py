@@ -48,6 +48,13 @@ UI = {
         "message_too_long": "Please keep each message under {limit} characters.",
         "turn_limit": "This session has reached its message limit. Start a new session to continue.",
         "busy_warning": "Still working on the last reply. One moment, please.",
+        "rate_limited": "You're sending messages quickly. Please wait a moment before the next one.",
+        "signed_out": "Your sign-in has expired. Please reload the page and sign in again.",
+        "quota_sessions": "You've used today's AI sessions. This session runs in template practice mode; AI sessions open up again within 24 hours.",
+        "quota_starts": "You've started many AI sessions today. This one runs in template practice mode; AI opens up again within 24 hours.",
+        "quota_tokens": "You've reached today's AI usage limit. This session runs in template practice mode; AI opens up again within 24 hours.",
+        "quota_pill": "AI today {left}/{limit}",
+        "account_link": "Account",
         "module": "Module",
         "coach_module": "AI Coach",
         "coachee_module": "AI Coachee Lab",
@@ -98,6 +105,13 @@ UI = {
         "message_too_long": "每条消息请控制在 {limit} 字以内。",
         "turn_limit": "本次会话已达到消息上限，请开启新会话继续。",
         "busy_warning": "上一条回复还在生成中，请稍候。",
+        "rate_limited": "消息发送得有点快，请稍等片刻再发下一条。",
+        "signed_out": "登录已过期，请刷新页面并重新登录。",
+        "quota_sessions": "你今天的 AI 会话已用完。本次会话使用模板练习模式，24 小时内会恢复 AI 会话。",
+        "quota_starts": "你今天开启了较多 AI 会话。本次会话使用模板练习模式，24 小时内会恢复 AI。",
+        "quota_tokens": "你已达到今天的 AI 用量上限。本次会话使用模板练习模式，24 小时内会恢复 AI。",
+        "quota_pill": "今日AI {left}/{limit}",
+        "account_link": "账户",
         "module": "模块",
         "coach_module": "AI教练",
         "coachee_module": "AI学员陪练",
@@ -138,9 +152,9 @@ head = """
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f3f8fd">
-<link rel="icon" type="image/png" sizes="192x192" href="/file=assets/icons/erickson-icon-192.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/file=assets/icons/erickson-icon-180.png">
-<link rel="manifest" href="/file=site.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/erickson-icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/erickson-icon-180.png">
+<link rel="manifest" href="/site.webmanifest">
 """
 
 
@@ -2061,6 +2075,60 @@ div:has(> .tracker-shell) {
     .tracker-shell {
         grid-template-columns: minmax(0, 1fr) !important;
         column-gap: 0 !important;
+    }
+}
+
+/* Header right side: today's AI allowance and the account link */
+.studio-account {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.studio-quota {
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 800;
+    color: #0d4e7a;
+    background: #edf6fb;
+    border-radius: 999px;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+
+.studio-account-link {
+    font-size: 13px;
+    line-height: 1.2;
+    font-weight: 800;
+    color: #126fa8 !important;
+    text-decoration: none !important;
+    padding: 6px 12px;
+    border: 1px solid #d7e7f1;
+    border-radius: 12px;
+    background: #ffffff;
+    white-space: nowrap;
+}
+
+.studio-account-link:focus-visible {
+    outline: 3px solid rgba(25, 121, 186, 0.35);
+    outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+    .studio-account {
+        gap: 6px;
+    }
+
+    .studio-quota {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+
+    .studio-account-link {
+        font-size: 12px;
+        padding: 5px 10px;
     }
 }
 """

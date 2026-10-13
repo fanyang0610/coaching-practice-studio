@@ -1,8 +1,10 @@
 import enum
 import functools
 import json
+import logging
 import os
 import re
+import types
 
 import openai
 
@@ -40,11 +42,84 @@ def _chat_model() -> str:
     return os.environ.get("OPENAI_MODEL", "").strip() or "gpt-4o-mini"
 
 
-def _build_client(api_key: str, base_url: str | None = None):
+def _build_client(api_key: str, base_url: str | None = None, on_usage=None):
+    """The shared client; with on_usage, every completion also reports (model, prompt_tokens, completion_tokens)."""
     resolved_base_url = base_url or os.environ.get("OPENAI_BASE_URL", "").strip()
     if not resolved_base_url and api_key.startswith("sk" + "-or-"):
         resolved_base_url = "https://openrouter.ai/api/v1"
-    return _shared_client(api_key, resolved_base_url or None)
+    client = _shared_client(api_key, resolved_base_url or None)
+    return _MeteredClient(client, on_usage) if on_usage else client
+
+
+def _estimate_tokens(text: str) -> int:
+    # Fallback when a provider omits usage: roughly 3 characters per token across English and Chinese.
+    return max(1, len(text) // 3)
+
+
+def _report_usage(on_usage, create_kwargs: dict, usage, output_text: str) -> None:
+    prompt_tokens = getattr(usage, "prompt_tokens", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    if prompt_tokens is None:
+        prompt_tokens = _estimate_tokens(json.dumps(create_kwargs.get("messages", []), ensure_ascii=False))
+    if completion_tokens is None:
+        completion_tokens = _estimate_tokens(output_text)
+    try:
+        on_usage(create_kwargs.get("model", ""), prompt_tokens, completion_tokens)
+    except Exception:
+        logging.getLogger("erickson_coach").exception("Recording model usage failed")
+
+
+class _MeteredClient:
+    def __init__(self, client, on_usage):
+        self.chat = types.SimpleNamespace(completions=_MeteredCompletions(client.chat.completions, on_usage))
+
+
+class _MeteredCompletions:
+    def __init__(self, completions, on_usage):
+        self._completions = completions
+        self._on_usage = on_usage
+
+    def create(self, **create_kwargs):
+        if create_kwargs.get("stream"):
+            create_kwargs.setdefault("stream_options", {"include_usage": True})
+            return _MeteredStream(self._completions.create(**create_kwargs), create_kwargs, self._on_usage)
+        response = self._completions.create(**create_kwargs)
+        message = response.choices[0].message if response.choices else None
+        _report_usage(self._on_usage, create_kwargs, getattr(response, "usage", None),
+                      _content_text(getattr(message, "content", None)))
+        return response
+
+
+class _MeteredStream:
+    """Passes chunks through and reports usage once, when the stream ends or is closed early."""
+
+    def __init__(self, stream, create_kwargs: dict, on_usage):
+        self._stream = stream
+        self._create_kwargs = create_kwargs
+        self._on_usage = on_usage
+        self._usage = None
+        self._text = ""
+        self._reported = False
+
+    def __iter__(self):
+        try:
+            for chunk in self._stream:
+                if getattr(chunk, "usage", None):
+                    self._usage = chunk.usage
+                if chunk.choices:
+                    self._text += getattr(chunk.choices[0].delta, "content", None) or ""
+                yield chunk
+        finally:
+            self._report()
+
+    def close(self):
+        self._stream.close()
+        self._report()
+
+    def _report(self):
+        if not self._reported:
+            self._reported = True
+            _report_usage(self._on_usage, self._create_kwargs, self._usage, self._text)
 
 
 @functools.lru_cache(maxsize=4)
@@ -98,10 +173,10 @@ def _strip_json_fence(raw: str) -> str:
     return cleaned
 
 
-def _translate_texts(api_key: str, texts: list[str], target_lang: str) -> list[str]:
+def _translate_texts(api_key: str, texts: list[str], target_lang: str, on_usage=None) -> list[str]:
     """Translate several messages in one model call instead of one call per message."""
     target = "Simplified Chinese" if target_lang == "zh" else "English"
-    resp = _build_client(api_key).chat.completions.create(
+    resp = _build_client(api_key, on_usage=on_usage).chat.completions.create(
         model=_chat_model(),
         messages=[
             {

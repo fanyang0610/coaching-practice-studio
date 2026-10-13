@@ -3,9 +3,9 @@
 
 The fake model answers every call after a fixed delay and streams its reply, so the
 numbers measure the app's own queueing rather than a real provider. Nothing is billed.
+Each simulated person gets their own account in a throwaway database and signs in first.
 
     python3 scripts/load_test.py --users 50 --messages 3
-    python3 scripts/load_test.py --app-dir "../some other copy" --users 20   # compare versions
 """
 
 from __future__ import annotations
@@ -14,12 +14,15 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import socketserver
 import os
 from pathlib import Path
+import secrets
+import shutil
+import socketserver
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -62,6 +65,10 @@ def start_fake_llm(latency: float) -> ThreadingHTTPServer:
                     self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
                     self.wfile.flush()
                     time.sleep(0.03)
+                if (body.get("stream_options") or {}).get("include_usage"):
+                    usage = {"id": "fake", "object": "chat.completion.chunk", "created": 0, "model": "fake", "choices": [],
+                             "usage": {"prompt_tokens": 900, "completion_tokens": 40, "total_tokens": 940}}
+                    self.wfile.write(f"data: {json.dumps(usage)}\n\n".encode())
                 self.wfile.write(b"data: [DONE]\n\n")
                 return
             payload = json.dumps({
@@ -83,20 +90,38 @@ def start_fake_llm(latency: float) -> ThreadingHTTPServer:
     return server
 
 
-def start_app(app_dir: Path, port: int, llm_port: int) -> subprocess.Popen:
-    env = {key: value for key, value in os.environ.items() if key not in ("ERICKSON_USERS", "SPACE_ID", "GRADIO_SERVER_NAME")}
+PASSWORD = "load-test-password"
+
+
+def create_accounts(app_dir: Path, database_url: str, count: int) -> list[str]:
+    sys.path.insert(0, str(app_dir))
+    import accounts
+    import db
+
+    store = db.Store(database_url)
+    password_hash = accounts.hash_password(PASSWORD)
+    emails = [f"load{i}@example.com" for i in range(count)]
+    for email in emails:
+        store.create_user(email, email.split("@")[0], password_hash, consented=True)
+    return emails
+
+
+def start_app(app_dir: Path, port: int, llm_port: int, database_url: str) -> subprocess.Popen:
+    env = {key: value for key, value in os.environ.items() if key not in ("SPACE_ID", "GRADIO_SERVER_NAME")}
     env.update({
         "OPENAI_API_KEY": "load-test",
         "OPENAI_BASE_URL": f"http://127.0.0.1:{llm_port}/v1",
         "OPENAI_MODEL": "fake",
         "GRADIO_SERVER_PORT": str(port),
         "ERICKSON_INBROWSER": "0",
+        "DATABASE_URL": database_url,
+        "ERICKSON_SECRET_KEY": secrets.token_hex(32),
     })
     proc = subprocess.Popen([sys.executable, "web_app.py"], cwd=app_dir, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         try:
-            if httpx.get(f"http://127.0.0.1:{port}/config", timeout=2).status_code == 200:
+            if httpx.get(f"http://127.0.0.1:{port}/healthz", timeout=2).status_code == 200:
                 return proc
         except httpx.HTTPError:
             pass
@@ -144,10 +169,17 @@ def run_event(client: httpx.Client, base: str, fn_index: int, data: list, sessio
     raise RuntimeError("Stream closed before the event completed.")
 
 
-def simulate_user(base: str, load_fn: int, respond_fn: int, messages: int) -> list[tuple[float, float]]:
+def sign_in(client: httpx.Client, base: str, email: str) -> None:
+    response = client.post(f"{base}/login", data={"email": email, "password": PASSWORD})
+    if response.status_code != 303:
+        raise RuntimeError(f"Sign-in failed for {email}: {response.status_code}")
+
+
+def simulate_user(base: str, email: str, load_fn: int, respond_fn: int, messages: int) -> list[tuple[float, float]]:
     session_hash = uuid.uuid4().hex[:11]
     timings = []
     with httpx.Client(timeout=600) as client:
+        sign_in(client, base, email)
         run_event(client, base, load_fn, [None, "coach", "AI", "English"], session_hash)
         for turn in range(messages):
             timings.append(run_event(client, base, respond_fn, [f"Message {turn + 1}: I want to focus better.", [], None, "coach", "AI", "English"], session_hash))
@@ -168,20 +200,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8790)
     args = parser.parse_args(argv)
 
+    workdir = tempfile.mkdtemp(prefix="erickson-load-")
+    database_url = f"sqlite:///{workdir}/load.db"
+    emails = create_accounts(args.app_dir.resolve(), database_url, args.users)
     llm = start_fake_llm(args.latency)
-    app = start_app(args.app_dir.resolve(), args.port, llm.server_address[1])
+    app = start_app(args.app_dir.resolve(), args.port, llm.server_address[1], database_url)
     base = f"http://127.0.0.1:{args.port}"
     try:
-        config = httpx.get(f"{base}/config", timeout=10).json()
+        with httpx.Client(timeout=30) as client:
+            sign_in(client, base, emails[0])
+            config = client.get(f"{base}/config").json()
         load_fn, respond_fn = find_fn_index(config, "initial_load"), find_fn_index(config, "respond")
         started = time.monotonic()
         with ThreadPoolExecutor(max_workers=args.users) as pool:
-            results = list(pool.map(lambda _: simulate_user(base, load_fn, respond_fn, args.messages), range(args.users)))
+            results = list(pool.map(lambda email: simulate_user(base, email, load_fn, respond_fn, args.messages), emails))
         wall = time.monotonic() - started
+        import db
+
+        store = db.Store(database_url)
+        tokens = sum(store.usage_by_user_since(db.utcnow() - db.dt.timedelta(hours=1)).values())
+        saved_turns = sum(row["user_turns"] for email in emails for row in store.list_sessions(store.get_user_by_email(email)["id"]))
     finally:
         app.terminate()
         app.wait(timeout=10)
         llm.shutdown()
+        shutil.rmtree(workdir, ignore_errors=True)
 
     first = [t[0] for user in results for t in user]
     done = [t[1] for user in results for t in user]
@@ -189,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  first words of reply:  median {statistics.median(first):.1f}s, p95 {percentile(first, 95):.1f}s, worst {max(first):.1f}s")
     print(f"  full reply:           median {statistics.median(done):.1f}s, p95 {percentile(done, 95):.1f}s, worst {max(done):.1f}s")
     print(f"  wall time {wall:.1f}s for {len(done)} replies")
+    print(f"  saved {saved_turns} user turns and metered {tokens} tokens in the database")
     return 0
 
 

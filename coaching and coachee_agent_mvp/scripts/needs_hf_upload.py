@@ -21,6 +21,7 @@ LOCAL_VERIFICATION_TOOLING = {
     "scripts/check_project.py",
     "scripts/needs_hf_upload.py",
     "scripts/load_test.py",
+    "scripts/manage.py",
     "Erickson Coach Launcher.applescript",
     "Erickson Coach.app",
     "cli_app.py",
@@ -38,6 +39,11 @@ HOSTED_RUNTIME_FILES = {
     "coachee_data.py",
     "memory.py",
     "web_assets.py",
+    "db.py",
+    "accounts.py",
+    "account_pages.py",
+    "quota.py",
+    "safety.py",
     deploy_hf_space.LOCAL_ENTRYPOINT_SOURCE,
 }
 

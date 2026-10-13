@@ -28,6 +28,8 @@ class EricksonCoachingAgent:
         self.turns_in_current_stage = 0
         self._last_template: str | None = None
         self.user_profile = user_profile
+        # Called with (model, prompt_tokens, completion_tokens) after each model call; set by the web app.
+        self.on_usage = None
         self.opening_variation_seed = uuid.uuid4().hex[:8]
 
     def set_mode(self, mode: str) -> bool:
@@ -44,6 +46,30 @@ class EricksonCoachingAgent:
 
     def is_session_ended(self) -> bool:
         return self.current_state == CoachingState.CLOSING
+
+    def to_dict(self) -> dict:
+        """Everything needed to resume this conversation later (the user profile is stored separately)."""
+        return {
+            "mode": self.mode,
+            "language": self.language,
+            "state": self.current_state.name,
+            "sub_phase": self.current_sub_phase.name,
+            "context": self.context,
+            "turns": self.turns_in_current_stage,
+            "last_template": self._last_template,
+            "seed": self.opening_variation_seed,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, user_profile=None) -> "EricksonCoachingAgent":
+        agent = cls(mode=data["mode"], language=data["language"], user_profile=user_profile)
+        agent.current_state = CoachingState[data["state"]]
+        agent.current_sub_phase = CoachingSubPhase[data["sub_phase"]]
+        agent.context = list(data["context"])
+        agent.turns_in_current_stage = data["turns"]
+        agent._last_template = data.get("last_template")
+        agent.opening_variation_seed = data["seed"]
+        return agent
 
     def get_stage_prompt(self, api_key: str | None = None) -> str:
         prompt = ""
@@ -142,7 +168,7 @@ class EricksonCoachingAgent:
         self.context.append({"role": "coach", "content": response})
 
     def _get_llm_closing_summary(self, api_key: str) -> str:
-        client = _build_client(api_key)
+        client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         
         messages = [
@@ -194,7 +220,7 @@ class EricksonCoachingAgent:
 
     def _batch_translate_llm(self, items: list[tuple[int, str]], target_lang: str, api_key: str):
         try:
-            translated = _translate_texts(api_key, [text for _, text in items], target_lang)
+            translated = _translate_texts(api_key, [text for _, text in items], target_lang, on_usage=self.on_usage)
         except Exception as exc:
             print(f"Failed to translate history via LLM: {exc}")
             return
@@ -274,7 +300,7 @@ Never mention the marker or stage names in the reply itself."""
         return f"{ack} {bridge} {next_question}"
 
     def _get_llm_opening_response(self, api_key: str) -> str:
-        client = _build_client(api_key)
+        client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         stage_desc = STAGE_DESCRIPTIONS[self.current_state]
         system_prompt = f"""You are a professional Erickson Solution-Focused Coach following the Arrow Model.
@@ -303,7 +329,7 @@ Variation lens: choose a fresh entry point among clarity, desired outcome, usefu
     def _get_llm_response(self, api_key: str, decide_stage: bool = False):
         """Stream the coach reply as (text so far, stage signal) pairs; the last pair is final."""
         try:
-            client = _build_client(api_key)
+            client = _build_client(api_key, on_usage=self.on_usage)
             lang_instr = "respond in English" if self.language == "en" else "respond in Simplified Chinese (简体中文)"
             stage_desc = STAGE_DESCRIPTIONS[self.current_state]
             persona_extension = ""
@@ -328,7 +354,8 @@ Guidelines:
 4. If in DEEPEN phase, probe for resources, values, or hidden possibilities.
 5. If in BRIDGE phase, summarise the current success of this stage and pivot to the next.
 6. Always {lang_instr}. {_language_output_rule(self.language)}
-7. Never repeat yourself or generic template questions.{persona_extension}"""
+7. Never repeat yourself or generic template questions.
+8. If the client mentions harming themselves or being in danger, stop the coaching exercise, respond with care, and encourage them to contact local emergency services or a crisis line.{persona_extension}"""
             if decide_stage:
                 system_prompt += self._stage_decision_rules()
 
@@ -351,7 +378,7 @@ Guidelines:
     def analyze_session_for_memory(self, api_key: str) -> dict:
         """Analyze the session history to extract new user insights."""
         try:
-            client = _build_client(api_key)
+            client = _build_client(api_key, on_usage=self.on_usage)
             transcript = []
             for msg in self.context[-30:]:
                 role = "Coach" if msg["role"] == "coach" else "Client"

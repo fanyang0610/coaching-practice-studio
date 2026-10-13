@@ -149,12 +149,14 @@ READY_JS = """
 """
 
 
-def capture(url: str, output: Path, width: int, height: int, mobile: bool = False):
+def capture(url: str, output: Path, width: int, height: int, mobile: bool = False, cookie: str | None = None):
+    """cookie: optional "name=value" set before loading, e.g. a signed-in session for the app."""
+    extra = {"cookie": cookie} if cookie else {}
     if mobile:
-        _capture_mobile(url, output, width, height)
+        _capture_mobile(url, output, width, height, **extra)
         return
 
-    _capture_desktop(url, output, width, height)
+    _capture_desktop(url, output, width, height, **extra)
 
 
 def _chrome_base_cmd(profile: str):
@@ -174,27 +176,27 @@ def _chrome_base_cmd(profile: str):
     ]
 
 
-def _capture_desktop(url: str, output: Path, width: int, height: int):
+def _capture_desktop(url: str, output: Path, width: int, height: int, cookie: str | None = None):
     output.parent.mkdir(parents=True, exist_ok=True)
-    asyncio.run(_capture_chrome_async(url, output, width, height, mobile=False))
+    asyncio.run(_capture_chrome_async(url, output, width, height, mobile=False, cookie=cookie))
 
     if not output.exists() or output.stat().st_size == 0:
         raise RuntimeError(f"Screenshot was not created: {output}")
 
 
-def _capture_mobile(url: str, output: Path, width: int, height: int):
+def _capture_mobile(url: str, output: Path, width: int, height: int, cookie: str | None = None):
     output.parent.mkdir(parents=True, exist_ok=True)
-    asyncio.run(_capture_mobile_async(url, output, width, height))
+    asyncio.run(_capture_mobile_async(url, output, width, height, cookie))
 
     if not output.exists() or output.stat().st_size == 0:
         raise RuntimeError(f"Screenshot was not created: {output}")
 
 
-async def _capture_mobile_async(url: str, output: Path, width: int, height: int):
-    await _capture_chrome_async(url, output, width, height, mobile=True)
+async def _capture_mobile_async(url: str, output: Path, width: int, height: int, cookie: str | None = None):
+    await _capture_chrome_async(url, output, width, height, mobile=True, cookie=cookie)
 
 
-async def _capture_chrome_async(url: str, output: Path, width: int, height: int, mobile: bool):
+async def _capture_chrome_async(url: str, output: Path, width: int, height: int, mobile: bool, cookie: str | None = None):
     with tempfile.TemporaryDirectory(prefix="erickson-chrome-") as profile:
         cmd = _chrome_base_cmd(profile) + [
             "--remote-debugging-port=0",
@@ -229,6 +231,10 @@ async def _capture_chrome_async(url: str, output: Path, width: int, height: int,
                             return message.get("result", {})
 
                 await call("Page.enable")
+                if cookie:
+                    name, _, value = cookie.partition("=")
+                    await call("Network.enable")
+                    await call("Network.setCookie", {"name": name, "value": value, "url": url})
                 await call(
                     "Emulation.setDeviceMetricsOverride",
                     {
@@ -298,11 +304,12 @@ def main():
     parser = argparse.ArgumentParser(description="Capture isolated desktop and mobile screenshots for Erickson Coach.")
     parser.add_argument("--url", default="http://127.0.0.1:8787")
     parser.add_argument("--out-dir", default="/private/tmp")
+    parser.add_argument("--cookie", help="name=value cookie to set first, such as a signed-in session")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
-    capture(args.url, out_dir / "erickson-desktop.png", 1440, 1200)
-    capture(args.url, out_dir / "erickson-mobile.png", 390, 844, mobile=True)
+    capture(args.url, out_dir / "erickson-desktop.png", 1440, 1200, cookie=args.cookie)
+    capture(args.url, out_dir / "erickson-mobile.png", 390, 844, mobile=True, cookie=args.cookie)
     print(out_dir / "erickson-desktop.png")
     print(out_dir / "erickson-mobile.png")
 

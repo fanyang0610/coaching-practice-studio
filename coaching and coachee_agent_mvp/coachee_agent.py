@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import json
 import random
 import uuid
@@ -9,6 +10,7 @@ from coachee_data import (
     COACHEE_STAGE_ORDER,
     CoachingMetrics,
     SCENARIOS,
+    ScenarioBundle,
     _choice,
     _scenario_bundle_from_single_language,
     _strip_json_fence,
@@ -32,6 +34,8 @@ class EricksonCoacheeAgent:
         self._llm_scenario_ready = False
         self._stage_fact_cursor = {state: set() for state in CoachingState}
         self.user_profile = user_profile
+        # Called with (model, prompt_tokens, completion_tokens) after each model call; set by the web app.
+        self.on_usage = None
         self.scenario_variation_seed = uuid.uuid4().hex[:8]
 
     def set_mode(self, mode: str) -> bool:
@@ -48,6 +52,58 @@ class EricksonCoacheeAgent:
 
     def is_session_ended(self) -> bool:
         return self.session_complete
+
+    def to_dict(self) -> dict:
+        """Everything needed to resume this practice session later (the user profile is stored separately)."""
+        metrics = self.metrics
+        return {
+            "mode": self.mode,
+            "language": self.language,
+            "state": self.current_state.name,
+            "sub_phase": self.current_sub_phase.name,
+            "context": self.context,
+            "turns": self.turns_in_current_stage,
+            "session_complete": self.session_complete,
+            "metrics": {
+                "open_questions": metrics.open_questions,
+                "reflective_turns": metrics.reflective_turns,
+                "action_questions": metrics.action_questions,
+                "commitment_questions": metrics.commitment_questions,
+                "total_questions": metrics.total_questions,
+                "stage_questions": {state.name: count for state, count in metrics.stage_questions.items()},
+                "coach_signals": {state.name: sorted(values) for state, values in metrics.coach_signals.items()},
+                "facts_shared": {state.name: sorted(values) for state, values in metrics.facts_shared.items()},
+            },
+            "scenario": asdict(self.scenario),
+            "llm_scenario_ready": self._llm_scenario_ready,
+            "stage_fact_cursor": {state.name: sorted(values) for state, values in self._stage_fact_cursor.items()},
+            "seed": self.scenario_variation_seed,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, user_profile=None) -> "EricksonCoacheeAgent":
+        agent = cls(mode=data["mode"], language=data["language"], user_profile=user_profile)
+        agent.current_state = CoachingState[data["state"]]
+        agent.current_sub_phase = CoachingSubPhase[data["sub_phase"]]
+        agent.context = list(data["context"])
+        agent.turns_in_current_stage = data["turns"]
+        agent.session_complete = data["session_complete"]
+        saved = data["metrics"]
+        agent.metrics = CoachingMetrics(
+            open_questions=saved["open_questions"],
+            reflective_turns=saved["reflective_turns"],
+            action_questions=saved["action_questions"],
+            commitment_questions=saved["commitment_questions"],
+            total_questions=saved["total_questions"],
+            stage_questions={CoachingState[name]: count for name, count in saved["stage_questions"].items()},
+            coach_signals={CoachingState[name]: set(values) for name, values in saved["coach_signals"].items()},
+            facts_shared={CoachingState[name]: set(values) for name, values in saved["facts_shared"].items()},
+        )
+        agent.scenario = ScenarioBundle(**data["scenario"])
+        agent._llm_scenario_ready = data["llm_scenario_ready"]
+        agent._stage_fact_cursor = {CoachingState[name]: set(values) for name, values in data["stage_fact_cursor"].items()}
+        agent.scenario_variation_seed = data["seed"]
+        return agent
 
     def translate_history(self, new_lang: str, api_key: str | None = None):
         if self.language == new_lang:
@@ -170,7 +226,7 @@ class EricksonCoacheeAgent:
         if not indexes:
             return
         try:
-            translated = _translate_texts(api_key, [self.context[idx]["content"] for idx in indexes], new_lang)
+            translated = _translate_texts(api_key, [self.context[idx]["content"] for idx in indexes], new_lang, on_usage=self.on_usage)
         except Exception:
             return
         for idx, text in zip(indexes, translated):
@@ -180,7 +236,7 @@ class EricksonCoacheeAgent:
         if self._llm_scenario_ready:
             return
 
-        client = _build_client(api_key)
+        client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         
         persona_extension = ""
@@ -409,7 +465,7 @@ class EricksonCoacheeAgent:
         When the reply decides the stage and opens with [[END]], stop early: the session closes with a review instead.
         """
         try:
-            client = _build_client(api_key)
+            client = _build_client(api_key, on_usage=self.on_usage)
             self._ensure_llm_scenario(api_key)
             stage_payload = self._stage_payload()
             guide_lines = []
@@ -466,7 +522,7 @@ class EricksonCoacheeAgent:
         return self._build_template_final_review()
 
     def _build_llm_final_review(self, api_key: str) -> str:
-        client = _build_client(api_key)
+        client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         transcript = []
         for msg in self.context:
@@ -688,7 +744,7 @@ class EricksonCoacheeAgent:
     def analyze_session_for_memory(self, api_key: str) -> dict:
         """Analyze the human coach's performance to extract learning insights for the AI coachee."""
         try:
-            client = _build_client(api_key)
+            client = _build_client(api_key, on_usage=self.on_usage)
             transcript = []
             for msg in self.context[-30:]:
                 role = "Coach" if msg["role"] == self.user_role else "Coachee"

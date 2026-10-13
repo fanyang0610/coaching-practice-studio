@@ -1,8 +1,12 @@
-import json
-import os
+"""The insight profile the AI builds about each user, one per user and module (stored by db.Store)."""
+
 import datetime
-from dataclasses import dataclass, field, asdict
-from typing import Optional
+from dataclasses import asdict, dataclass, field
+
+
+# Profiles are injected into prompts, so keep them short.
+MAX_PROFILE_ITEMS = 8
+
 
 @dataclass
 class UserProfile:
@@ -13,60 +17,36 @@ class UserProfile:
     last_updated: str = ""
     session_count: int = 0
 
-class MemoryManager:
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        remote_sync_enabled: bool = False,
-        local_path: Optional[str] = "user_profile.json",
-    ):
-        self.local_path = local_path
-        self.profile = UserProfile()
-        self.api_key = api_key
-        self.remote_sync_enabled = remote_sync_enabled
-        self.load_local()
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "UserProfile":
+        if not data:
+            return cls()
+        valid_keys = cls.__dataclass_fields__.keys()
+        return cls(**{key: value for key, value in data.items() if key in valid_keys})
 
-    def load_local(self):
-        if not self.local_path:
-            return
-        if os.path.exists(self.local_path):
-            try:
-                with open(self.local_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    # Filter keys to match UserProfile dataclass
-                    valid_keys = UserProfile.__dataclass_fields__.keys()
-                    filtered_data = {k: v for k, v in data.items() if k in valid_keys}
-                    self.profile = UserProfile(**filtered_data)
-            except Exception:
-                self.profile = UserProfile()
+    def to_dict(self) -> dict:
+        return asdict(self)
 
-    def save_local(self):
-        if not self.local_path:
-            return
-        with open(self.local_path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self.profile), f, ensure_ascii=False, indent=2)
 
-    def sync_pull(self) -> bool:
-        """Remote profile sync is intentionally disabled for this MVP."""
-        return False
+def _merge_items(new_items, old_items) -> list[str]:
+    """Newest first, without case-insensitive duplicates, capped at MAX_PROFILE_ITEMS."""
+    merged, seen = [], set()
+    for item in list(new_items) + list(old_items):
+        text = str(item).strip()
+        if text and text.lower() not in seen:
+            seen.add(text.lower())
+            merged.append(text)
+    return merged[:MAX_PROFILE_ITEMS]
 
-    def sync_push(self) -> bool:
-        """Remote profile sync is intentionally disabled for this MVP."""
-        return False
 
-    def update_from_analysis(self, analysis_json: dict):
-        """Update the profile with new insights from an LLM analysis."""
-        self.profile.coaching_style_insights = analysis_json.get("coaching_style", self.profile.coaching_style_insights)
-        self.profile.learning_patterns = analysis_json.get("learning_patterns", self.profile.learning_patterns)
-        
-        new_strengths = analysis_json.get("strengths", [])
-        self.profile.strengths = list(set(self.profile.strengths + new_strengths))
-        
-        new_growth = analysis_json.get("growth_areas", [])
-        self.profile.growth_areas = list(set(self.profile.growth_areas + new_growth))
-        
-        self.profile.session_count += 1
-        self.profile.last_updated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        self.save_local()
-        self.sync_push()
+def merge_analysis(profile: UserProfile, analysis: dict, now: datetime.datetime | None = None) -> UserProfile:
+    """Fold one session's LLM analysis into the profile."""
+    now = now or datetime.datetime.now(datetime.UTC)
+    return UserProfile(
+        coaching_style_insights=analysis.get("coaching_style") or profile.coaching_style_insights,
+        learning_patterns=analysis.get("learning_patterns") or profile.learning_patterns,
+        strengths=_merge_items(analysis.get("strengths") or [], profile.strengths),
+        growth_areas=_merge_items(analysis.get("growth_areas") or [], profile.growth_areas),
+        last_updated=now.strftime("%Y-%m-%d %H:%M UTC"),
+        session_count=profile.session_count + 1,
+    )

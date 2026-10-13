@@ -2,19 +2,19 @@
   "name": "Erickson Coach",
   "short_name": "Erickson",
   "description": "Solution-focused coaching companion",
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#f3f8fd",
   "theme_color": "#1979ba",
   "icons": [
     {
-      "src": "/file=assets/icons/erickson-icon-192.png",
+      "src": "/icons/erickson-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/file=assets/icons/erickson-icon-512.png",
+      "src": "/icons/erickson-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
