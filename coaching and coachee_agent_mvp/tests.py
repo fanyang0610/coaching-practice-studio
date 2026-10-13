@@ -110,6 +110,37 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
         self.assertEqual(decision.local_only[0].path, Path("app.py"))
         self.assertIn("local wrapper", decision.local_only[0].reason)
 
+    def test_hf_upload_decision_strips_repo_prefix_from_git_paths(self):
+        root = Path(__file__).resolve().parent
+        helper_path = root / "scripts" / "needs_hf_upload.py"
+        spec = importlib.util.spec_from_file_location("needs_hf_upload", helper_path)
+        needs_hf_upload = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(needs_hf_upload)
+
+        prefix = "coaching and coachee_agent_mvp/"
+        status_output = "\0".join(
+            [
+                f" M {prefix}web_app.py",
+                f"?? {prefix}tests.py",
+                f"R  {prefix}assets/new.css",
+                f"{prefix}assets/old.css",
+                " M README.md",
+                "",
+            ]
+        )
+
+        changed_paths = needs_hf_upload._parse_git_status(status_output, prefix)
+        decision = needs_hf_upload.decide_upload_need(root, changed_paths)
+
+        self.assertEqual(
+            changed_paths,
+            [Path("web_app.py"), Path("tests.py"), Path("assets/new.css"), Path("assets/old.css")],
+        )
+        self.assertTrue(decision.needs_upload)
+        self.assertIn(Path("web_app.py"), [item.path for item in decision.deploy_worthy])
+        self.assertNotIn(Path("README.md"), [item.path for item in decision.deploy_worthy])
+        self.assertEqual([item.path for item in decision.local_only], [Path("tests.py")])
+
     def test_macos_launcher_disables_default_browser_auto_open(self):
         root = Path(__file__).resolve().parent
         launcher_text = (root / "Erickson Coach Launcher.applescript").read_text(encoding="utf-8")

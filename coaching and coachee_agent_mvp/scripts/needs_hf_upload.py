@@ -60,24 +60,49 @@ def _relative(path: Path) -> Path:
     return Path(path.as_posix().lstrip("/"))
 
 
+def _parse_git_status(output: str, prefix: str) -> list[Path]:
+    """Return project-relative paths from `git status --porcelain=v1 -z` output.
+
+    Porcelain paths are relative to the repository root, so changes outside the
+    project folder are dropped and the folder prefix is stripped from the rest.
+    """
+    fields = output.split("\0")
+    paths: list[Path] = []
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if not entry:
+            continue
+        status, raw_paths = entry[:2], [entry[3:]]
+        if "R" in status or "C" in status:
+            # With -z the original path follows as its own field; a rename removes it.
+            if "R" in status:
+                raw_paths.append(fields[index])
+            index += 1
+        for raw_path in raw_paths:
+            if raw_path.startswith(prefix):
+                paths.append(_relative(Path(raw_path[len(prefix):])))
+    return paths
+
+
 def _git_changed_paths(root: Path) -> list[Path]:
+    prefix = subprocess.run(
+        ["git", "rev-parse", "--show-prefix"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.rstrip("\n")
+    # -z disables quoting of paths with spaces, e.g. "coaching and coachee_agent_mvp/".
     result = subprocess.run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."],
         cwd=root,
         check=True,
         capture_output=True,
         text=True,
     )
-
-    paths: list[Path] = []
-    for line in result.stdout.splitlines():
-        if not line:
-            continue
-        raw_path = line[3:]
-        if " -> " in raw_path:
-            raw_path = raw_path.split(" -> ", 1)[1]
-        paths.append(_relative(Path(raw_path)))
-    return paths
+    return _parse_git_status(result.stdout, prefix)
 
 
 def _remote_path_for(path: Path, patterns: list[str]) -> Path | None:
