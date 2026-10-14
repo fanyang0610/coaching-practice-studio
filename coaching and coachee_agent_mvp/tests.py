@@ -2017,6 +2017,21 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertIsNone(straight_after["agent"].last_card)
         self.assertEqual(next_day["agent"].last_card["next_step"], "No phone in bed")
 
+    def test_switching_language_translates_the_ai_opening_question(self):
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coach", "template", "en")
+        agent = session["agent"]
+        agent.mode = "llm"
+        agent.context = [{"role": "coach", "content": "What would you most like to focus on today?"}]
+        reply = json.dumps({"translations": ["今天你最想聚焦在什么上？"]}, ensure_ascii=False)
+        with patch.object(web_app, "_safe_key", return_value="server-key"), \
+                patch("coaching_core._build_client", return_value=_fake_llm_client([reply], [])):
+            outputs = web_app.switch_lang("中文", session, "coach", "AI", request)
+
+        self.assertEqual(agent.language, "zh")
+        self.assertEqual(agent.context[0]["content"], "今天你最想聚焦在什么上？")
+        self.assertEqual(outputs[0][0]["content"], "今天你最想聚焦在什么上？")
+
     def test_template_session_keeps_its_mode_without_repeating_the_allowance_warning(self):
         web_app, _, user, request = _signed_in()
         session = web_app._open_session(user, "coach", "template", "en")

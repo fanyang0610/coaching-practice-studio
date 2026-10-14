@@ -188,6 +188,8 @@ head = """
    Help and Account. It hides itself on phones only when the window is resized, so it showed on every phone visit.
    This sits in <head> because custom CSS gets prefixed with Gradio's container and can't reach <body> children. */
 #huggingface-space-header { display: none !important; }
+/* Phones: the page frame adds no bottom padding; the message area handles the iPhone home bar itself. */
+@media (max-width: 767px) { body .gradio-container main.contain.contain.contain { padding-bottom: 0 !important; } }
 </style>
 """
 
@@ -2381,9 +2383,15 @@ div:has(> .tracker-shell) {
     }
 
     /* Composer: message box, microphone and Send on one row; Skip Ahead and New Session on a slim row below */
+    /* The bottom edge: the page frame and the chat card add no padding of their own (see <head>); the message area
+       alone leaves room for the iPhone home bar, trimmed to what the bar needs, so its background fills to the edge. */
+    #app-shell #chat-stage {
+        padding-bottom: 0 !important;
+    }
+
     #app-shell #composer-shell {
         padding-top: 6px !important;
-        padding-bottom: 6px !important; /* the page frame already leaves room for the iPhone home bar */
+        padding-bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px)) !important;
     }
 
     #app-shell .composer-grid {
@@ -2412,19 +2420,34 @@ div:has(> .tracker-shell) {
         height: auto !important;
     }
 
-    #app-shell #mic-btn-wrap {
-        width: 46px !important;
-        min-width: 46px !important;
-        max-width: 46px !important;
-        flex: 0 0 46px !important;
+    /* Microphone and Send are the same size, as tall as the message box */
+    #app-shell #mic-btn-wrap,
+    #app-shell .send-btn-custom {
+        width: 64px !important;
+        min-width: 64px !important;
+        max-width: 64px !important;
+        flex: 0 0 64px !important;
+        height: 58px !important;
+        min-height: 58px !important;
+        max-height: 58px !important;
+        border-radius: 14px !important;
+    }
+
+    #app-shell #mic-btn-wrap > div,
+    #app-shell #mic-btn-wrap .html-container,
+    #app-shell #mic-btn-wrap .html-container > div,
+    #app-shell #custom-mic-btn {
+        width: 64px !important;
+        min-width: 64px !important;
+        max-width: 64px !important;
+        flex: 0 0 auto !important;
+        height: 58px !important;
+        min-height: 58px !important;
+        border-radius: 14px !important;
     }
 
     #app-shell .send-btn-custom {
-        width: 72px !important;
-        min-width: 72px !important;
-        flex: 0 0 72px !important;
-        height: auto !important;
-        min-height: 46px !important;
+        padding: 0 8px !important;
     }
 
     #app-shell #bottom-action-row {
@@ -2433,6 +2456,8 @@ div:has(> .tracker-shell) {
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         grid-template-rows: 36px !important;
         gap: 6px !important;
+        height: 36px !important;
+        min-height: 0 !important;
     }
 
     #app-shell #next-btn,
@@ -2456,9 +2481,6 @@ div:has(> .tracker-shell) {
         line-height: 1.3 !important;
     }
 
-    #app-shell .send-btn-custom {
-        min-height: 58px !important;
-    }
 }
 """
 

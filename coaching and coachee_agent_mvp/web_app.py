@@ -463,7 +463,12 @@ def _leave_session(session: dict | None) -> None:
         get_store().set_session_status(session["id"], "abandoned")
 
 
-def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel: str, lang_sel: str):
+def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel: str, lang_sel: str,
+                    set_language: bool = True):
+    """The person's current session, reopened or started as needed.
+
+    set_language=False leaves an existing conversation in its own language, so switch_lang can translate it first.
+    """
     module_code = _safe_module(module_sel)
     mode_code = _safe_mode(mode_sel)
     lang_code = _safe_lang(lang_sel)
@@ -476,7 +481,8 @@ def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel:
         return _open_session(user, module_code, mode_code, lang_code)
 
     agent = session["agent"]
-    agent.set_language(lang_code)
+    if set_language:
+        agent.set_language(lang_code)
     # A session keeps the mode it opened with: AI, or templates once today's allowance was used up.
     return session
 
@@ -848,7 +854,9 @@ def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Requ
 def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = None):
     lc = _safe_lang(new_lang)
     user = _require_user(request, lc)
-    session = _ensure_session(session, user, module_sel, mode_sel, new_lang)
+    # Keep the conversation in its old language until it has been translated; setting the new language first made
+    # translate_history think there was nothing to do, so the opening question stayed in the old language.
+    session = _ensure_session(session, user, module_sel, mode_sel, new_lang, set_language=False)
     agent = session["agent"]
     with _agent_lock(agent):
         agent.translate_history(new_lang=lc, api_key=_safe_key() or None)
