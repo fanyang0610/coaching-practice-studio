@@ -50,6 +50,8 @@ The branch has 8 commits on top of `main`:
     - `openrouter/free` returned an empty reply.
     - Fan deleted the key that was in `.env` and made a new one, which went into the HF Space secret. **The `.env` key is now dead**: Fan has to paste the new key into `.env` for local runs.
     - Refused (403) requests don't show up in a key's usage, so usage numbers can't tell you which key a Space is using.
+    - **Fix applied (with Fan's OK):** the old Space's `OPENAI_MODEL` variable was changed from `openai/gpt-4o-mini` to `deepseek/deepseek-chat`. Both modes then opened correctly on the Space.
+    - **For the new version's launch, use `OPENAI_MODEL=deepseek/deepseek-chat`** (via OpenRouter) unless Fan sorts out OpenAI access. Fan still needs to confirm the model choice. Before inviting people, check which provider OpenRouter routes DeepSeek to, and say where data is processed in `ERICKSON_DATA_LOCATIONS`.
 
 ## 4. What is built (module map)
 
@@ -101,7 +103,7 @@ Screenshots from the browser check land in `/private/tmp/erickson-check/erickson
 3. Hugging Face: rename the Space (e.g. `Coaching-Practice-Studio`), then add these Space secrets:
    - `OPENAI_API_KEY`
    - `OPENAI_BASE_URL=https://openrouter.ai/api/v1`
-   - `OPENAI_MODEL=openai/gpt-4o-mini`
+   - `OPENAI_MODEL=deepseek/deepseek-chat` (gpt-4o-mini is refused for this account; see section 3)
    - `DATABASE_URL`
    - `ERICKSON_SECRET_KEY` (`python3 -c "import secrets; print(secrets.token_hex(32))"`)
    - `ERICKSON_ADMIN_EMAIL`
