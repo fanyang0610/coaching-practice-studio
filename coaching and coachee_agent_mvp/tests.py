@@ -2032,6 +2032,64 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertEqual(agent.context[0]["content"], "今天你最想聚焦在什么上？")
         self.assertEqual(outputs[0][0]["content"], "今天你最想聚焦在什么上？")
 
+    def test_busy_ai_service_is_tried_again_but_a_timeout_is_not(self):
+        import httpx
+        import openai
+        from coaching_core import _create_with_busy_retry
+
+        request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+        calls = []
+
+        def busy_twice(**kwargs):
+            calls.append(kwargs)
+            if len(calls) < 3:
+                raise openai.RateLimitError("busy", response=httpx.Response(429, request=request), body=None)
+            return "reply"
+
+        def timeout(**kwargs):
+            raise openai.APITimeoutError(request=request)
+
+        with patch("coaching_core.time.sleep") as sleep, self.assertLogs("erickson_coach", level="WARNING"):
+            self.assertEqual(_create_with_busy_retry(busy_twice, model="m"), "reply")
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1.5, 3.0])
+        with patch("coaching_core.time.sleep") as sleep, self.assertRaises(openai.APITimeoutError):
+            _create_with_busy_retry(timeout)
+        sleep.assert_not_called()
+
+    def test_failed_translation_changes_nothing(self):
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [{"role": "coach", "content": "What would you most like to focus on today?"}]
+        with patch("coach_agent._translate_texts", side_effect=RuntimeError("busy")), self.assertLogs("erickson_coach", level="WARNING"):
+            self.assertFalse(agent.translate_history("zh", api_key="server-key"))
+
+        self.assertEqual(agent.language, "en")
+        self.assertEqual(agent.context[0]["content"], "What would you most like to focus on today?")
+
+    def test_when_translation_fails_the_page_keeps_the_conversations_language(self):
+        import gradio as gr
+        import coachee_agent
+
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coachee", "template", "zh")
+        agent = session["agent"]
+        agent.mode = "llm"
+        agent.context = [{"role": "coachee", "content": "我最近感到很迷茫。"}]
+        web_app._save(session)
+        english_phone = gr.Request(username=str(user["id"]), headers={"accept-language": "en-US"}, cookies={"erickson_lang": "en"})
+
+        with patch.object(web_app, "_safe_key", return_value="server-key"), \
+                patch("coachee_agent._translate_texts", side_effect=RuntimeError("busy")), \
+                patch.object(coachee_agent.logger, "warning"), patch.object(web_app.gr, "Warning") as warning:
+            switched = web_app.switch_lang("English", session, "coachee", "AI", request)
+            reopened = web_app.initial_load(None, "coachee", "AI", "English", english_phone)
+
+        self.assertEqual(agent.language, "zh")
+        self.assertEqual(agent.context[0]["content"], "我最近感到很迷茫。")
+        self.assertEqual(switched[12]["value"], "中文")
+        self.assertEqual(reopened[-1]["agent"].language, "zh")
+        self.assertEqual(reopened[12]["value"], "中文")
+        self.assertIn("stays in Chinese", warning.call_args_list[0].args[0])
+
     def test_template_session_keeps_its_mode_without_repeating_the_allowance_warning(self):
         web_app, _, user, request = _signed_in()
         session = web_app._open_session(user, "coach", "template", "en")

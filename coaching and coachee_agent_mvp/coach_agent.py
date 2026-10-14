@@ -1,4 +1,5 @@
 import json
+import logging
 import random
 import uuid
 
@@ -207,37 +208,35 @@ class EricksonCoachingAgent:
         )
         return _clean_response_language(_response_text(resp), self.language)
 
-    def translate_history(self, new_lang: str, api_key: str | None = None):
+    def translate_history(self, new_lang: str, api_key: str | None = None) -> bool:
+        """Translate the coach's messages into new_lang. Returns False, changing nothing, if the AI couldn't translate."""
         if self.language == new_lang:
-            return
+            return True
 
-        old_lang = self.language
         dict_map = TRANSLATE_EN_TO_ZH if new_lang == "zh" else TRANSLATE_ZH_TO_EN
-        llm_messages_to_translate: list[tuple[int, str]] = []
-
+        updates: dict[int, str] = {}
+        llm_items: list[tuple[int, str]] = []
         for idx, msg in enumerate(self.context):
             if msg["role"] != "coach":
                 continue
-
-            translated = _translate_template_message(msg["content"], old_lang, dict_map)
+            translated = _translate_template_message(msg["content"], self.language, dict_map)
             if translated is not None:
-                self.context[idx]["content"] = translated
+                updates[idx] = translated
             else:
-                llm_messages_to_translate.append((idx, msg["content"]))
+                llm_items.append((idx, msg["content"]))
 
-        if llm_messages_to_translate and api_key and self.mode == "llm":
-            self._batch_translate_llm(llm_messages_to_translate, new_lang, api_key)
+        if llm_items and api_key and self.mode == "llm":
+            try:
+                texts = _translate_texts(api_key, [text for _, text in llm_items], new_lang, on_usage=self.on_usage)
+            except Exception:
+                logging.getLogger("erickson_coach").warning("Translating the conversation failed", exc_info=True)
+                return False
+            updates.update({idx: text for (idx, _), text in zip(llm_items, texts)})
 
-        self.language = new_lang
-
-    def _batch_translate_llm(self, items: list[tuple[int, str]], target_lang: str, api_key: str):
-        try:
-            translated = _translate_texts(api_key, [text for _, text in items], target_lang, on_usage=self.on_usage)
-        except Exception as exc:
-            print(f"Failed to translate history via LLM: {exc}")
-            return
-        for (idx, _), text in zip(items, translated):
+        for idx, text in updates.items():
             self.context[idx]["content"] = text
+        self.language = new_lang
+        return True
 
     def _evaluate_state_transition(self, api_key: str | None = None) -> bool:
         """Advance the stage flow for a new client turn. Returns True when the LLM reply should decide it."""

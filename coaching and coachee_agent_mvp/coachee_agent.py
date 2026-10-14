@@ -110,14 +110,16 @@ class EricksonCoacheeAgent:
         agent.scenario_variation_seed = data["seed"]
         return agent
 
-    def translate_history(self, new_lang: str, api_key: str | None = None):
+    def translate_history(self, new_lang: str, api_key: str | None = None) -> bool:
+        """Translate the coachee's messages into new_lang. Returns False, changing nothing, if the AI couldn't translate."""
         if self.language == new_lang:
-            return
+            return True
 
-        if api_key and self.mode == "llm":
-            self._translate_assistant_history(new_lang, api_key)
+        if api_key and self.mode == "llm" and not self._translate_assistant_history(new_lang, api_key):
+            return False
 
         self.language = new_lang
+        return True
 
     def get_stage_prompt(self, api_key: str | None = None) -> str:
         prompt = ""
@@ -226,16 +228,18 @@ class EricksonCoacheeAgent:
         if self.current_state == CoachingState.CLOSING:
             self.session_complete = True
 
-    def _translate_assistant_history(self, new_lang: str, api_key: str):
+    def _translate_assistant_history(self, new_lang: str, api_key: str) -> bool:
         indexes = [idx for idx, msg in enumerate(self.context) if msg["role"] == self.assistant_role]
         if not indexes:
-            return
+            return True
         try:
             translated = _translate_texts(api_key, [self.context[idx]["content"] for idx in indexes], new_lang, on_usage=self.on_usage)
         except Exception:
-            return
+            logger.warning("Translating the practice conversation failed", exc_info=True)
+            return False
         for idx, text in zip(indexes, translated):
             self.context[idx]["content"] = text
+        return True
 
     def _ensure_llm_scenario(self, api_key: str):
         if self._llm_scenario_ready:

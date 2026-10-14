@@ -541,9 +541,12 @@ def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, r
     if preferred and preferred != agent.language:
         # A reopened session follows the language the person uses now.
         with _agent_lock(agent):
-            agent.translate_history(new_lang=preferred, api_key=_safe_key() or None)
-            agent.set_language(preferred)
-            _save(session)
+            if agent.translate_history(new_lang=preferred, api_key=_safe_key() or None):
+                agent.set_language(preferred)
+                _save(session)
+            else:
+                # Keep the page in the conversation's language rather than mixing the two.
+                gr.Warning(UI[preferred]["translate_failed"].format(language=UI[preferred]["lang_" + agent.language]))
     out = _session_start_outputs(session)
     welcome = _welcome_html(agent.language) if first_visit else ""
     return (
@@ -859,9 +862,14 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
     session = _ensure_session(session, user, module_sel, mode_sel, new_lang, set_language=False)
     agent = session["agent"]
     with _agent_lock(agent):
-        agent.translate_history(new_lang=lc, api_key=_safe_key() or None)
-        agent.set_language(lc)
-        _save(session)
+        if agent.translate_history(new_lang=lc, api_key=_safe_key() or None):
+            agent.set_language(lc)
+            _save(session)
+        else:
+            # Stay in the conversation's language (the language choice switches back) rather than mixing the two.
+            gr.Warning(UI[lc]["translate_failed"].format(language=UI[lc]["lang_" + agent.language]))
+            lc = agent.language
+            new_lang = _lang_selector(lc)
     s = UI[lc]
     copy = _session_ui(agent, session["module"])
     coach_btn, coachee_btn = _module_button_updates(session["module"], lc)

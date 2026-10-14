@@ -89,6 +89,9 @@ UI = {
         "card_by_when": "By when",
         "card_support": "Support",
         "card_saved": "Saved on your Account page.",
+        "translate_failed": "This conversation couldn't be translated right now, so it stays in {language}. Try switching the language again in a moment.",
+        "lang_en": "English",
+        "lang_zh": "Chinese",
     },
     "zh": {
         "placeholder": "把你现在最想理清的事写下来...",
@@ -160,6 +163,9 @@ UI = {
         "card_by_when": "时间",
         "card_support": "支持",
         "card_saved": "已保存在你的账户页面。",
+        "translate_failed": "暂时无法翻译这段对话，所以继续使用{language}。请稍后再切换语言试试。",
+        "lang_en": "英文",
+        "lang_zh": "中文",
     },
 }
 

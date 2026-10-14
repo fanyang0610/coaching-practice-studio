@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 import types
 
 import openai
@@ -13,6 +14,9 @@ import openai
 # waiting on the SDK default (10 minutes, 2 retries).
 LLM_TIMEOUT_SECONDS = 45
 LLM_MAX_RETRIES = 1
+# The service sometimes answers "too busy" (429) or has a brief outage, and the OpenAI client's own retry comes within
+# half a second. Two more tries a few seconds apart, but never after a timeout, so nobody waits minutes.
+BUSY_RETRY_DELAYS = (1.5, 3.0)
 
 
 class CoachingState(enum.Enum):
@@ -91,6 +95,23 @@ class _MeteredClient:
         self.chat = types.SimpleNamespace(completions=_MeteredCompletions(client.chat.completions, on_usage, extra_body))
 
 
+def _is_brief_outage(exc: Exception) -> bool:
+    if isinstance(exc, openai.APITimeoutError):
+        return False
+    return isinstance(exc, (openai.RateLimitError, openai.InternalServerError, openai.APIConnectionError))
+
+
+def _create_with_busy_retry(create, **create_kwargs):
+    for delay in (*BUSY_RETRY_DELAYS, None):
+        try:
+            return create(**create_kwargs)
+        except Exception as exc:
+            if delay is None or not _is_brief_outage(exc):
+                raise
+            logging.getLogger("erickson_coach").warning("AI service busy (%s); trying again in %.1f s", type(exc).__name__, delay)
+            time.sleep(delay)
+
+
 class _MeteredCompletions:
     def __init__(self, completions, on_usage=None, extra_body: dict | None = None):
         self._completions = completions
@@ -100,12 +121,13 @@ class _MeteredCompletions:
     def create(self, **create_kwargs):
         if self._extra_body:
             create_kwargs["extra_body"] = {**self._extra_body, **create_kwargs.get("extra_body", {})}
+        create = self._completions.create
         if not self._on_usage:
-            return self._completions.create(**create_kwargs)
+            return _create_with_busy_retry(create, **create_kwargs)
         if create_kwargs.get("stream"):
             create_kwargs.setdefault("stream_options", {"include_usage": True})
-            return _MeteredStream(self._completions.create(**create_kwargs), create_kwargs, self._on_usage)
-        response = self._completions.create(**create_kwargs)
+            return _MeteredStream(_create_with_busy_retry(create, **create_kwargs), create_kwargs, self._on_usage)
+        response = _create_with_busy_retry(create, **create_kwargs)
         message = response.choices[0].message if response.choices else None
         _report_usage(self._on_usage, create_kwargs, getattr(response, "usage", None),
                       _content_text(getattr(message, "content", None)))
