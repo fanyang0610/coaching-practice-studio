@@ -7,8 +7,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-import accounts
-import db
+# Tests must never reach the real model: blank the key before web_app loads .env (which won't override it).
+os.environ["OPENAI_API_KEY"] = ""
+
+import accounts  # noqa: E402
+import db  # noqa: E402
 
 from coach_agent import EricksonCoachingAgent
 from coachee_agent import EricksonCoacheeAgent
@@ -331,7 +334,7 @@ class TestWebAppLayout(unittest.TestCase):
         self.assertIn("initial-scale=1", head)
         self.assertIn("interactive-widget=resizes-content", head)
         with patch.object(web_app.gr, "mount_gradio_app") as mount:
-            web_app.create_app(store=db.Store("sqlite://"), env={})
+            web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "test-secret"})
         self.assertEqual(web_app.head, mount.call_args.kwargs["head"])
     def test_mobile_css_uses_real_mobile_layout_not_viewport_clamps(self):
         from web_app import css
@@ -1149,6 +1152,16 @@ class TestStoredSessions(unittest.TestCase):
         self.assertEqual(outputs[11]["value"], "coachee")
         self.assertEqual(outputs[12]["value"], "English")
 
+    def test_unreadable_stored_session_is_set_aside_not_fatal(self):
+        web_app, store, user, request = _signed_in()
+        broken = store.create_session(user["id"], "coach", "en", "llm", "CONTRACT", {"context": []})
+
+        with patch.object(web_app.logger, "exception"):
+            outputs = web_app.initial_load(None, "coach", "Template", "English", request)
+
+        self.assertNotEqual(outputs[-1]["id"], broken)
+        self.assertEqual(store.get_session(broken)["status"], "abandoned")
+
     def test_new_session_marks_the_old_one_abandoned(self):
         web_app, store, user, request = _signed_in()
         first = web_app._open_session(user, "coach", "template", "en")
@@ -1187,7 +1200,7 @@ class TestStoredSessions(unittest.TestCase):
             session = web_app._open_session(user, "coach", "llm", "en")
 
         self.assertEqual(session["agent"].mode, "template")
-        self.assertEqual(warning.call_args.args[0], web_app.UI["en"]["quota_sessions"])
+        self.assertEqual(warning.call_args.args[0], web_app.UI["en"]["quota_sessions"].format(hours=24))
 
     def test_switching_to_ai_midway_respects_the_allowance(self):
         web_app, _, user, request = _signed_in(daily_session_limit=0)
@@ -1426,55 +1439,79 @@ class TestQuota(unittest.TestCase):
             self.store.update_user(user_id, **fields)
         return self.store.get_user(user_id)
 
-    def _session(self, user, completed=False):
-        session_id = self.store.create_session(user["id"], "coach", "en", "llm", "CONTRACT", {"context": []})
+    def _session(self, user, module="coach", completed=False):
+        session_id = self.store.create_session(user["id"], module, "en", "llm", "CONTRACT", {"context": []})
         if completed:
             self.store.save_session(session_id, state={"context": []}, status="completed", stage="CLOSING",
                                     user_turns=5, language="en", mode="llm")
 
-    def test_three_finished_ai_sessions_a_day_by_default(self):
+    def test_ai_coach_and_coachee_lab_have_separate_allowances(self):
         import quota
 
         user = self._user()
-        for _ in range(2):
-            self._session(user, completed=True)
-        self.assertIsNone(quota.allowance(self.store, user).blocked_reason)
-        self.assertEqual(quota.allowance(self.store, user).sessions_left, 1)
+        for _ in range(3):
+            self._session(user, "coach", completed=True)
 
-        self._session(user, completed=True)
-        self.assertEqual(quota.allowance(self.store, user).blocked_reason, "sessions")
+        coach = quota.allowance(self.store, user, "coach")
+        practice = quota.allowance(self.store, user, "coachee")
+        self.assertEqual((coach.blocked_reason, coach.sessions_left), ("sessions", 0))
+        self.assertEqual((practice.blocked_reason, practice.sessions_left, practice.session_limit), (None, 5, 5))
 
-    def test_abandoned_starts_have_their_own_cap(self):
+    def test_abandoned_starts_are_capped_at_twice_the_allowance(self):
         import quota
 
         user = self._user()
         for _ in range(6):
-            self._session(user)
+            self._session(user, "coach")
 
-        self.assertEqual(quota.allowance(self.store, user).blocked_reason, "starts")
+        self.assertEqual(quota.allowance(self.store, user, "coach").blocked_reason, "starts")
+        self.assertIsNone(quota.allowance(self.store, user, "coachee").blocked_reason)
 
-    def test_daily_token_budget(self):
+    def test_tokens_are_one_daily_backstop_for_both_modules(self):
         import quota
 
         user = self._user()
-        self.store.record_usage(user["id"], None, "m", 200_000, 50_000)
+        self.store.record_usage(user["id"], None, "m", 350_000, 50_000)
 
-        self.assertEqual(quota.allowance(self.store, user).blocked_reason, "tokens")
+        self.assertEqual(quota.allowance(self.store, user, "coach").blocked_reason, "tokens")
+        self.assertEqual(quota.allowance(self.store, user, "coachee").blocked_reason, "tokens")
 
-    def test_admins_are_unlimited_and_overrides_apply(self):
+    def test_blocked_allowance_says_when_ai_returns(self):
+        import quota
+
+        user = self._user()
+        for _ in range(3):
+            self._session(user, "coach", completed=True)
+        allowance = quota.allowance(self.store, user, "coach")
+
+        self.assertEqual(allowance.hours_until_available(now=db.utcnow()), 24)
+        self.assertEqual(allowance.hours_until_available(now=db.utcnow() + db.dt.timedelta(hours=20)), 4)
+
+    def test_admins_are_unlimited_and_per_person_overrides_apply(self):
         import quota
 
         admin = self._user("admin")
         for _ in range(10):
             self._session(admin, completed=True)
-        self.assertIsNone(quota.allowance(self.store, admin).blocked_reason)
-        self.assertIsNone(quota.allowance(self.store, admin).session_limit)
+        self.assertIsNone(quota.allowance(self.store, admin, "coach").blocked_reason)
+        self.assertIsNone(quota.allowance(self.store, admin, "coach").session_limit)
 
         generous = self._user(daily_session_limit=10)
         for _ in range(5):
             self._session(generous, completed=True)
-        allowance = quota.allowance(self.store, generous)
+        allowance = quota.allowance(self.store, generous, "coach")
         self.assertEqual((allowance.session_limit, allowance.start_limit, allowance.sessions_left), (10, 20, 5))
+
+    def test_admin_can_change_role_defaults(self):
+        import quota
+
+        quota.save_role_limits(self.store, "user", 4, None, 500_000)
+        user = self._user()
+
+        self.assertEqual(quota.role_limits(self.store)["user"], {"coach": 4, "coachee": None, "tokens": 500_000})
+        self.assertEqual(quota.allowance(self.store, user, "coach").session_limit, 4)
+        self.assertIsNone(quota.allowance(self.store, user, "coachee").session_limit)
+        self.assertEqual(quota.role_limits(self.store)["trainer"], quota.ROLE_DEFAULTS["trainer"])
 
     def test_message_rate_limiter(self):
         import quota
@@ -1561,8 +1598,8 @@ class TestAccountPages(unittest.TestCase):
         import web_app
 
         cls.web_app = web_app
-        cls.app = web_app.create_app(store=db.Store("sqlite://"), env={})
-        cls.secret = web_app._LOCAL_SECRET
+        cls.secret = "test-secret"
+        cls.app = web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": cls.secret})
 
     def setUp(self):
         from fastapi.testclient import TestClient
@@ -1705,13 +1742,13 @@ class TestAccountPages(unittest.TestCase):
         client = self._sign_in("learner@example.com")
 
         self.assertEqual(client.get("/admin", follow_redirects=False).status_code, 303)
-        self.assertEqual(client.get("/trainer", follow_redirects=False).status_code, 303)
+        self.assertEqual(client.get("/mentor", follow_redirects=False).status_code, 303)
 
     def test_trainer_invites_assign_new_learners_to_them(self):
         trainer = self._person("trainer@example.com", role="trainer")
         client = self._sign_in("trainer@example.com")
 
-        page = client.post("/trainer/invites", data={"csrf": self._csrf(client), "email": ""})
+        page = client.post("/mentor/invites", data={"csrf": self._csrf(client), "email": ""})
         code = page.text.split("/invite/")[1].split("<")[0]
 
         self.assertEqual(self.store.get_invite(code)["trainer_id"], trainer)
@@ -1734,6 +1771,153 @@ class TestAccountPages(unittest.TestCase):
         self.assertEqual(self.client.get("/site.webmanifest").status_code, 200)
         self.assertEqual(self.client.get("/privacy").status_code, 200)
         self.assertEqual(self.client.get("/healthz").json(), {"ok": True})
+
+
+class TestLanguageAndLocalisation(unittest.TestCase):
+    def test_language_preference_cookie_then_browser(self):
+        import account_pages
+
+        self.assertEqual(account_pages.preferred_language({"erickson_lang": "zh"}, {"accept-language": "en-US"}), "zh")
+        self.assertEqual(account_pages.preferred_language({}, {"accept-language": "zh-CN,zh;q=0.9"}), "zh")
+        self.assertEqual(account_pages.preferred_language({}, {"accept-language": "en-GB,zh;q=0.5"}), "en")
+        self.assertEqual(account_pages.preferred_language({}, {}, fallback="zh"), "zh")
+
+    def test_first_session_opens_in_the_browsers_language(self):
+        import gradio as gr
+
+        web_app, _, user, _ = _signed_in()
+        english_browser = gr.Request(username=str(user["id"]), headers={"accept-language": "en-US,en;q=0.9"}, cookies={})
+
+        outputs = web_app.initial_load(None, "coach", "Template", "中文", english_browser)
+
+        self.assertEqual(outputs[-1]["agent"].language, "en")
+        self.assertEqual(outputs[12]["value"], "English")
+
+    def test_reopened_session_follows_the_chosen_language(self):
+        import gradio as gr
+
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coach", "template", "en")
+        chinese_choice = gr.Request(username=str(user["id"]), headers={"accept-language": "en-US"}, cookies={"erickson_lang": "zh"})
+
+        outputs = web_app.initial_load(None, "coach", "AI", "English", chinese_choice)
+
+        self.assertEqual(outputs[-1]["id"], session["id"])
+        self.assertEqual(outputs[-1]["agent"].language, "zh")
+        self.assertEqual(outputs[12]["value"], "中文")
+        self.assertIn("埃里克森教练", outputs[2])
+
+    def test_switching_language_in_the_app_is_remembered_for_the_pages(self):
+        import web_app
+
+        self.assertIn("erickson_lang=", web_app.remember_lang_js)
+        language_events = [fn for fn in web_app.demo.fns.values() if fn.fn is None and fn.js == web_app.remember_lang_js]
+        self.assertEqual(len(language_events), 1)
+
+    def test_every_page_string_exists_in_both_languages(self):
+        import account_pages
+
+        self.assertEqual(set(account_pages.T["en"]), set(account_pages.T["zh"]))
+        self.assertEqual(set(account_pages.T["en"]["audit_actions"]), set(account_pages.T["zh"]["audit_actions"]))
+        self.assertEqual(set(account_pages.ROLE_LABELS["en"]), set(account_pages.ROLE_LABELS["zh"]))
+
+    def test_every_app_string_exists_in_both_languages(self):
+        from web_assets import UI
+
+        self.assertEqual(set(UI["en"]), set(UI["zh"]))
+
+    def test_human_roles_do_not_reuse_the_ai_coachee_wording(self):
+        import account_pages
+        from web_assets import UI
+
+        for lang in ("en", "zh"):
+            for label in account_pages.ROLE_LABELS[lang].values():
+                self.assertNotIn(label, UI[lang]["coachee_module"])
+                self.assertNotIn(label.lower(), ("trainee", "learner", "学员"))
+
+
+class TestSelfServiceAndAdminControls(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+        import web_app
+
+        self.sent = []
+        self.store = db.Store("sqlite://")
+        with patch.object(web_app.mailer, "smtp_sender", return_value=lambda *args: self.sent.append(args)):
+            app = web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret", "SMTP_HOST": "smtp.example.com"})
+        self.client = TestClient(app)
+        self.secret = "test-secret"
+
+    def _person(self, email, role="user"):
+        return self.store.create_user(email, email.split("@")[0].title(), accounts.hash_password("a-long-password"), role=role)
+
+    def _wait_for_mail(self, count):
+        deadline = time.time() + 5
+        while len(self.sent) < count and time.time() < deadline:
+            time.sleep(0.02)
+
+    def test_forgot_password_emails_a_working_link_without_revealing_accounts(self):
+        self._person("amy@example.com")
+
+        known = self.client.post("/forgot", data={"email": "amy@example.com"}, headers={"accept-language": "zh-CN"})
+        unknown = self.client.post("/forgot", data={"email": "nobody@example.com"}, headers={"accept-language": "zh-CN"})
+        self._wait_for_mail(1)
+
+        self.assertEqual(known.status_code, unknown.status_code)
+        self.assertIn("重置链接已经发出", known.text)
+        self.assertEqual(len(self.sent), 1)
+        to, subject, body = self.sent[0]
+        self.assertEqual(to, "amy@example.com")
+        self.assertIn("重置", subject)
+        token = body.split("/reset/")[1].split()[0]
+        reset = self.client.post(f"/reset/{token}", data={"password": "brand-new-password", "confirm": "brand-new-password"}, follow_redirects=False)
+        self.assertEqual(reset.status_code, 303)
+
+    def test_login_page_offers_reset_only_when_email_is_configured(self):
+        import web_app
+        from fastapi.testclient import TestClient
+
+        self._person("owner@example.com", role="admin")
+        self.assertIn('href="/forgot"', self.client.get("/login").text)
+
+        without_email = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret"}))
+        self.assertNotIn('href="/forgot"', without_email.get("/login").text)
+        self.assertEqual(without_email.get("/forgot", follow_redirects=False).status_code, 303)
+
+    def test_admin_edits_allowances_and_reads_translated_audit_log_with_local_times(self):
+        import quota
+
+        self._person("owner@example.com", role="admin")
+        self.client.post("/login", data={"email": "owner@example.com", "password": "a-long-password"})
+        csrf = accounts.csrf_token(self.client.cookies.get(accounts.SESSION_COOKIE), self.secret)
+
+        page = self.client.post("/admin/allowances?lang=zh", data={"csrf": csrf, "role": "user", "coach": "4", "coachee": "", "tokens": "500000"})
+
+        self.assertEqual(quota.role_limits(self.store)["user"], {"coach": 4, "coachee": None, "tokens": 500_000})
+        self.assertIn("修改每日额度", page.text)
+        self.assertNotIn(">limits_updated<", page.text)
+        self.assertIn("<time datetime=", page.text)
+
+    def test_account_page_shows_each_modules_allowance(self):
+        self._person("amy@example.com")
+        self.client.post("/login", data={"email": "amy@example.com", "password": "a-long-password"})
+
+        page = self.client.get("/account?lang=en").text
+
+        self.assertIn("AI Coach: 3 of 3 AI sessions left today", page)
+        self.assertIn("Coachee Lab: 5 of 5 AI sessions left today", page)
+
+    def test_local_runs_keep_their_signing_key_between_restarts(self):
+        import web_app
+
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(web_app, "LOCAL_SECRET_FILE", Path(folder) / ".erickson_secret"):
+                first = web_app._secret_key({})
+                second = web_app._secret_key({})
+                mode = (Path(folder) / ".erickson_secret").stat().st_mode & 0o777
+
+        self.assertEqual(first, second)
+        self.assertEqual(mode, 0o600)
 
 
 if __name__ == "__main__":

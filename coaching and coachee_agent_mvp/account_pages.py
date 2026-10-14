@@ -1,5 +1,8 @@
 """Server-rendered pages around the coaching app: sign-in, invites, password resets, the account page,
-transcript review for trainers and admins, and the admin console.
+transcript review for mentors and admins, and the admin console.
+
+Mentors are people (role key "trainer"), such as coaching instructors, who review the practice of the members
+assigned to them. Both coaching modules are always a member talking with the AI.
 
 Pages are plain HTML forms so they work on any phone browser without JavaScript.
 """
@@ -10,7 +13,9 @@ from dataclasses import dataclass
 import datetime as dt
 import html
 import json
+import logging
 from pathlib import Path
+import threading
 from typing import Callable
 from urllib.parse import quote
 
@@ -32,7 +37,7 @@ T = {
         "brand": "Erickson Coach",
         "back_to_app": "Back to coaching",
         "account": "Account",
-        "trainer": "Trainer",
+        "trainer": "Mentor",
         "admin": "Admin",
         "privacy": "Privacy",
         "sign_in": "Sign in",
@@ -44,7 +49,14 @@ T = {
         "current_password": "Current password",
         "your_name": "Your name",
         "invite_only": "Erickson Coach is invite-only. Sign in with your email, or open the invite link you were sent.",
-        "forgot": "Forgot your password? Ask your trainer or the admin for a reset link.",
+        "forgot": "Forgot your password? Ask your mentor or the admin for a reset link.",
+        "forgot_link": "Forgot your password?",
+        "forgot_title": "Reset your password",
+        "forgot_hint": "Enter your account email. If it belongs to an account, we'll email a reset link that works for 2 hours.",
+        "forgot_sent": "If that email belongs to an account, a reset link is on its way. Check your inbox and spam folder.",
+        "send_link": "Email me a reset link",
+        "reset_email_subject": "Reset your Erickson Coach password",
+        "reset_email_body": "Someone asked to reset the password for your Erickson Coach account.\n\nTo choose a new password, open this link within 2 hours:\n{link}\n\nIf this wasn't you, ignore this email and your password stays the same.",
         "open_new_tab": "Signing in doesn't work inside an embedded page. Open Erickson Coach in its own tab.",
         "bad_login": "That email and password don't match an active account.",
         "throttled": "Too many attempts. Please wait 15 minutes and try again.",
@@ -68,13 +80,13 @@ T = {
         "my_sessions": "My sessions",
         "no_sessions": "No sessions yet.",
         "view": "View",
-        "share": "Share with trainer",
+        "share": "Share with mentor",
         "unshare": "Stop sharing",
         "shared": "Shared",
         "private": "Private",
-        "trainer_sees_practice": "Your trainer can review your Coachee Lab practice sessions. AI Coach sessions stay private unless you share them.",
-        "no_trainer": "You don't have an assigned trainer.",
-        "your_trainer": "Your trainer: {name}",
+        "trainer_sees_practice": "Your mentor can review your Coachee Lab practice sessions. AI Coach sessions stay private unless you share them.",
+        "no_trainer": "You don't have a mentor. Only you and the app admin can see your sessions.",
+        "your_trainer": "Your mentor: {name}",
         "insights": "AI insights about you",
         "no_insights": "Finish an AI session to build insights.",
         "strengths": "Strengths",
@@ -88,8 +100,8 @@ T = {
         "delete_hint": "This permanently deletes your account, sessions and insights. Type DELETE to confirm.",
         "delete_confirm_wrong": "Type DELETE (in capitals) to confirm.",
         "last_admin": "You're the only admin. Make someone else an admin first.",
-        "ai_left": "AI sessions left today: {left} of {limit}",
-        "ai_unlimited": "AI sessions today: no limit",
+        "ai_left": "{module}: {left} of {limit} AI sessions left today",
+        "ai_unlimited": "{module}: no daily AI limit",
         "module_coach": "AI Coach",
         "module_coachee": "Coachee Lab",
         "status_active": "In progress",
@@ -106,14 +118,15 @@ T = {
         "coach": "Coach",
         "ai_coach": "AI coach",
         "ai_coachee": "AI coachee",
-        "trainees": "Trainees",
-        "no_trainees": "No trainees yet. Create an invite to add one.",
+        "trainees": "Members you mentor",
+        "no_trainees": "No members are assigned to you yet. Create an invite to add one.",
         "trainee_sessions": "Sessions you can review",
-        "invite_trainee": "Invite a trainee",
+        "invite_trainee": "Invite a member",
+        "mentor_hint": "Mentors are people, such as coaching instructors, who review the practice of the members assigned to them: their Coachee Lab sessions, plus any AI Coach session a member chooses to share. The coaching itself is always between the member and the AI.",
         "invite_someone": "Create an invite",
         "invite_email_optional": "Email (optional: locks the invite to this address)",
         "role": "Role",
-        "assign_trainer": "Trainer",
+        "assign_trainer": "Mentor",
         "none": "None",
         "create_invite": "Create invite link",
         "invite_created": "Invite link (valid 14 days, one use). Send it to the person directly:",
@@ -127,7 +140,14 @@ T = {
         "status": "Status",
         "active": "active",
         "disabled": "disabled",
-        "daily_sessions": "AI sessions per day",
+        "daily_sessions": "AI sessions per day (each module)",
+        "allowances": "Daily AI allowances",
+        "allowances_hint": "Per person, over a rolling 24 hours. Finished AI sessions count per module, and started ones are capped at twice that. Tokens are shared by both modules. Leave a field empty for no limit. Admins are never limited.",
+        "coach_sessions": "AI Coach sessions",
+        "coachee_sessions": "Coachee Lab sessions",
+        "tokens_per_day": "Tokens",
+        "allowances_saved": "Allowances saved.",
+        "unlimited": "no limit",
         "daily_tokens": "Tokens per day",
         "default": "default",
         "update": "Update",
@@ -144,10 +164,17 @@ T = {
             "Erickson Coach is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
             "If you might harm yourself or are in danger, contact your local emergency number now. You can find a free, confidential helpline in your country at findahelpline.com.",
             "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), short AI-written insights about your coaching, your feedback on replies, and how many AI tokens you used.",
-            "Who can read your sessions: you; the app admin; and your assigned trainer, who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
+            "Who can read your sessions: you; the app admin; and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
             "AI processing: your messages are sent to the configured AI model provider to generate replies.",
             "Your choices: you can download all your data or delete your account at any time from the Account page. Deleting removes your sessions and insights permanently.",
         ],
+        "audit_actions": {
+            "account_created": "Account created", "account_deleted": "Account deleted", "password_changed": "Password changed",
+            "password_reset": "Password reset", "reset_link_created": "Reset link created", "reset_email_sent": "Reset email sent",
+            "invite_created": "Invite created", "invite_revoked": "Invite revoked", "user_updated": "Person updated",
+            "session_viewed": "Session viewed", "session_shared": "Session shared", "session_unshared": "Session unshared",
+            "safety_flag": "Safety message shown", "limits_updated": "Allowances changed",
+        },
     },
     "zh": {
         "brand": "埃里克森教练",
@@ -166,6 +193,13 @@ T = {
         "your_name": "你的名字",
         "invite_only": "埃里克森教练仅限受邀用户。请用邮箱登录，或打开你收到的邀请链接。",
         "forgot": "忘记密码？请联系你的导师或管理员获取重置链接。",
+        "forgot_link": "忘记密码？",
+        "forgot_title": "重置密码",
+        "forgot_hint": "请输入账户邮箱。如果该邮箱有账户，我们会发送一个 2 小时内有效的重置链接。",
+        "forgot_sent": "如果该邮箱有账户，重置链接已经发出。请查看收件箱和垃圾邮件。",
+        "send_link": "发送重置链接",
+        "reset_email_subject": "重置你的埃里克森教练密码",
+        "reset_email_body": "有人请求重置你的埃里克森教练账户密码。\n\n如需设置新密码，请在 2 小时内打开此链接：\n{link}\n\n如果不是你本人操作，请忽略此邮件，你的密码不会改变。",
         "open_new_tab": "嵌入页面中无法登录，请在新标签页中打开埃里克森教练。",
         "bad_login": "邮箱和密码与有效账户不匹配。",
         "throttled": "尝试次数过多，请 15 分钟后再试。",
@@ -193,8 +227,8 @@ T = {
         "unshare": "取消分享",
         "shared": "已分享",
         "private": "私密",
-        "trainer_sees_practice": "你的导师可以查看你的陪练（AI学员）会话。AI教练会话默认私密，除非你主动分享。",
-        "no_trainer": "你还没有分配导师。",
+        "trainer_sees_practice": "你的导师可以查看你的 AI学员陪练 会话。AI教练 会话默认私密，除非你主动分享。",
+        "no_trainer": "你还没有导师。只有你本人和应用管理员能看到你的会话。",
         "your_trainer": "你的导师：{name}",
         "insights": "AI 对你的洞察",
         "no_insights": "完成一次 AI 会话后会生成洞察。",
@@ -209,8 +243,8 @@ T = {
         "delete_hint": "这将永久删除你的账户、会话和洞察。请输入 DELETE 确认。",
         "delete_confirm_wrong": "请输入大写的 DELETE 确认。",
         "last_admin": "你是唯一的管理员，请先将其他人设为管理员。",
-        "ai_left": "今日剩余 AI 会话：{left} / {limit}",
-        "ai_unlimited": "今日 AI 会话：不限次数",
+        "ai_left": "{module}：今日剩余 {left} / {limit} 次 AI 会话",
+        "ai_unlimited": "{module}：AI 会话不限次数",
         "module_coach": "AI教练",
         "module_coachee": "AI学员陪练",
         "status_active": "进行中",
@@ -227,10 +261,11 @@ T = {
         "coach": "教练",
         "ai_coach": "AI教练",
         "ai_coachee": "AI学员",
-        "trainees": "学员",
-        "no_trainees": "还没有学员，创建邀请来添加。",
+        "trainees": "我指导的成员",
+        "no_trainees": "还没有分配给你的成员，创建邀请来添加。",
         "trainee_sessions": "你可以查看的会话",
-        "invite_trainee": "邀请学员",
+        "invite_trainee": "邀请成员",
+        "mentor_hint": "导师是真实的人（例如教练课程讲师），负责查看分配给自己的成员的练习：他们的 AI学员陪练 会话，以及成员主动分享的 AI教练 会话。教练对话本身始终是成员与 AI 之间进行。",
         "invite_someone": "创建邀请",
         "invite_email_optional": "邮箱（可选：限定此邀请只能由该邮箱使用）",
         "role": "身份",
@@ -248,7 +283,14 @@ T = {
         "status": "状态",
         "active": "正常",
         "disabled": "已停用",
-        "daily_sessions": "每日 AI 会话数",
+        "daily_sessions": "每日 AI 会话数（每个模块）",
+        "allowances": "每日 AI 额度",
+        "allowances_hint": "按每人、滚动 24 小时计算。已完成的 AI 会话按模块分别计数，开启的会话上限为其两倍。Token 由两个模块共用。留空表示不限。管理员不受限制。",
+        "coach_sessions": "AI教练 会话",
+        "coachee_sessions": "AI学员陪练 会话",
+        "tokens_per_day": "Tokens",
+        "allowances_saved": "额度已保存。",
+        "unlimited": "不限",
         "daily_tokens": "每日 Token 数",
         "default": "默认",
         "update": "更新",
@@ -265,16 +307,23 @@ T = {
             "埃里克森教练是教练练习工具，不是心理治疗、医疗建议或危机援助。",
             "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话。你可以在 findahelpline.com 找到你所在国家的免费保密求助热线。",
             "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、AI 生成的简短洞察、你对回复的反馈，以及你使用的 AI token 数。",
-            "谁能看到你的会话：你本人；应用管理员；以及你的导师——导师可以查看你的陪练（AI学员）会话，以及你主动分享的 AI教练 会话。除你之外的任何人打开你的会话都会记录在审计日志中。",
+            "谁能看到你的会话：你本人；应用管理员；以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。除你之外的任何人打开你的会话都会记录在审计日志中。",
             "AI 处理：你的消息会发送给配置的 AI 模型服务商以生成回复。",
             "你的选择：你可以随时在账户页面下载全部数据或删除账户。删除后，会话和洞察将被永久移除。",
         ],
+        "audit_actions": {
+            "account_created": "创建账户", "account_deleted": "删除账户", "password_changed": "修改密码",
+            "password_reset": "重置密码", "reset_link_created": "生成重置链接", "reset_email_sent": "发送重置邮件",
+            "invite_created": "创建邀请", "invite_revoked": "撤销邀请", "user_updated": "更新成员信息",
+            "session_viewed": "查看会话", "session_shared": "分享会话", "session_unshared": "取消分享会话",
+            "safety_flag": "显示安全提示", "limits_updated": "修改每日额度",
+        },
     },
 }
 
 ROLE_LABELS = {
-    "en": {"user": "learner", "trainer": "trainer", "admin": "admin"},
-    "zh": {"user": "学员", "trainer": "导师", "admin": "管理员"},
+    "en": {"user": "member", "trainer": "mentor", "admin": "admin"},
+    "zh": {"user": "成员", "trainer": "导师", "admin": "管理员"},
 }
 
 CSS = """
@@ -331,6 +380,7 @@ form.inline { display:inline; margin:0; }
 .grid2 > .card { margin-bottom:0; }
 .fields { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:8px 12px; width:100%; }
 .fields label { margin:0 0 4px; font-size:12px; color:var(--muted); }
+.fields.three { grid-template-columns:repeat(3, minmax(0, 1fr)); }
 code.link { display:block; word-break:break-all; background:var(--mist); border:1px solid var(--border); padding:10px 12px; border-radius:12px; font-size:13px; }
 ul.tight { margin:6px 0 0; padding-left:1.2em; }
 .transcript .msg { max-width:85%; padding:10px 14px; border-radius:16px; margin:10px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -345,6 +395,7 @@ ul.tight { margin:6px 0 0; padding-left:1.2em; }
   .card { padding:16px; border-radius:18px; }
   .grid2 { grid-template-columns:minmax(0, 1fr); }
   .fields { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .fields.three { grid-template-columns:minmax(0, 1fr); }
   .transcript .msg { max-width:92%; }
 }
 """
@@ -357,13 +408,24 @@ class PageSettings:
     allow_local_setup: bool
     public_url: str = ""
     storage_warning: bool = False
+    # send(to, subject, body); set when SMTP is configured, enabling self-service password resets.
+    mailer: Callable[[str, str, str], None] | None = None
+
+
+def preferred_language(cookies, headers, fallback: str | None = "en") -> str | None:
+    """The language a person last picked (shared by the app and these pages), else their browser's first language."""
+    chosen = (cookies or {}).get(LANG_COOKIE)
+    if chosen in ("en", "zh"):
+        return chosen
+    accept = ((headers or {}).get("accept-language") or "").strip().lower()
+    if not accept:
+        return fallback
+    return "zh" if accept.startswith("zh") else "en"
 
 
 def page_lang(request: Request) -> str:
-    chosen = request.query_params.get("lang") or request.cookies.get(LANG_COOKIE)
-    if chosen in ("en", "zh"):
-        return chosen
-    return "zh" if request.headers.get("accept-language", "").lower().startswith("zh") else "en"
+    chosen = request.query_params.get("lang")
+    return chosen if chosen in ("en", "zh") else preferred_language(request.cookies, request.headers)
 
 
 def current_user(request: Request, store: db.Store, secret: str) -> dict | None:
@@ -374,8 +436,26 @@ def _e(value) -> str:
     return html.escape("" if value is None else str(value))
 
 
-def _when(value: dt.datetime | None) -> str:
-    return value.strftime("%Y-%m-%d %H:%M UTC") if value else ""
+def _time(value: dt.datetime | None) -> str:
+    """A UTC timestamp as HTML; a small script on each page shows it in the reader's own time zone."""
+    if not value:
+        return ""
+    return f'<time datetime="{value.isoformat()}Z">{value.strftime("%Y-%m-%d %H:%M")} UTC</time>'
+
+
+LOCAL_TIME_JS = """<script>
+document.querySelectorAll('time[datetime]').forEach(function (el) {
+  var when = new Date(el.getAttribute('datetime'));
+  if (!isNaN(when)) el.textContent = when.toLocaleString(document.documentElement.lang, {dateStyle: 'medium', timeStyle: 'short'});
+});
+</script>"""
+
+
+def _send_quietly(mailer, to: str, subject: str, body: str) -> None:
+    try:
+        mailer(to, subject, body)
+    except Exception:
+        logging.getLogger("erickson_coach").exception("Sending email failed")
 
 
 def _safe_next(target: str | None) -> str:
@@ -399,7 +479,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         if user:
             links = [("/", T[lang]["back_to_app"], "app"), ("/account", T[lang]["account"], "account")]
             if user["role"] in ("trainer", "admin"):
-                links.append(("/trainer", T[lang]["trainer"], "trainer"))
+                links.append(("/mentor", T[lang]["trainer"], "trainer"))
             if user["role"] == "admin":
                 links.append(("/admin", T[lang]["admin"], "admin"))
             nav = "<nav>" + "".join(
@@ -414,7 +494,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <link rel="icon" type="image/png" href="/icons/erickson-icon-192.png"><link rel="apple-touch-icon" href="/icons/erickson-icon-180.png">
 <style>{CSS}</style></head><body><main class="shell">
 <header class="bar"><a class="brand" href="/"><img src="/icons/erickson-icon-192.png" alt="">{_e(T[lang]['brand'])}</a>{nav}</header>
-{flash_html}{body}{switch}</main></body></html>"""
+{flash_html}{body}{switch}</main>{LOCAL_TIME_JS}</body></html>"""
         response = HTMLResponse(page, status_code=status_code)
         if request.query_params.get("lang") in ("en", "zh"):
             response.set_cookie(LANG_COOKIE, lang, max_age=365 * 86400, samesite="lax", secure=settings.secure_cookies)
@@ -467,13 +547,14 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 
     def login_form(request: Request, lang: str, email: str = "", flash=None, status_code: int = 200) -> HTMLResponse:
         next_path = _safe_next(request.query_params.get("next"))
+        forgot = (f'<a href="/forgot">{_e(T[lang]["forgot_link"])}</a>' if settings.mailer else _e(T[lang]["forgot"]))
         body = f"""<div class="card narrow"><h1>{_e(T[lang]['sign_in'])}</h1><p class="hint">{_e(T[lang]['invite_only'])}</p>
 <p id="frame-note" class="flash info"><a href="/login" target="_top">{_e(T[lang]['open_new_tab'])}</a></p>
 <form method="post" action="/login?next={quote(next_path)}">
 <label for="email">{_e(T[lang]['email'])}</label><input id="email" name="email" type="email" autocomplete="email" required value="{_e(email)}">
 <label for="password">{_e(T[lang]['password'])}</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 <button class="full" type="submit">{_e(T[lang]['sign_in'])}</button></form>
-<p class="hint">{_e(T[lang]['forgot'])}</p></div>
+<p class="hint">{forgot}</p></div>
 <script>if (window.top !== window.self) document.getElementById('frame-note').style.display = 'block';</script>"""
         return render(request, lang, T[lang]["sign_in"], body, flash=flash, status_code=status_code)
 
@@ -595,6 +676,43 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         store.log(invite["created_by"], "account_created", target_user_id=user_id, detail=f"invite {code[:6]}… as {invite['role']}")
         return set_login(RedirectResponse("/", status_code=303), store.get_user(user_id))
 
+    # Forgot password (needs SMTP) ------------------------------------------------
+
+    forgot_throttle = accounts.LoginThrottle(max_failures=5, window_seconds=900)
+
+    def forgot_form(request: Request, lang: str, flash=None) -> HTMLResponse:
+        body = f"""<div class="card narrow"><h1>{_e(T[lang]['forgot_title'])}</h1><p class="hint">{_e(T[lang]['forgot_hint'])}</p>
+<form method="post" action="/forgot">
+<label for="email">{_e(T[lang]['email'])}</label><input id="email" name="email" type="email" autocomplete="email" required>
+<button class="full" type="submit">{_e(T[lang]['send_link'])}</button></form>
+<p class="hint"><a href="/login">{_e(T[lang]['sign_in'])}</a></p></div>"""
+        return render(request, lang, T[lang]["forgot_title"], body, flash=flash)
+
+    @router.get("/forgot")
+    def forgot_page(request: Request):
+        if not settings.mailer:
+            return RedirectResponse("/login", status_code=303)
+        return forgot_form(request, page_lang(request))
+
+    @router.post("/forgot")
+    def forgot_submit(request: Request, email: str = Form("")):
+        if not settings.mailer:
+            return RedirectResponse("/login", status_code=303)
+        lang = page_lang(request)
+        key = f"{email.strip().lower()}|{request.client.host if request.client else ''}"
+        if forgot_throttle.blocked(key):
+            return forgot_form(request, lang, ("error", T[lang]["throttled"]))
+        forgot_throttle.failed(key)
+        store = get_store()
+        user = store.get_user_by_email(email)
+        if user and user["status"] == "active":
+            link = f"{base_url(request)}/reset/{store.create_password_reset(user['id'], hours_valid=2)}"
+            store.log(user["id"], "reset_email_sent", target_user_id=user["id"])
+            # Send in the background so the reply time doesn't reveal whether the account exists.
+            threading.Thread(target=_send_quietly, args=(settings.mailer, user["email"], T[lang]["reset_email_subject"],
+                                                          T[lang]["reset_email_body"].format(link=link)), daemon=True).start()
+        return forgot_form(request, lang, ("ok", T[lang]["forgot_sent"]))
+
     # Password reset -------------------------------------------------------------
 
     def reset_form(request, lang, token, flash=None) -> HTMLResponse:
@@ -644,7 +762,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         module = T[lang]["module_coachee" if row["module"] == "coachee" else "module_coach"]
         status = T[lang].get(f"status_{row['status']}", row["status"])
         stage = STAGE_NAMES[lang].get(CoachingState[row["stage"]], row["stage"]) if row["stage"] in CoachingState.__members__ else ""
-        bits = [_when(row["created_at"]), text(lang, "turns_one" if row["user_turns"] == 1 else "turns", n=row["user_turns"])]
+        bits = [text(lang, "turns_one" if row["user_turns"] == 1 else "turns", n=row["user_turns"])]
         if row["mode"] == "template":
             bits.append(T[lang]["mode_template"])
         title = f"{_e(owner_name)} · {_e(module)}" if owner_name else _e(module)
@@ -652,7 +770,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         if row["module"] == "coach":
             shared = f'<span class="pill{" gold" if row["shared_with_trainer"] else ""}">{_e(T[lang]["shared" if row["shared_with_trainer"] else "private"])}</span>'
         return f"""<div class="row"><div class="main"><div class="title">{title} <span class="pill">{_e(status)}</span> {shared}</div>
-<div class="meta">{_e(stage)} · {_e(' · '.join(bits))}</div></div>
+<div class="meta">{_e(stage)} · {_time(row["created_at"])} · {_e(' · '.join(bits))}</div></div>
 <div class="actions">{share_form}{f'<a class="button secondary" href="/sessions/{_e(row["id"])}">{_e(T[lang]["view"])}</a>' if link else ''}</div></div>"""
 
     def profile_block(lang: str, module: str, data: dict | None, request: Request) -> str:
@@ -670,11 +788,14 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
     def account_page(request: Request, user: dict, flash=None) -> HTMLResponse:
         lang = page_lang(request)
         store = get_store()
-        allowance = quota.allowance(store, user)
-        if allowance.session_limit is None:
-            quota_line = T[lang]["ai_unlimited"]
-        else:
-            quota_line = text(lang, "ai_left", left=allowance.sessions_left, limit=allowance.session_limit)
+        quota_lines = []
+        for module in quota.MODULES:
+            allowance = quota.allowance(store, user, module)
+            name = T[lang]["module_coachee" if module == "coachee" else "module_coach"]
+            if allowance.session_limit is None:
+                quota_lines.append(text(lang, "ai_unlimited", module=name))
+            else:
+                quota_lines.append(text(lang, "ai_left", module=name, left=allowance.sessions_left, limit=allowance.session_limit))
         trainer = store.get_user(user["trainer_id"]) if user["trainer_id"] else None
         trainer_line = text(lang, "your_trainer", name=trainer["display_name"]) if trainer else T[lang]["no_trainer"]
         rows = []
@@ -688,7 +809,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             rows.append(session_row(lang, row, share_form=share_form))
         sessions_html = "".join(rows) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'
         body = f"""<div class="card"><div class="eyebrow">{_e(ROLE_LABELS[lang][user['role']])}</div><h1>{_e(user['display_name'])}</h1>
-<p class="muted">{_e(user['email'])}<br>{_e(quota_line)}</p><p class="hint">{_e(trainer_line)}<br>{_e(T[lang]['trainer_sees_practice'])}</p>
+<p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{_e(trainer_line)}<br>{_e(T[lang]['trainer_sees_practice'])}</p>
 <form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
 <div class="card"><h2>{_e(T[lang]['my_sessions'])}</h2><div class="list">{sessions_html}</div></div>
 <div class="card"><h2>{_e(T[lang]['insights'])}</h2><div class="grid2">
@@ -808,11 +929,11 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             bubbles.append(f'<div class="msg {"ai" if is_ai else "human"}"><span class="who">{_e(ai_label if is_ai else human_label)}{mark}</span>{_e(message.get("content"))}</div>')
         owner_line = f'{_e(T[lang]["owner"])}: {_e(owner["display_name"])} · ' if owner and owner["id"] != user["id"] else ""
         body = f"""<div class="card"><div class="eyebrow">{_e(T[lang]['transcript'])}</div>
-{session_row(lang, row, link=False)}<p class="muted">{owner_line}{_e(_when(row['updated_at']))}</p>
+{session_row(lang, row, link=False)}<p class="muted">{owner_line}{_time(row['updated_at'])}</p>
 <div class="transcript">{''.join(bubbles) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'}</div></div>"""
         return render(request, lang, T[lang]["transcript"], body, user=user)
 
-    # Trainer ----------------------------------------------------------------------
+    # Mentor (role key "trainer") -----------------------------------------------------
 
     def invite_form(request: Request, lang: str, action: str, *, roles: tuple[str, ...], trainers: list[dict]) -> str:
         role_options = "".join(f'<option value="{role}">{_e(ROLE_LABELS[lang][role])}</option>' for role in roles)
@@ -841,17 +962,18 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             f'<div class="meta">{_e(t["email"])} · {_e(text(lang, "tokens_24h", n=usage.get(t["id"], 0)))}</div></div></div>'
             for t in trainees) or f'<p class="muted">{_e(T[lang]["no_trainees"])}</p>'
         sessions = "".join(session_row(lang, row, owner_name=row["owner_name"]) for row in store.trainer_visible_sessions(user["id"]))
-        body = f"""{extra}<div class="grid2"><div class="card"><h2>{_e(T[lang]['trainees'])}</h2><div class="list">{trainee_rows}</div></div>
-<div class="card"><h2>{_e(T[lang]['invite_trainee'])}</h2>{invite_form(request, lang, '/trainer/invites', roles=('user',), trainers=[])}</div></div>
+        body = f"""{extra}<p class="flash info">{_e(T[lang]['mentor_hint'])}</p>
+<div class="grid2"><div class="card"><h2>{_e(T[lang]['trainees'])}</h2><div class="list">{trainee_rows}</div></div>
+<div class="card"><h2>{_e(T[lang]['invite_trainee'])}</h2>{invite_form(request, lang, '/mentor/invites', roles=('user',), trainers=[])}</div></div>
 <div class="card"><h2>{_e(T[lang]['trainee_sessions'])}</h2><div class="list">{sessions or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'}</div></div>"""
         return render(request, lang, T[lang]["trainer"], body, user=user, current="trainer")
 
-    @router.get("/trainer")
+    @router.get("/mentor")
     def trainer(request: Request):
         user = checked_user(request, roles=("trainer", "admin"))
         return trainer_page(request, user) if user else login_redirect(request)
 
-    @router.post("/trainer/invites")
+    @router.post("/mentor/invites")
     def trainer_invite(request: Request, csrf: str = Form(""), email: str = Form("")):
         user = checked_user(request, csrf, roles=("trainer", "admin"))
         if not user:
@@ -914,21 +1036,29 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
                 revoke = (f'<form method="post" action="/admin/invites/{_e(invite["code"])}/revoke" class="inline">{csrf}'
                           f'<button class="quiet" type="submit">{_e(T[lang]["revoke"])}</button></form>')
             invite_rows.append(f"""<div class="row"><div class="main"><div class="title">{_e(invite['email'] or '—')} <span class="pill">{_e(ROLE_LABELS[lang][invite['role']])}</span> <span class="pill">{_e(state)}</span></div>
-<div class="meta">{_e(invite['code'][:6])}… · {_e(_when(invite['created_at']))}{(' · ' + _e(T[lang]['assign_trainer']) + ': ' + _e(names.get(invite['trainer_id'], '?'))) if invite['trainer_id'] else ''}</div></div>
+<div class="meta">{_e(invite['code'][:6])}… · {_time(invite['created_at'])}{(' · ' + _e(T[lang]['assign_trainer']) + ': ' + _e(names.get(invite['trainer_id'], '?'))) if invite['trainer_id'] else ''}</div></div>
 <div class="actions">{revoke}</div></div>""")
 
         audit_rows = "".join(
-            f'<div class="row"><div class="main"><div class="title">{_e(entry["action"])}</div><div class="meta">{_e(_when(entry["created_at"]))} · '
+            f'<div class="row"><div class="main"><div class="title">{_e(T[lang]["audit_actions"].get(entry["action"], entry["action"]))}</div><div class="meta">{_time(entry["created_at"])} · '
             f'{_e(names.get(entry["actor_id"], entry["actor_id"] or "system"))}'
             f'{(" → " + _e(names.get(entry["target_user_id"], entry["target_user_id"]))) if entry["target_user_id"] else ""}'
             f'{(" · " + _e(entry["target_session_id"][:8])) if entry["target_session_id"] else ""}'
             f'{(" · " + _e(entry["detail"])) if entry["detail"] else ""}</div></div></div>'
             for entry in store.audit_entries(60))
+        limits = quota.role_limits(store)
+        allowance_forms = "".join(f"""<form method="post" action="/admin/allowances" class="row">{csrf}<input type="hidden" name="role" value="{role}">
+<div class="main"><div class="title">{_e(ROLE_LABELS[lang][role])}</div><div class="fields three">
+<div><label>{_e(T[lang]['coach_sessions'])}</label><input type="number" min="0" name="coach" placeholder="{_e(T[lang]['unlimited'])}" value="{_e('' if limits[role]['coach'] is None else limits[role]['coach'])}"></div>
+<div><label>{_e(T[lang]['coachee_sessions'])}</label><input type="number" min="0" name="coachee" placeholder="{_e(T[lang]['unlimited'])}" value="{_e('' if limits[role]['coachee'] is None else limits[role]['coachee'])}"></div>
+<div><label>{_e(T[lang]['tokens_per_day'])}</label><input type="number" min="0" step="1000" name="tokens" placeholder="{_e(T[lang]['unlimited'])}" value="{_e('' if limits[role]['tokens'] is None else limits[role]['tokens'])}"></div>
+</div></div><div class="actions"><button class="quiet" type="submit">{_e(T[lang]['update'])}</button></div></form>""" for role in ("user", "trainer"))
         votes = store.feedback_totals_since(now - dt.timedelta(days=7))
         warning = f'<div class="flash error">{_e(T[lang]["storage_warning"])}</div>' if settings.storage_warning else ""
         body = f"""{warning}{extra}<div class="grid2"><div class="card"><h2>{_e(T[lang]['invite_someone'])}</h2>
 {invite_form(request, lang, '/admin/invites', roles=accounts.ROLES, trainers=trainers)}</div>
 <div class="card"><h2>{_e(T[lang]['invites'])}</h2><div class="list">{''.join(invite_rows) or '<p class="muted">—</p>'}</div></div></div>
+<div class="card"><h2>{_e(T[lang]['allowances'])}</h2><p class="hint">{_e(T[lang]['allowances_hint'])}</p><div class="list">{allowance_forms}</div></div>
 <div class="card"><h2>{_e(T[lang]['users'])}</h2><p class="muted">{_e(text(lang, 'feedback_summary', up=votes.get('like', 0), down=votes.get('dislike', 0)))}</p><div class="list">{''.join(user_rows)}</div></div>
 <div class="card"><h2>{_e(T[lang]['recent_sessions'])}</h2><div class="list">{''.join(session_row(lang, row, owner_name=row['owner_name']) for row in store.recent_sessions(60)) or '<p class="muted">—</p>'}</div></div>
 <div class="card"><h2>{_e(T[lang]['audit'])}</h2><div class="list">{audit_rows or '<p class="muted">—</p>'}</div></div>"""
@@ -950,6 +1080,20 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         store.log(user["id"], "invite_created", detail=f"{role} invite {code[:6]}…")
         lang = page_lang(request)
         return admin_page(request, user, created_link(lang, "invite_created", f"{base_url(request)}/invite/{code}"))
+
+    @router.post("/admin/allowances")
+    def admin_allowances(request: Request, csrf: str = Form(""), role: str = Form(""), coach: str = Form(""),
+                         coachee: str = Form(""), tokens: str = Form("")):
+        admin_user = checked_user(request, csrf, roles=("admin",))
+        if not admin_user:
+            return login_redirect(request)
+        lang = page_lang(request)
+        if role in ("user", "trainer"):
+            values = [int(v) if v.strip().isdigit() else None for v in (coach, coachee, tokens)]
+            store = get_store()
+            quota.save_role_limits(store, role, *values)
+            store.log(admin_user["id"], "limits_updated", detail=f"{role}: coach={values[0]} coachee={values[1]} tokens={values[2]}")
+        return admin_page(request, admin_user, f'<div class="flash ok">{_e(T[lang]["allowances_saved"])}</div>')
 
     @router.post("/admin/invites/{code}/revoke")
     def admin_revoke(request: Request, code: str, csrf: str = Form("")):

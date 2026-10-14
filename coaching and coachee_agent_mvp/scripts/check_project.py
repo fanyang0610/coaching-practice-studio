@@ -41,6 +41,7 @@ PYTHON_FILES = [
     "account_pages.py",
     "quota.py",
     "safety.py",
+    "mailer.py",
 ]
 
 

@@ -1,7 +1,10 @@
-"""Daily AI allowances per person, over a rolling 24 hours, plus a per-minute message limit.
+"""Daily AI allowances per person and module, over a rolling 24 hours, plus a per-minute message limit.
 
 A session that is already running is never cut off: allowances are checked when an AI session starts.
 Over the limit, new sessions open in template mode instead.
+
+AI Coach (personal coaching) and Coachee Lab (practice) have separate session allowances, because
+practice drills shouldn't use up someone's own coaching. Tokens are one shared daily backstop.
 """
 
 from __future__ import annotations
@@ -15,24 +18,43 @@ import time
 import db
 
 
-# "sessions" counts finished AI sessions; "starts" also counts ones abandoned midway (each opening costs model calls).
+MODULES = ("coach", "coachee")
+LIMITS_SETTING = "role_limits"
+# Finished AI sessions per module, and tokens across both. None means no limit.
 ROLE_DEFAULTS = {
-    "user": {"sessions": 3, "starts": 6, "tokens": 250_000},
-    "trainer": {"sessions": 15, "starts": 30, "tokens": 1_000_000},
-    "admin": {"sessions": None, "starts": None, "tokens": None},
+    "user": {"coach": 3, "coachee": 5, "tokens": 400_000},
+    "trainer": {"coach": 10, "coachee": 20, "tokens": 1_500_000},
+    "admin": {"coach": None, "coachee": None, "tokens": None},
 }
 MESSAGES_PER_MINUTE = 10
 WINDOW = dt.timedelta(hours=24)
 
 
+def role_limits(store: db.Store) -> dict[str, dict[str, int | None]]:
+    """Code defaults, overridden by whatever the admin saved on the Admin page."""
+    saved = store.get_setting(LIMITS_SETTING) or {}
+    return {role: {**defaults, **saved.get(role, {})} for role, defaults in ROLE_DEFAULTS.items()}
+
+
+def save_role_limits(store: db.Store, role: str, coach: int | None, coachee: int | None, tokens: int | None) -> None:
+    saved = store.get_setting(LIMITS_SETTING) or {}
+    saved[role] = {"coach": coach, "coachee": coachee, "tokens": tokens}
+    store.set_setting(LIMITS_SETTING, saved)
+
+
 @dataclass
 class Allowance:
+    module: str
     session_limit: int | None
     sessions_used: int
     start_limit: int | None
     starts_used: int
     token_limit: int | None
     tokens_used: int
+    # When the oldest counted item drops out of the 24-hour window, per limit.
+    sessions_free_at: dt.datetime | None = None
+    starts_free_at: dt.datetime | None = None
+    tokens_free_at: dt.datetime | None = None
 
     @property
     def sessions_left(self) -> int | None:
@@ -49,24 +71,34 @@ class Allowance:
             return "tokens"
         return None
 
+    def hours_until_available(self, now: dt.datetime | None = None) -> int:
+        free_at = {"sessions": self.sessions_free_at, "starts": self.starts_free_at, "tokens": self.tokens_free_at}.get(self.blocked_reason)
+        if free_at is None:
+            return 24
+        seconds = (free_at - (now or db.utcnow())).total_seconds()
+        return max(1, -(-int(seconds) // 3600))
 
-def allowance(store: db.Store, user: dict, now: dt.datetime | None = None) -> Allowance:
-    defaults = ROLE_DEFAULTS.get(user["role"], ROLE_DEFAULTS["user"])
-    session_limit = user["daily_session_limit"] if user["daily_session_limit"] is not None else defaults["sessions"]
-    token_limit = user["daily_token_limit"] if user["daily_token_limit"] is not None else defaults["tokens"]
-    if user["daily_session_limit"] is not None:
-        start_limit = session_limit * 2
-    else:
-        start_limit = defaults["starts"]
+
+def allowance(store: db.Store, user: dict, module: str = "coach", now: dt.datetime | None = None) -> Allowance:
+    limits = role_limits(store).get(user["role"], ROLE_DEFAULTS["user"])
+    session_limit = user["daily_session_limit"] if user["daily_session_limit"] is not None else limits[module]
+    token_limit = user["daily_token_limit"] if user["daily_token_limit"] is not None else limits["tokens"]
+    # Abandoned sessions still cost an opening call, so starts are capped too, at twice the finished allowance.
+    start_limit = None if session_limit is None else session_limit * 2
     since = (now or db.utcnow()) - WINDOW
-    return Allowance(
-        session_limit=session_limit,
-        sessions_used=store.count_sessions_since(user["id"], since, completed=True) if session_limit is not None else 0,
-        start_limit=start_limit,
-        starts_used=store.count_sessions_since(user["id"], since) if start_limit is not None else 0,
-        token_limit=token_limit,
-        tokens_used=store.tokens_since(user["id"], since) if token_limit is not None else 0,
-    )
+
+    sessions_used = starts_used = tokens_used = 0
+    sessions_free_at = starts_free_at = tokens_free_at = None
+    if session_limit is not None:
+        sessions_used, earliest = store.ai_sessions_since(user["id"], since, module, completed=True)
+        sessions_free_at = earliest + WINDOW if earliest else None
+        starts_used, earliest = store.ai_sessions_since(user["id"], since, module)
+        starts_free_at = earliest + WINDOW if earliest else None
+    if token_limit is not None:
+        tokens_used, earliest = store.token_usage_since(user["id"], since)
+        tokens_free_at = earliest + WINDOW if earliest else None
+    return Allowance(module, session_limit, sessions_used, start_limit, starts_used, token_limit, tokens_used,
+                     sessions_free_at, starts_free_at, tokens_free_at)
 
 
 class MessageRateLimiter:

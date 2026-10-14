@@ -34,6 +34,7 @@ The intended product feel is a calm, credible coaching practice environment, not
 - `accounts.py`: Password hashing, signed sign-in cookies, CSRF tokens, login throttling, transcript visibility rules.
 - `quota.py`: Rolling-24h AI allowances per role and person, and the per-minute message limit.
 - `safety.py`: Crisis-language check and the fixed safety reply for the AI Coach module.
+- `mailer.py`: Optional SMTP sender for self-service password reset emails.
 - `web_assets.py`: Static UI copy, CSS, viewport style, and browser JavaScript used by `web_app.py`.
 - `coach_agent.py` and `coach_data.py`: Coach Assistant behavior plus static template prompts.
 - `coachee_agent.py` and `coachee_data.py`: AI Coachee Lab behavior plus static scenario data, manual advance guard, scoring/review flow.

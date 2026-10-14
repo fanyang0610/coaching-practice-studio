@@ -114,6 +114,14 @@ feedback = sa.Table(
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
 
+settings = sa.Table(
+    "settings",
+    metadata,
+    sa.Column("key", sa.String(64), primary_key=True),
+    sa.Column("value", sa.Text, nullable=False),
+    sa.Column("updated_at", sa.DateTime, nullable=False),
+)
+
 # No foreign keys here on purpose: the audit trail outlives deleted accounts and sessions.
 audit_log = sa.Table(
     "audit_log",
@@ -335,12 +343,15 @@ class Store:
                 .order_by(coaching_sessions.c.created_at.desc()).limit(limit))
         return self._all(stmt)
 
-    def count_sessions_since(self, user_id: int, since: dt.datetime, *, mode: str = "llm", completed: bool = False) -> int:
+    def ai_sessions_since(self, user_id: int, since: dt.datetime, module: str, *, completed: bool = False) -> tuple[int, dt.datetime | None]:
+        """(count, earliest timestamp) of AI sessions in a module started, or finished, since a time."""
         column = coaching_sessions.c.completed_at if completed else coaching_sessions.c.created_at
-        stmt = sa.select(sa.func.count()).select_from(coaching_sessions).where(
-            coaching_sessions.c.user_id == user_id, coaching_sessions.c.mode == mode, column >= since)
+        stmt = sa.select(sa.func.count(), sa.func.min(column)).where(
+            coaching_sessions.c.user_id == user_id, coaching_sessions.c.mode == "llm", coaching_sessions.c.module == module,
+            column >= since)
         with self.engine.connect() as conn:
-            return conn.execute(stmt).scalar_one()
+            count, earliest = conn.execute(stmt).one()
+            return count, earliest
 
     # Profiles ----------------------------------------------------------------
 
@@ -369,10 +380,16 @@ class Store:
                 completion_tokens=int(completion_tokens), created_at=utcnow()))
 
     def tokens_since(self, user_id: int, since: dt.datetime) -> int:
-        stmt = sa.select(sa.func.coalesce(sa.func.sum(usage_events.c.prompt_tokens + usage_events.c.completion_tokens), 0)).where(
+        return self.token_usage_since(user_id, since)[0]
+
+    def token_usage_since(self, user_id: int, since: dt.datetime) -> tuple[int, dt.datetime | None]:
+        """(tokens used, earliest usage time) since a time."""
+        stmt = sa.select(sa.func.coalesce(sa.func.sum(usage_events.c.prompt_tokens + usage_events.c.completion_tokens), 0),
+                         sa.func.min(usage_events.c.created_at)).where(
             usage_events.c.user_id == user_id, usage_events.c.created_at >= since)
         with self.engine.connect() as conn:
-            return int(conn.execute(stmt).scalar_one())
+            total, earliest = conn.execute(stmt).one()
+            return int(total), earliest
 
     def usage_by_user_since(self, since: dt.datetime) -> dict[int, int]:
         stmt = (sa.select(usage_events.c.user_id, sa.func.sum(usage_events.c.prompt_tokens + usage_events.c.completion_tokens))
@@ -396,6 +413,18 @@ class Store:
         stmt = sa.select(feedback.c.value, sa.func.count()).where(feedback.c.created_at >= since).group_by(feedback.c.value)
         with self.engine.connect() as conn:
             return {row[0]: row[1] for row in conn.execute(stmt)}
+
+    # Settings ----------------------------------------------------------------
+
+    def get_setting(self, key: str) -> dict | None:
+        row = self._one(sa.select(settings).where(settings.c.key == key))
+        return json.loads(row["value"]) if row else None
+
+    def set_setting(self, key: str, value: dict) -> None:
+        payload = json.dumps(value, ensure_ascii=False)
+        with self.engine.begin() as conn:
+            if not conn.execute(settings.update().where(settings.c.key == key).values(value=payload, updated_at=utcnow())).rowcount:
+                conn.execute(settings.insert().values(key=key, value=payload, updated_at=utcnow()))
 
     # Audit -------------------------------------------------------------------
 

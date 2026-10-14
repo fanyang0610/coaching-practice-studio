@@ -18,11 +18,15 @@ This original folder is the canonical project. Locally, `app.py` is a wrapper ar
 
 Erickson Coach is invite-only. Everyone signs in with an email and password, and new people join through one-use invite links.
 
-- **Admin**: sees every session, manages people, invites, roles, trainers and daily limits, and reads the audit log (`/admin`).
-- **Trainer**: invites their own trainees and reviews those trainees' Coachee Lab practice sessions, plus any AI Coach session a trainee chooses to share (`/trainer`).
-- **Learner**: uses the coaching app; manages their sessions, sharing, insights, password, data export and account deletion (`/account`).
+Both coaching modules are always one person talking with the AI: in AI Coach the AI coaches the person, and in Coachee Lab the person practises coaching an AI coachee. The roles below are about people and who may read whose transcripts.
 
-Every time someone other than the owner opens a transcript, it is recorded in the audit log. Passwords are stored with scrypt; sign-in cookies expire after 14 days and stop working when the password changes. There is no email sending: password resets are one-use links that an admin creates on the Admin page (or with `scripts/manage.py reset-link`) and sends to the person.
+- **Admin** (管理员): sees every session, manages people, invites, roles, mentors and daily allowances, and reads the audit log (`/admin`).
+- **Mentor** (导师; role key `trainer`): a real person, such as a coaching instructor, who reviews the practice of the members assigned to them. That covers their Coachee Lab sessions, plus any AI Coach session a member chooses to share (`/mentor`). Mentors can also invite members, who are then assigned to them. If you don't run supervised training, simply create no mentors.
+- **Member** (成员; role key `user`): uses the coaching app, and manages their sessions, sharing, insights, password, data export and account deletion (`/account`).
+
+AI Coach sessions are private by default, because people bring their real lives there; Coachee Lab sessions are visible to the member's mentor, because reviewing practice is the point of mentoring. Every time someone other than the owner opens a transcript, it is recorded in the audit log. Passwords are stored with scrypt, and sign-in cookies expire after 14 days and stop working when the password changes.
+
+**Password resets.** An admin can always create a one-use reset link on the Admin page (or with `scripts/manage.py reset-link`) and send it however suits the person, for example by WeChat. If SMTP is configured (see below), the sign-in page also offers "Forgot your password?" and emails a link that works for 2 hours.
 
 **First admin.** Locally, opening the app with an empty database shows a one-time setup page. On a hosted server, set `ERICKSON_ADMIN_EMAIL` and `ERICKSON_ADMIN_PASSWORD`; the admin is created at startup if no admin exists yet. From a shell you can also run `python3 scripts/manage.py create-admin you@example.com`.
 
@@ -37,20 +41,21 @@ Every time someone other than the owner opens a transcript, it is recorded in th
 | `ERICKSON_SECRET_KEY` | hosted | Signs sign-in cookies. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`. Startup refuses to run publicly without it. |
 | `ERICKSON_ADMIN_EMAIL`, `ERICKSON_ADMIN_PASSWORD` | first deploy | Creates the first admin (password at least 10 characters). |
 | `ERICKSON_PUBLIC_URL` | optional | Base URL for invite and reset links if the server can't infer it. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | optional | Enables self-service password reset emails (port 587 uses STARTTLS, 465 uses SSL). |
 | `SENTRY_DSN` | optional | Crash reports. Request bodies and local variables are never sent, so transcripts stay on the server. |
 | `GRADIO_SERVER_NAME`, `GRADIO_SERVER_PORT` / `PORT` | hosting | Bind address and port. Hugging Face and Render set these. |
 
 ## Daily Allowances and Limits
 
-Allowances use a rolling 24 hours and are checked when an AI session starts, so a session in progress is never cut off. Over the limit, new sessions open in template practice mode with a notice.
+Allowances use a rolling 24 hours and are checked when an AI session starts, so a session in progress is never cut off. Over the limit, new sessions open in template practice mode, with a notice saying roughly how many hours until AI is available again. AI Coach and Coachee Lab have separate session allowances, so practice drills don't use up someone's own coaching sessions; tokens are one shared daily backstop.
 
-| Role | Finished AI sessions | AI sessions started | Tokens |
+| Role | AI Coach sessions | Coachee Lab sessions | Tokens |
 |---|---|---|---|
-| Learner | 3 | 6 | 250,000 |
-| Trainer | 15 | 30 | 1,000,000 |
+| Member | 3 | 5 | 400,000 |
+| Mentor | 10 | 20 | 1,500,000 |
 | Admin | no limit | no limit | no limit |
 
-Admins can override sessions or tokens per person on the Admin page (starts become twice the session override). The defaults live in `quota.py`. Every model call's token usage is recorded per person and session. Other limits live in `web_app.py`: 2,000 characters per message, 40 messages per session, 10 messages per minute per person, and 24 model calls running at once, shared by all events.
+Started sessions (including ones left early, which still cost an opening call) are capped at twice the finished allowance. Admins change the role defaults in the "Daily AI allowances" panel on the Admin page, with no code change, and can override any one person's limits. A full session uses about 30,000–60,000 tokens; at gpt-4o-mini prices, even 50 members using every allowance every day would cost a few dollars a day, and typical use is far less. The defaults live in `quota.py`. Every model call's token usage is recorded per person and session. Other limits live in `web_app.py`: 2,000 characters per message, 40 messages per session, 10 messages per minute per person, and 24 model calls running at once, shared by all events.
 
 Replies stream in. In one reply call the model also decides whether the coaching stage moves on (the `[[STAY]]`/`[[NEXT]]`/`[[END]]` markers), so a turn costs one model call.
 
@@ -71,12 +76,24 @@ To check concurrency before inviting people, simulate signed-in users against a 
 python3 scripts/load_test.py --users 50 --messages 3
 ```
 
+## Languages
+
+The app and the account pages share one language setting. On a first visit it follows the browser's language. Switching languages in the app, or with the link at the bottom of any account page, is remembered for both. A session reopened later is translated into the language the person uses now. Times on the account pages show in the reader's own time zone. Every page and message exists in English and Simplified Chinese, and the tests check that both sets of strings match.
+
 ## Privacy and Safety
 
 - The privacy notice at `/privacy` explains what is stored and who can read it. New people must accept it when they sign up.
 - Learners can download all their data as JSON or delete their account from the Account page.
 - Messages in the AI Coach module that suggest someone may harm themselves get a fixed reply pointing to emergency services and findahelpline.com instead of coaching, and an entry in the audit log (without the message text). The coach prompt also tells the model to stop and point to help.
 - Gradio's usage analytics are turned off.
+
+## Known Limits
+
+- **One server process.** Message rate limits and sign-in throttling live in memory, so run a single instance. That is plenty for 50 people.
+- **No schema migrations yet.** New tables are created automatically, but changing existing columns after launch needs a migration tool such as Alembic.
+- **One organisation.** Everyone shares one app with per-person data separation; there are no separate workspaces for different schools or teams.
+- **Gradio's own small labels.** A few built-in Gradio labels, such as the thumbs-up tooltips, stay in English.
+- **Sign-in is by email.** There is no phone-number or WeChat login.
 
 ## Launch Commands
 

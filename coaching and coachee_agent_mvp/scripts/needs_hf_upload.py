@@ -44,6 +44,7 @@ HOSTED_RUNTIME_FILES = {
     "account_pages.py",
     "quota.py",
     "safety.py",
+    "mailer.py",
     deploy_hf_space.LOCAL_ENTRYPOINT_SOURCE,
 }
 

@@ -50,9 +50,9 @@ UI = {
         "busy_warning": "Still working on the last reply. One moment, please.",
         "rate_limited": "You're sending messages quickly. Please wait a moment before the next one.",
         "signed_out": "Your sign-in has expired. Please reload the page and sign in again.",
-        "quota_sessions": "You've used today's AI sessions. This session runs in template practice mode; AI sessions open up again within 24 hours.",
-        "quota_starts": "You've started many AI sessions today. This one runs in template practice mode; AI opens up again within 24 hours.",
-        "quota_tokens": "You've reached today's AI usage limit. This session runs in template practice mode; AI opens up again within 24 hours.",
+        "quota_sessions": "You've used today's AI sessions in this module. This session runs in template practice mode; AI is available again in about {hours} h.",
+        "quota_starts": "You've started many AI sessions in this module today. This one runs in template practice mode; AI is available again in about {hours} h.",
+        "quota_tokens": "You've reached today's AI usage limit. This session runs in template practice mode; AI is available again in about {hours} h.",
         "quota_pill": "AI today {left}/{limit}",
         "account_link": "Account",
         "module": "Module",
@@ -107,9 +107,9 @@ UI = {
         "busy_warning": "上一条回复还在生成中，请稍候。",
         "rate_limited": "消息发送得有点快，请稍等片刻再发下一条。",
         "signed_out": "登录已过期，请刷新页面并重新登录。",
-        "quota_sessions": "你今天的 AI 会话已用完。本次会话使用模板练习模式，24 小时内会恢复 AI 会话。",
-        "quota_starts": "你今天开启了较多 AI 会话。本次会话使用模板练习模式，24 小时内会恢复 AI。",
-        "quota_tokens": "你已达到今天的 AI 用量上限。本次会话使用模板练习模式，24 小时内会恢复 AI。",
+        "quota_sessions": "你今天在此模块的 AI 会话已用完。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
+        "quota_starts": "你今天在此模块开启了较多 AI 会话。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
+        "quota_tokens": "你已达到今天的 AI 用量上限。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
         "quota_pill": "今日AI {left}/{limit}",
         "account_link": "账户",
         "module": "模块",
@@ -2134,6 +2134,13 @@ div:has(> .tracker-shell) {
 """
 
 
+# Remember the chosen language for the account pages and the next visit (read by account_pages.preferred_language).
+remember_lang_js = """(lang) => {
+    const code = lang === "中文" ? "zh" : "en";
+    document.cookie = "erickson_lang=" + code + "; path=/; max-age=31536000; samesite=lax";
+}"""
+
+
 global_viewport_style = """
 <style>
 #viewport-style-injector {
@@ -2435,4 +2442,5 @@ __all__ = [
     "head",
     "scroll_js",
     "tts_js",
+    "remember_lang_js",
 ]

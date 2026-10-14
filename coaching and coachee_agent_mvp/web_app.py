@@ -25,6 +25,7 @@ from coach_agent import EricksonCoachingAgent
 from coaching_core import CoachingState
 from coachee_agent import EricksonCoacheeAgent
 import db
+import mailer
 from memory import UserProfile, merge_analysis
 import quota
 import safety
@@ -36,6 +37,7 @@ from web_assets import (
     force_light_js,
     global_viewport_style,
     head,
+    remember_lang_js,
     scroll_js,
     tts_js,
 )
@@ -387,7 +389,7 @@ def _attach(session: dict, user: dict) -> dict:
     user_id, session_id = user["id"], session["id"]
     session["user_id"] = user_id
     session["agent"].on_usage = lambda model, prompt, completion: store.record_usage(user_id, session_id, model, prompt, completion)
-    session["allowance"] = quota.allowance(store, user)
+    session["allowance"] = quota.allowance(store, user, session["module"])
     return session
 
 
@@ -404,19 +406,28 @@ def _save(session: dict) -> None:
     )
 
 
-def _allowed_mode(user: dict, mode_code: str, lang_code: str) -> str:
-    """AI mode only while today's allowance lasts; otherwise template mode, with a notice."""
+def _allowed_mode(user: dict, mode_code: str, lang_code: str, module_code: str) -> str:
+    """AI mode only while today's allowance for this module lasts; otherwise template mode, with a notice."""
     if mode_code != "llm":
         return mode_code
-    reason = quota.allowance(get_store(), user).blocked_reason
-    if reason is None:
+    allowance = quota.allowance(get_store(), user, module_code)
+    if allowance.blocked_reason is None:
         return "llm"
-    gr.Warning(UI[lang_code][f"quota_{reason}"])
+    gr.Warning(UI[lang_code][f"quota_{allowance.blocked_reason}"].format(hours=allowance.hours_until_available()))
     return "template"
 
 
+def _request_language(request: gr.Request | None, fallback: str | None) -> str | None:
+    """The language this person last chose (shared with the account pages), else their browser's."""
+    try:
+        cookies, headers = request.cookies, request.headers
+    except AttributeError:
+        return fallback
+    return account_pages.preferred_language(cookies, headers, fallback)
+
+
 def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str) -> dict:
-    mode_code = _allowed_mode(user, mode_code, lang_code)
+    mode_code = _allowed_mode(user, mode_code, lang_code, module_code)
     agent = _build_agent(module_code, mode_code, lang_code, _load_profile(user["id"], module_code))
     session_id = get_store().create_session(user["id"], module_code, lang_code, mode_code, agent.current_state.name, agent.to_dict())
     session = _attach({"module": module_code, "agent": agent, "id": session_id}, user)
@@ -425,9 +436,15 @@ def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str) 
     return session
 
 
-def _restore_session(row: dict, user: dict) -> dict:
+def _restore_session(row: dict, user: dict) -> dict | None:
+    """Reopen a stored session; one that can no longer be read is set aside so the person can start fresh."""
     agent_class = EricksonCoacheeAgent if row["module"] == "coachee" else EricksonCoachingAgent
-    agent = agent_class.from_dict(json.loads(row["state"]), user_profile=_load_profile(user["id"], row["module"]))
+    try:
+        agent = agent_class.from_dict(json.loads(row["state"]), user_profile=_load_profile(user["id"], row["module"]))
+    except Exception:
+        logger.exception("Stored session %s could not be reopened", row["id"])
+        get_store().set_session_status(row["id"], "abandoned")
+        return None
     return _attach({"module": row["module"], "agent": agent, "id": row["id"]}, user)
 
 
@@ -451,7 +468,7 @@ def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel:
     agent = session["agent"]
     agent.set_language(lang_code)
     if mode_code != agent.mode:
-        agent.set_mode(_allowed_mode(user, mode_code, lang_code))
+        agent.set_mode(_allowed_mode(user, mode_code, lang_code, session["module"]))
     return session
 
 
@@ -497,9 +514,19 @@ def _session_start_outputs(session: dict):
 def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, request: gr.Request = None):
     """Reopen the person's unfinished session if there is one, otherwise start a new one."""
     user = _require_user(request, _safe_lang(lang_sel))
+    preferred = _request_language(request, None)
     if not session or session.get("user_id") != user["id"] or not session.get("id"):
         row = get_store().latest_active_session(user["id"])
-        session = _restore_session(row, user) if row else _open_session(user, _safe_module(module_sel), _safe_mode(mode_sel), _safe_lang(lang_sel))
+        session = _restore_session(row, user) if row else None
+        if session is None:
+            session = _open_session(user, _safe_module(module_sel), _safe_mode(mode_sel), preferred or _safe_lang(lang_sel))
+    agent = session["agent"]
+    if preferred and preferred != agent.language:
+        # A reopened session follows the language the person uses now.
+        with _agent_lock(agent):
+            agent.translate_history(new_lang=preferred, api_key=_safe_key() or None)
+            agent.set_language(preferred)
+            _save(session)
     out = _session_start_outputs(session)
     return (
         out["chat"], out["tracker"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
@@ -635,7 +662,7 @@ def _stream_reply(user_msg, chat_history, agent, session):
     if is_ended:
         msg = "会话已结束" if agent.language == "zh" else "Session Complete"
         gr.Info(msg)
-        session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]))
+        session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]), session["module"])
         if agent.mode == "llm" and api_key:
             threading.Thread(target=_learn_from_session, args=(session, api_key), daemon=True).start()
 
@@ -701,7 +728,7 @@ def _advance_stage(chat_history, session):
     if is_ended:
         msg = "会话已结束" if agent.language == "zh" else "Session Complete"
         gr.Info(msg)
-        session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]))
+        session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]), session["module"])
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
     return _next_stage_outputs(
@@ -960,7 +987,7 @@ with gr.Blocks(
             session_state,
         ],
         **LLM_EVENT,
-    )
+    ).then(None, [lang_radio], None, js=remember_lang_js)
 
     coach_module_btn.click(
         select_module,
@@ -981,18 +1008,21 @@ with gr.Blocks(
     demo.queue(max_size=100)
 
 
-_LOCAL_SECRET = secrets.token_hex(32)
+LOCAL_SECRET_FILE = ROOT / ".erickson_secret"
 
 
 def _secret_key(env: dict[str, str] | None = None) -> str:
-    """Signs login cookies. Public deployments must set ERICKSON_SECRET_KEY so restarts don't sign everyone out."""
+    """Signs sign-in cookies. Public deployments must set ERICKSON_SECRET_KEY; a local run keeps one in .erickson_secret."""
     env = os.environ if env is None else env
     key = env.get("ERICKSON_SECRET_KEY", "").strip()
     if key:
         return key
     if _is_public(env):
         raise SystemExit("ERICKSON_SECRET_KEY is not set. Generate one (python3 -c \"import secrets; print(secrets.token_hex(32))\") and add it as a secret.")
-    return _LOCAL_SECRET
+    if not LOCAL_SECRET_FILE.exists():
+        LOCAL_SECRET_FILE.write_text(secrets.token_hex(32), encoding="utf-8")
+        LOCAL_SECRET_FILE.chmod(0o600)
+    return LOCAL_SECRET_FILE.read_text(encoding="utf-8").strip()
 
 
 def _bootstrap_admin(store: db.Store, env: dict[str, str]) -> None:
@@ -1028,6 +1058,7 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
         allow_local_setup=not public,
         public_url=env.get("ERICKSON_PUBLIC_URL", "").strip(),
         storage_warning=public and store.is_sqlite,
+        mailer=mailer.smtp_sender(env),
     )
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(account_pages.build_router(get_store, settings))

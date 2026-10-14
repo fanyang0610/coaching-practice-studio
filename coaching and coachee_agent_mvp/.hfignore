@@ -8,3 +8,4 @@ erickson.db
 erickson.db-*
 Dockerfile
 .dockerignore
+.erickson_secret
