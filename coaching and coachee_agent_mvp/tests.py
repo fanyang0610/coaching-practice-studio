@@ -49,6 +49,8 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
         for pattern in (
             ".env",
             ".DS_Store",
+            "docs/",
+            "AGENTS.md",
             "__pycache__/",
             "*.pyc",
             "user_profile.json",

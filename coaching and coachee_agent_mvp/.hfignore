@@ -9,3 +9,6 @@ erickson.db-*
 Dockerfile
 .dockerignore
 .erickson_secret
+# Internal working notes: the Space's files are public, the GitHub repository is private
+docs/
+AGENTS.md
