@@ -122,7 +122,7 @@ The app and the account pages share one language setting. On a first visit it fo
 - **One organisation.** Everyone shares one app with per-person data separation; there are no separate workspaces for different schools or teams.
 - **Gradio's own small labels.** A few built-in Gradio labels, such as the thumbs-up tooltips, stay in English.
 - **Sign-in is by email.** There is no phone-number or WeChat login.
-- **Hugging Face and mainland China.** `*.hf.space` addresses are generally not reachable from mainland China without a VPN, so learners there may not be able to open the app while it is hosted on Hugging Face. A Hong Kong or Singapore server (the included `Dockerfile` runs on any Docker host) reaches both mainland China and other countries.
+- **Hugging Face and mainland China.** The huggingface.co site is usually blocked in mainland China, but `*.hf.space` app addresses are often reachable: the owner's users in mainland China open the Space without a VPN (October 2026). This can differ between networks and change without notice, so always share the direct `https://<space>.hf.space` address and check with testers on different networks. If it gets blocked, a Hong Kong or Singapore server (the included `Dockerfile` runs on any Docker host) reaches both mainland China and other countries; keep the database in the same region as the app.
 - **Voice input in mainland China.** Chrome sends speech to Google, which is blocked there, so the microphone shows a message suggesting typing or Safari. Safari on iPhone and Mac works.
 - **Outside references in Gradio's page template.** Gradio's own page includes connection hints for Google Fonts and a background script from Cloudflare's CDN. Neither blocks the page; the app itself loads no web fonts.
 

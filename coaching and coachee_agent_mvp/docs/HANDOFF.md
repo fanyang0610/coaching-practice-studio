@@ -39,7 +39,8 @@ The branch has 8 commits on top of `main`:
 
 ## 3. Decisions already made (don't reopen them without Fan)
 
-- **Hosting:** stay on **Hugging Face** for now. Alibaba Cloud and a Hong Kong server are undecided. Hugging Face is generally unreachable from mainland China, so a Hong Kong or Singapore server is the likely move before the China group joins.
+- **Hosting:** stay on **Hugging Face** (free). Fan reports (2026-10-15) that users in mainland China open the HF Space without a VPN. Still check the new version with China testers on several networks, because `.hf.space` access can vary and change. The fallback is a Hong Kong or Singapore server (not mainland: ICP filing plus generative-AI rules), with the database in the same region.
+- **Database:** Neon free tier, region **AWS US East**, next to the HF Space. Use the direct connection (pooling off), which is the tested path.
 - **Model:**
   - Plan for the first test: OpenRouter with `openai/gpt-4o-mini`. Fan's account currently has **$0 credit**.
   - `openrouter/free` is unusable: in a sample, 1 in 6 replies was usable.
