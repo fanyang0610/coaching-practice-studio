@@ -1,8 +1,10 @@
 from dataclasses import asdict
 import json
+import logging
+import re
 import random
 import uuid
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coachee_data import (
     COACHEE_ACKNOWLEDGMENTS,
     COACHEE_BRIDGES,
@@ -15,6 +17,9 @@ from coachee_data import (
     _scenario_bundle_from_single_language,
     _strip_json_fence,
 )
+
+
+logger = logging.getLogger("erickson_coach")
 
 
 class EricksonCoacheeAgent:
@@ -210,7 +215,7 @@ class EricksonCoacheeAgent:
             signal = None
             yield response
 
-        if decide_stage:
+        if decide_stage or signal == "END":
             self._apply_stage_signal(signal)
             if self.current_state == CoachingState.CLOSING:
                 response = self._build_final_review(api_key)
@@ -260,6 +265,8 @@ class EricksonCoacheeAgent:
             "\"value\": {\"commitment\": [string, string], \"timeline\": [string, string], \"risk\": [string, string], \"accountability\": [string, string]}, "
             "\"closing\": {\"reflection\": [string, string]}"
             "}. "
+            "Every list holds two alternative sentences the coachee could say about that point, in the first person. "
+            "They are the coachee's own words, never questions and never the coach's lines. "
             "CRITICAL: The 'intro' string MUST be the very first sentence spoken by the AI playing the COACHEE (e.g., sharing a problem or seeking help). "
             "It must NOT be a greeting from a coach. The AI is the CLIENT/COACHEE. "
             "Generate a diverse range of realistic adult professional or personal development topics. "
@@ -271,14 +278,12 @@ class EricksonCoacheeAgent:
             f"Write every string in {lang_instr}. {_language_output_rule(self.language)} Do not include markdown fences."
         )
 
-        resp = client.chat.completions.create(
-            model=_chat_model(),
-            messages=[{"role": "system", "content": prompt}],
-            max_tokens=900,
-            temperature=0.9,
-        )
-        payload = json.loads(_strip_json_fence(_response_text(resp)))
-        self.scenario = _scenario_bundle_from_single_language(payload)
+        try:
+            payload = _json_completion(client, messages=[{"role": "system", "content": prompt}], max_tokens=1200, temperature=0.9)
+            self.scenario = _scenario_bundle_from_single_language(payload)
+        except Exception:
+            # Keep the built-in case chosen at the start, so the practice session still opens.
+            logger.warning("Generating a practice case failed; using a built-in one", exc_info=True)
         self._llm_scenario_ready = True
 
     def _track_coach_input(self, coach_message: str):
@@ -451,11 +456,22 @@ class EricksonCoacheeAgent:
         return (
             "\n\nREQUIRED OUTPUT FORMAT: the very first characters of your output must be one stage marker, then your coachee reply.\n"
             "[[STAY]] - this stage still needs exploring.\n"
-            "[[NEXT]] - the coach has covered this stage, but more coaching is still needed.\n"
+            "[[NEXT]] - the coach has covered this stage, or has clearly moved on to later questions "
+            "(goal, then current reality, then options, then commitment), and more coaching is still needed.\n"
             "[[END]] - the session is over: the coach says goodbye, good luck or that's all (ZH: 下次见, 谢谢, 结束了, 由衷感谢), "
             "you have a clear plan and nothing left to explore, either side wants to stop, or the conversation has gone in circles "
             "for more than 4 turns with no new insight.\n"
             "Example output: [[STAY]] Honestly, I keep putting it off because I'm afraid it won't be good enough.\n"
+            "Never mention the marker in your reply."
+        )
+
+    def _end_only_rules(self) -> str:
+        """Between stage decisions the coach can still close, so their goodbye always ends the practice."""
+        return (
+            "\n\nREQUIRED OUTPUT FORMAT: the very first characters of your output must be one marker, then your coachee reply.\n"
+            "[[STAY]] - continue as the coachee. Use this almost always.\n"
+            "[[END]] - only if the coach is clearly closing the session now: they say goodbye, good luck or that's all "
+            "(ZH: 下次见, 结束了, 今天就到这里).\n"
             "Never mention the marker in your reply."
         )
 
@@ -486,7 +502,7 @@ class EricksonCoacheeAgent:
                         "Offer 2-4 concise sentences that answer the coach's latest prompt, reveal only stage-relevant information, "
                         "and show a realistic emotional response. Use the scenario notes below as your hidden ground truth:\n"
                         + "\n".join(guide_lines)
-                        + (self._stage_decision_rules() if decide_stage else "")
+                        + (self._stage_decision_rules() if decide_stage else self._end_only_rules())
                     ),
                 }
             ]
@@ -496,7 +512,7 @@ class EricksonCoacheeAgent:
             raw = ""
             for raw in _stream_text(client, model=_chat_model(), messages=messages, max_tokens=220, temperature=0.7):
                 signal, visible = _split_stage_signal(raw)
-                if decide_stage and signal == "END":
+                if signal == "END":
                     yield "", "END"
                     return
                 yield visible, None
@@ -534,7 +550,8 @@ class EricksonCoacheeAgent:
             struct = (
                 "请严格按照以下格式输出：\n"
                 "会话结果：[用一两句话总结本次模拟教练的效果和完整度]\n"
-                "最后得分：[0-100]/100\n"
+                "分阶段得分：目标合同 X/20 · 现实探索 X/20 · 可能方案 X/20 · 行动承诺 X/20 · 结束回顾 X/20（X 为该阶段得分）\n"
+                "最后得分：[五个阶段得分之和]/100\n"
                 "做得好的部分：\n- [具体的优点1]\n- [具体的优点2]\n"
                 "需要提升的部分：\n- [具体、可操作的建议1]\n- [具体、可操作的建议2]\n"
                 "下一步教练修炼方向：[针对教练个人成长的一句核心建议]"
@@ -543,7 +560,8 @@ class EricksonCoacheeAgent:
             struct = (
                 "Use this structure exactly:\n"
                 "Session Result: <summary of the coaching quality>\n"
-                "Score: <0-100>/100\n"
+                "Stage scores: Contract <n>/20 · Reality <n>/20 · Possibilities <n>/20 · Commitment <n>/20 · Closing <n>/20\n"
+                "Score: <sum of the five stage scores>/100\n"
                 "What worked:\n- ...\n- ...\n"
                 "What to improve:\n- ...\n- ...\n"
                 "Next coaching edge: <one actionable growth tip>"
@@ -554,7 +572,11 @@ class EricksonCoacheeAgent:
             "The human 'Coach' is training with an AI 'Coachee'. "
             "Analyze the provided transcript based on solution-focused coaching and the five stages of this practice (Contract, Reality, Possibilities, Commitment, Closing). "
             "Evaluate competencies like: Establishing the Contract, Creating Presence, Powerful Questioning, Active Listening, and Designing Actions. "
-            "If the session was very short or skipped phases, provide a realistic (low) score and constructive feedback on why it was incomplete. "
+            "Score with this rubric: each of the five stages is worth up to 20 points. A stage the coach skipped earns 0; "
+            "one touched with a single question earns at most 6; full marks need real exploration that the coachee answered in depth. "
+            "The total is the sum of the five stage scores. Give constructive feedback on anything incomplete. "
+            f"The coach spoke {self._coach_turns()} times in this session, so the total must not exceed {self._score_ceiling()}. "
+            "Be strict and consistent, because learners track these scores over time. "
             f"Respond only in {lang_instr}. {_language_output_rule(self.language)}\n"
             f"{struct}\n\n"
             "COACHING HISTORY TO EVALUATE:\n"
@@ -566,10 +588,39 @@ class EricksonCoacheeAgent:
             messages=[
                 {"role": "system", "content": prompt},
             ],
-            max_tokens=500,
+            max_tokens=650,
             temperature=0.3,
         )
-        return _clean_response_language(_response_text(resp), self.language)
+        return self._apply_score_ceiling(_clean_response_language(_response_text(resp), self.language))
+
+    def _coach_turns(self) -> int:
+        return sum(1 for msg in self.context if msg["role"] == self.user_role)
+
+    def _score_ceiling(self) -> int:
+        """At most 8 points per coaching turn: about 12 turns are needed to explore all five stages in depth."""
+        return min(100, 8 * self._coach_turns())
+
+    def _apply_score_ceiling(self, review: str) -> str:
+        """Hold the reviewer to the ceiling it was given, so scores stay comparable over time."""
+        ceiling = self._score_ceiling()
+        match = re.search(r"(\d{1,3})(\s*/\s*100)", review)
+        if not match:
+            return review
+        total = min(int(match.group(1)), ceiling)
+        review = review[:match.start()] + f"{total}{match.group(2)}" + review[match.end():]
+        # Keep the five stage scores adding up to the total.
+        stage_line = next((line for line in review.splitlines() if len(re.findall(r"\d{1,2}\s*/\s*20", line)) == 5), None)
+        if stage_line:
+            scores = [int(n) for n in re.findall(r"(\d{1,2})\s*/\s*20", stage_line)]
+            if sum(scores) > total:
+                scaled = [n * total // sum(scores) for n in scores]
+                by_remainder = sorted(range(5), key=lambda i: scaled[i] - scores[i] * total / sum(scores))
+                for i in by_remainder[: total - sum(scaled)]:
+                    scaled[i] += 1
+                values = iter(scaled)
+                new_line = re.sub(r"\d{1,2}(\s*/\s*20)", lambda m: f"{next(values)}{m.group(1)}", stage_line)
+                review = review.replace(stage_line, new_line, 1)
+        return review
 
     def _has_insufficient_evidence(self) -> bool:
         total_facts = sum(len(self.metrics.facts_shared[state]) for state in COACHEE_STAGE_ORDER)
@@ -750,6 +801,7 @@ class EricksonCoacheeAgent:
                 role = "Coach" if msg["role"] == self.user_role else "Coachee"
                 transcript.append(f"{role}: {msg['content']}")
             
+            lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
             prompt = (
                 "You are an AI learning module analyzing a human coach's training performance. "
                 "Evaluate the human 'Coach' based on solution-focused coaching practice. "
@@ -759,23 +811,11 @@ class EricksonCoacheeAgent:
                 "\"learning_patterns\": \"short summary of how the human coach learns or adjusts\", "
                 "\"strengths\": [\"strength1\", \"strength2\"], "
                 "\"growth_areas\": [\"area1\", \"area2\"]"
-                "}"
+                "}. "
+                f"Write every value in {lang_instr}. {_language_output_rule(self.language)}"
             )
-            
-            resp = client.chat.completions.create(
-                model=_chat_model(),
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": "\n".join(transcript)}
-                ],
-                max_tokens=300,
-                temperature=0.3,
-            )
-            
-            content = _response_text(resp).strip()
-            if content.startswith("```"):
-                content = content.split("\n", 1)[1].rsplit("\n", 1)[0]
-            
-            return json.loads(content)
+            return _json_completion(client, messages=[{"role": "system", "content": prompt},
+                                                      {"role": "user", "content": "\n".join(transcript)}],
+                                    max_tokens=300, temperature=0.3)
         except Exception:
             return {}

@@ -128,7 +128,20 @@ Still open, in Fan's order:
 4. Hide the AI/Template switch from members; read-aloud off by default.
 5. A more compact phone layout during a conversation, and a real test inside WeChat's built-in browser (voice input especially).
 6. A one-tap "How useful was this session?" at the end.
-7. Several real sessions on DeepSeek to judge the coaching quality with Fan. Nothing in 1–3 has been tried with a real model yet: the action card, the follow-up question and the longer memory were only tested with stand-in replies.
+7. Real sessions on DeepSeek: **partly done 2026-10-15.** I ran 20 full sessions on `deepseek/deepseek-chat` with a second model call playing the person (the script lives only in that session's scratchpad). Each session cost under one cent (5k–14k tokens), so the $4.84 balance covers roughly a thousand sessions. Found and fixed:
+   - **Chinese Coachee Lab failed to start 4 times in 5:** the case JSON came back with mismatched brackets.
+     - Every JSON request now goes through `_json_completion` (`coaching_core.py`): provider JSON mode, `_repair_json_brackets`, and one cooler retry.
+     - A practice case that still can't be read falls back to a built-in case, so a session always opens.
+     - Wrongly nested case sections are lifted back to the top level.
+   - The case prompt now says each list holds the coachee's own first-person lines, never questions.
+   - **Coach style:** no more praise words; never repeat a question; replies in plain sentences, no bullets; every reply ends with a question; openings ask what they want from the session, not for actions yet.
+   - **Stray goodbyes:** a goodbye between stage checkpoints didn't end the session. Both agents now always offer an end marker (`_end_only_rules`). A thank-you alone is not a request to finish.
+   - Quote marks wrapped around a whole reply are stripped (`_strip_wrapping_quotes`).
+   - The follow-up opening asks exactly one question.
+   - Insight profiles are now written in the session's language.
+   - Translation returns `{"translations": [...]}`.
+   - **Practice scoring:** a rubric of 20 per stage and a "Stage scores" line, plus a hard ceiling of 8 points per coach turn (`_score_ceiling`), so a 5-question session can't score 70. When capped, the stage scores are scaled to add up.
+   - **Still to judge with real people:** sessions with an eager client end early (5–6 turns) once they have a concrete plan. The stage tracker often stays on Contract while the talk has moved on, because models rarely emit `[[NEXT]]`. Fan and a few friends should try both modes before the wider invite.
 8. Coachee Lab: choose the client type, a Hint button, and a one-line purpose for each stage.
 9. A progress page with score history over time (the Account page shows the last six).
 10. Mentor comments on sessions.

@@ -2,7 +2,7 @@ import json
 import random
 import uuid
 
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _strip_json_fence, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coach_data import (
     ACKNOWLEDGMENTS,
     BRIDGE_PHRASES,
@@ -175,7 +175,7 @@ class EricksonCoachingAgent:
             self.context = self.context[:old_context_len]
             raise exc
 
-        if decide_stage:
+        if decide_stage or signal == "END":
             self._apply_stage_signal(signal)
         self.context.append({"role": "coach", "content": response})
 
@@ -283,10 +283,20 @@ class EricksonCoachingAgent:
 
 REQUIRED OUTPUT FORMAT: the very first characters of your output must be one stage marker, then your reply.
 [[STAY]] - keep exploring this stage: follow the DEEPEN guidance above.
-[[NEXT]] - the client has clearly answered this stage's goal or wants to move on: briefly summarise what they gained here, then ask one opening question for the next stage ({next_state.name}: {STAGE_DESCRIPTIONS[next_state]}).
-[[END]] - the client wants to stop, says goodbye or thanks to wrap up, or the conversation has reached a natural conclusion: give a brief, warm closing summary that acknowledges their progress and commitments, with no question.
+[[NEXT]] - the client has clearly answered this stage's goal, wants to move on, or the conversation has already moved on to later topics: briefly summarise what they gained here, then ask one opening question for the next stage ({next_state.name}: {STAGE_DESCRIPTIONS[next_state]}).
+[[END]] - the client clearly says they want to finish (goodbye, that's all for today), or they have a concrete commitment and confirm they have what they need: give a brief, warm closing summary that acknowledges their progress and commitments, with no question. A thank-you on its own is not a request to finish.
 Example output: [[STAY]] It sounds like mornings are when you feel strongest. What makes them work for you?
 Never mention the marker or stage names in the reply itself."""
+
+    def _end_only_rules(self) -> str:
+        """Between stage decisions the client can still finish, so a goodbye always really closes the session."""
+        return """
+
+REQUIRED OUTPUT FORMAT: the very first characters of your output must be one marker, then your reply.
+[[STAY]] - continue the coaching as guided above. Use this almost always.
+[[END]] - only if the client clearly says they want to finish now (for example "that's all for today", goodbye, or they need to go): give a brief, warm closing summary that acknowledges their progress and commitments, with no question.
+A thank-you on its own is not a request to finish: acknowledge it and continue with your question.
+Never mention the marker in the reply itself."""
 
     def _get_template_response(self) -> str:
         lang = self.language
@@ -328,13 +338,13 @@ Generate the first coaching prompt for this stage.
 	5. Respond only in {lang_instr}. {_language_output_rule(self.language)}
 
 Session variation seed: {self.opening_variation_seed}
-Variation lens: choose a fresh entry point among clarity, desired outcome, useful focus, recent progress, decision tension, inner resource, or first small step."""
+Variation lens: choose a fresh entry point among clarity, desired outcome, useful focus, what matters most today, or what would make this time worthwhile. This is the start of the session: ask what they want from it, not yet about actions or steps."""
         if self.last_card:
             notes = "; ".join(f"{key.replace('_', ' ')}: {value}" for key, value in self.last_card.items() if value)
             system_prompt += f"""
 
 FOLLOW-UP: in their previous session the client made this plan ({notes}).
-Instead of the guidelines' fresh entry point, warmly ask how it went with that next step, and leave room to continue with it or to bring something new today. Still ask only ONE question."""
+Instead of a fresh entry point, warmly ask how it went with that next step. Ask exactly ONE question and nothing else; if they would rather talk about something new, they will say so."""
 
         resp = client.chat.completions.create(
             model=_chat_model(),
@@ -366,16 +376,16 @@ Current stage: **{self.current_state.name}** ({stage_desc})
 Sub-phase: {self.current_sub_phase.name}
 
 Guidelines:
-1. First, briefly acknowledge the client's last response with empathy using their words.
+1. First, briefly reflect the client's last response in their own words, in one short sentence. Vary how you do this, and leave out praise words such as inspiring, powerful, amazing or beautiful.
 2. Then, ask ONE powerful, open-ended coaching question that deepens their thinking.
-3. Keep it concise. Do NOT give advice, suggestions, or multi-step tasks.
+3. Keep it concise, in plain sentences with no lists or bullet points. Do NOT give advice, suggestions, or multi-step tasks.
 4. If in DEEPEN phase, probe for resources, values, or hidden possibilities.
 5. If in BRIDGE phase, summarise the current success of this stage and pivot to the next.
 6. Always {lang_instr}. {_language_output_rule(self.language)}
-7. Never repeat yourself or generic template questions.
-8. If the client mentions harming themselves or being in danger, stop the coaching exercise, respond with care, and encourage them to contact local emergency services or a crisis line.{persona_extension}"""
-            if decide_stage:
-                system_prompt += self._stage_decision_rules()
+7. Never repeat a question you have already asked in this conversation, and avoid generic template questions.
+8. If the client mentions harming themselves or being in danger, stop the coaching exercise, respond with care, and encourage them to contact local emergency services or a crisis line.
+9. End every reply with your one question. Only a closing summary at the very end of the session has no question.{persona_extension}"""
+            system_prompt += self._stage_decision_rules() if decide_stage else self._end_only_rules()
 
             messages = [{"role": "system", "content": system_prompt}]
             for msg in _conversation_window(self.context):
@@ -410,13 +420,7 @@ Guidelines:
             f"Write every value in {lang_instr}. {_language_output_rule(self.language)} Do not include markdown fences.\n\n"
             f"CONVERSATION:\n{transcript}"
         )
-        resp = client.chat.completions.create(
-            model=_chat_model(),
-            messages=[{"role": "system", "content": prompt}],
-            max_tokens=300,
-            temperature=0.2,
-        )
-        data = json.loads(_strip_json_fence(_response_text(resp)))
+        data = _json_completion(client, messages=[{"role": "system", "content": prompt}], max_tokens=300, temperature=0.2)
         card = {key: str(data.get(key) or "").strip()[:300] for key in ACTION_CARD_FIELDS}
         return card if card["goal"] or card["next_step"] else None
 
@@ -429,6 +433,7 @@ Guidelines:
                 role = "Coach" if msg["role"] == "coach" else "Client"
                 transcript.append(f"{role}: {msg['content']}")
             
+            lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
             prompt = (
                 "You are an AI learning module. Analyze this coaching session where the human played the 'Client'. "
                 "Identify their recurring coaching strengths and areas where they need more challenge. "
@@ -437,24 +442,11 @@ Guidelines:
                 "\"coaching_style\": \"short summary of their mindset/approach\", "
                 "\"strengths\": [\"strength1\", \"strength2\"], "
                 "\"growth_areas\": [\"area1\", \"area2\"]"
-                "}"
+                "}. "
+                f"Write every value in {lang_instr}. {_language_output_rule(self.language)}"
             )
-            
-            resp = client.chat.completions.create(
-                model=_chat_model(),
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": "\n".join(transcript)}
-                ],
-                max_tokens=300,
-                temperature=0.3,
-            )
-            
-            # Clean possible markdown
-            content = _response_text(resp).strip()
-            if content.startswith("```"):
-                content = content.split("\n", 1)[1].rsplit("\n", 1)[0]
-            
-            return json.loads(content)
+            return _json_completion(client, messages=[{"role": "system", "content": prompt},
+                                                      {"role": "user", "content": "\n".join(transcript)}],
+                                    max_tokens=300, temperature=0.3)
         except Exception:
             return {}

@@ -458,6 +458,13 @@ def _scenario_bundle_from_single_language(data: dict) -> ScenarioBundle:
     def pack_map(section: dict[str, list[str]]) -> dict[str, dict[str, list[str]]]:
         return {key: _mirror_lang_payload(value) for key, value in section.items()}
 
+    # Models sometimes nest a section inside the one before it; lift it back to the top.
+    for name in ("contract", "experience", "action", "value", "closing"):
+        if name not in data:
+            holder = next((value for value in data.values() if isinstance(value, dict) and name in value), None)
+            if holder is not None:
+                data[name] = holder.pop(name)
+
     return ScenarioBundle(
         intro=_mirror_lang_payload(data["intro"]),
         contract=pack_map(data["contract"]),

@@ -205,17 +205,87 @@ def _strip_json_fence(raw: str) -> str:
     return cleaned
 
 
+def _repair_json_brackets(raw: str) -> str:
+    """Fix mismatched closing brackets, the slip models make most in long JSON (often in Chinese).
+
+    A list closed with '}' is read as a missing ']' when more text follows (`["a", "b"}, "next"`), or as a ']' typed
+    as '}' when another closer follows (`["a", "b"}}`). Anything still open at the end is closed.
+    """
+    out: list[str] = []
+    stack: list[str] = []
+    in_string = escaped = False
+    for index, ch in enumerate(raw):
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            stack.append(ch)
+        elif ch == "}" and stack and stack[-1] == "[":
+            stack.pop()
+            following = raw[index + 1:].lstrip()[:1]
+            if following in ("}", "]"):
+                out.append("]")
+                continue
+            out.append("]")
+            if stack:
+                stack.pop()
+        elif ch == "]" and stack and stack[-1] == "{":
+            stack.pop()
+            out.append("}")
+            if stack:
+                stack.pop()
+        elif ch in "]}":
+            if not stack:
+                continue
+            stack.pop()
+        out.append(ch)
+    out.extend("]" if opener == "[" else "}" for opener in reversed(stack))
+    return "".join(out)
+
+
+def _json_completion(client, *, messages: list[dict], max_tokens: int, temperature: float, attempts: int = 2):
+    """Ask the model for a JSON object and return it parsed.
+
+    Uses the provider's JSON mode, repairs mismatched brackets, and asks once more (cooler) before giving up.
+    The prompt must mention JSON, which JSON mode requires.
+    """
+    error: Exception | None = None
+    for attempt in range(attempts):
+        resp = client.chat.completions.create(
+            model=_chat_model(),
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature if attempt == 0 else min(temperature, 0.3),
+            response_format={"type": "json_object"},
+        )
+        raw = _strip_json_fence(_response_text(resp))
+        for candidate in (raw, _repair_json_brackets(raw)):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                error = exc
+    raise error
+
+
 def _translate_texts(api_key: str, texts: list[str], target_lang: str, on_usage=None) -> list[str]:
     """Translate several messages in one model call instead of one call per message."""
     target = "Simplified Chinese" if target_lang == "zh" else "English"
-    resp = _build_client(api_key, on_usage=on_usage).chat.completions.create(
-        model=_chat_model(),
+    data = _json_completion(
+        _build_client(api_key, on_usage=on_usage),
         messages=[
             {
                 "role": "system",
                 "content": (
                     f"Translate each string in the JSON array to {target}. {_language_output_rule(target_lang)} "
-                    "Return only a JSON array of the translated strings, in the same order and with the same length."
+                    'Return a JSON object {"translations": [...]} holding the translated strings, in the same order and with the same length.'
                 ),
             },
             {"role": "user", "content": json.dumps(texts, ensure_ascii=False)},
@@ -223,7 +293,7 @@ def _translate_texts(api_key: str, texts: list[str], target_lang: str, on_usage=
         max_tokens=min(4000, 300 * len(texts)),
         temperature=0.1,
     )
-    translated = json.loads(_strip_json_fence(_response_text(resp)))
+    translated = data.get("translations") if isinstance(data, dict) else data
     if not isinstance(translated, list) or len(translated) != len(texts):
         raise ValueError("Translation did not return one string per message.")
     return [_clean_response_language(str(text), target_lang) for text in translated]
@@ -282,8 +352,21 @@ def _language_output_rule(language: str) -> str:
     return "Respond only in English. Do not include Chinese translations, pinyin, or bilingual parentheses."
 
 
+_WRAPPING_QUOTES = {'"': '"', "“": "”", "'": "'", "「": "」", "『": "』"}
+
+
+def _strip_wrapping_quotes(text: str) -> str:
+    """Drop quote marks a model sometimes puts around its whole reply."""
+    close = _WRAPPING_QUOTES.get(text[:1])
+    if close and len(text) > 2 and text.endswith(close) and text[0] not in text[1:-1] and close not in text[1:-1]:
+        return text[1:-1].strip()
+    return text
+
+
 def _clean_response_language(text: str, language: str) -> str:
-    cleaned = (text or "").strip()
+    cleaned = _strip_wrapping_quotes((text or "").strip())
+    if cleaned[:2] in ("- ", "• ") and "\n- " not in cleaned and "\n• " not in cleaned:
+        cleaned = cleaned[2:].lstrip()  # a stray bullet in front of a one-paragraph reply
     if language != "zh" or not cleaned:
         return cleaned
 

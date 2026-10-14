@@ -919,14 +919,14 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
         calls = []
         client = _fake_llm_client(
-            ["[[END]] Thanks, I feel ready.", "Session Result: Solid start.\nScore: 70/100"],
+            ["[[END]] Thanks, I feel ready.", "Session Result: Solid start.\nScore: 7/100"],
             calls,
         )
 
         with patch("coachee_agent._build_client", return_value=client):
             partials = list(agent.stream_response("Goodbye and good luck!", api_key="server-key"))
 
-        self.assertEqual(partials, ["Session Result: Solid start.\nScore: 70/100"])
+        self.assertEqual(partials, ["Session Result: Solid start.\nScore: 7/100"])
         self.assertTrue(agent.is_session_ended())
         self.assertEqual(len(calls), 2)
         self.assertTrue(calls[0]["stream"])
@@ -2000,6 +2000,114 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertIn("data-welcome-close", first[-2])
         self.assertIn('href="/help"', first[-2])
         self.assertEqual(again[-2], "")
+
+
+class TestStructuredReplies(unittest.TestCase):
+    """Requests that must come back as JSON survive the slips real models make."""
+
+    def test_bracket_repair_fixes_the_slips_seen_from_deepseek(self):
+        from coaching_core import _repair_json_brackets
+
+        missing = '{"contract": {"success": ["a", "b"}, "experience": {"reality": ["c"]}}'
+        swapped = '{"contract": {"success": ["a", "b"}}, "experience": {"reality": ["c"]}}'
+        for raw in (missing, swapped):
+            data = json.loads(_repair_json_brackets(raw))
+            self.assertEqual(data["contract"]["success"], ["a", "b"])
+            self.assertEqual(data["experience"]["reality"], ["c"])
+        self.assertEqual(json.loads(_repair_json_brackets('{"a": "x}y", "b": [1, 2]}')), {"a": "x}y", "b": [1, 2]})
+        self.assertEqual(json.loads(_repair_json_brackets('{"a": ["x"')), {"a": ["x"]})
+
+    def test_json_completion_uses_json_mode_and_asks_again_after_unusable_output(self):
+        from coaching_core import _json_completion
+
+        calls = []
+        client = _fake_llm_client(["not json at all", '{"ok": true}'], calls)
+
+        data = _json_completion(client, messages=[{"role": "system", "content": "Reply in JSON."}], max_tokens=10, temperature=0.9)
+
+        self.assertEqual(data, {"ok": True})
+        self.assertEqual(calls[0]["response_format"], {"type": "json_object"})
+        self.assertEqual((calls[0]["temperature"], calls[1]["temperature"]), (0.9, 0.3))
+
+    def test_practice_session_opens_with_a_built_in_case_when_the_ai_case_is_unusable(self):
+        import coachee_agent
+
+        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        built_in = agent.scenario
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["{broken", "{still broken"], [])), \
+                patch.object(coachee_agent.logger, "warning"):
+            opening = agent.get_stage_prompt("server-key")
+
+        self.assertEqual(opening, built_in.intro["zh"])
+
+    def test_practice_case_sections_nested_by_mistake_are_lifted_back(self):
+        from coachee_data import _scenario_bundle_from_single_language
+
+        pair = ["I want this.", "I really do."]
+        data = {"intro": "Hi.", "contract": {"goal": pair, "experience": {"reality": pair}},
+                "action": {"possibility": pair}, "value": {"commitment": pair}, "closing": {"reflection": pair}}
+
+        bundle = _scenario_bundle_from_single_language(data)
+
+        self.assertEqual(bundle.experience["reality"]["en"], pair)
+        self.assertNotIn("experience", bundle.contract)
+
+    def test_practice_review_scores_each_stage(self):
+        calls = []
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent.context = [{"role": "coach", "content": "What would you like from today?"}]
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Score: 40/100"], calls)):
+            agent._build_llm_final_review("server-key")
+
+        prompt = calls[0]["messages"][0]["content"]
+        self.assertIn("Stage scores: Contract <n>/20", prompt)
+        self.assertIn("A stage the coach skipped earns 0", prompt)
+        self.assertIn("The coach spoke 1 times in this session, so the total must not exceed 8.", prompt)
+
+    def test_practice_scores_are_held_to_the_ceiling_for_short_sessions(self):
+        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent.context = [{"role": "coach", "content": f"问题 {i}"} for i in range(5)]
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["会话结果：不错。\n最后得分：70/100"], [])):
+            review = agent._build_llm_final_review("server-key")
+
+        self.assertIn("最后得分：40/100", review)
+        self.assertEqual(agent._apply_score_ceiling("Score: 30/100"), "Score: 30/100")
+        capped = agent._apply_score_ceiling("分阶段得分：目标合同 18/20 · 现实探索 12/20 · 可能方案 14/20 · 行动承诺 18/20 · 结束回顾 16/20\n最后得分：78/100")
+        stage_scores = [int(n) for n in re.findall(r"(\d+)/20", capped)]
+        self.assertEqual(sum(stage_scores), 40)
+        self.assertIn("最后得分：40/100", capped)
+
+    def test_a_stray_bullet_before_a_one_paragraph_reply_is_removed(self):
+        self.assertEqual(_clean_response_language("- You want evenings back. What matters most?", "en"),
+                         "You want evenings back. What matters most?")
+        self.assertEqual(_clean_response_language("- one\n- two", "en"), "- one\n- two")
+
+    def test_whole_reply_quote_marks_are_removed(self):
+        self.assertEqual(_clean_response_language('"How did it go?"', "en"), "How did it go?")
+        self.assertEqual(_clean_response_language("“上次的计划进展如何？”", "zh"), "上次的计划进展如何？")
+        self.assertEqual(_clean_response_language('"Yes" or "no" both work.', "en"), '"Yes" or "no" both work.')
+        self.assertEqual(_clean_response_language("'Tis the season, isn't it'", "en"), "'Tis the season, isn't it'")
+
+    def test_coach_can_close_between_stage_decisions(self):
+        calls = []
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [{"role": "coach", "content": "What would you like to focus on?"}]
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["[[END]] Take care, and well done today."], calls)):
+            reply = agent.generate_response("That's all for today, I need to go.", "server-key")
+
+        self.assertEqual(reply, "Take care, and well done today.")
+        self.assertTrue(agent.is_session_ended())
+        self.assertIn("A thank-you on its own is not a request to finish", calls[0]["messages"][0]["content"])
+
+    def test_practice_client_closes_when_the_coach_says_goodbye_between_stage_decisions(self):
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent._llm_scenario_ready = True
+        agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["[[END]] Thanks!", "Score: 6/100"], [])):
+            reply = agent.generate_response("Good luck, that's all for today. Goodbye!", "server-key")
+
+        self.assertTrue(agent.is_session_ended())
+        self.assertEqual(reply, "Score: 6/100")
 
 
 class TestLanguageAndLocalisation(unittest.TestCase):
