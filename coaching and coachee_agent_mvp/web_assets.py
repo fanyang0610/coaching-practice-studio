@@ -53,7 +53,8 @@ UI = {
         "quota_sessions": "You've used today's AI sessions in this module. This session runs in template practice mode; AI is available again in about {hours} h.",
         "quota_starts": "You've started many AI sessions in this module today. This one runs in template practice mode; AI is available again in about {hours} h.",
         "quota_tokens": "You've reached today's AI usage limit. This session runs in template practice mode; AI is available again in about {hours} h.",
-        "quota_pill": "AI today {left}/{limit}",
+        "quota_pill": "{left} of {limit} left today",
+        "quota_pill_unlimited": "{used} used today",
         "account_link": "Account",
         "module": "Module",
         "coach_module": "AI Coach",
@@ -127,7 +128,8 @@ UI = {
         "quota_sessions": "你今天在此模块的 AI 会话已用完。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
         "quota_starts": "你今天在此模块开启了较多 AI 会话。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
         "quota_tokens": "你已达到今天的 AI 用量上限。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
-        "quota_pill": "今日AI {left}/{limit}",
+        "quota_pill": "今日剩余 {left}/{limit} 次",
+        "quota_pill_unlimited": "今日已用 {used} 次",
         "account_link": "账户",
         "module": "模块",
         "coach_module": "AI教练",
@@ -196,6 +198,11 @@ head = """
 #huggingface-space-header { display: none !important; }
 /* Phones: the page frame adds no bottom padding; the message area handles the iPhone home bar itself. */
 @media (max-width: 767px) { body .gradio-container main.contain.contain.contain { padding-bottom: 0 !important; } }
+/* iPhone Safari lets the page run under the clock and battery bar and blurs whatever sits near the top edge, which
+   blurred the app header. Start the page a little lower there (-webkit-touch-callout exists only on iOS). */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 767px) { body .gradio-container main.contain.contain.contain { padding-top: calc(env(safe-area-inset-top) + 20px) !important; } }
+}
 </style>
 """
 

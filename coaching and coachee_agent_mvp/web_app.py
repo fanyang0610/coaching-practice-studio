@@ -194,6 +194,8 @@ def _mode_context_html(session: dict) -> str:
     quota_pill = ""
     if allowance and allowance.session_limit is not None:
         quota_pill = f' <span class="studio-quota">{s["quota_pill"].format(left=allowance.sessions_left, limit=allowance.session_limit)}</span>'
+    elif allowance:
+        quota_pill = f' <span class="studio-quota">{s["quota_pill_unlimited"].format(used=allowance.sessions_used)}</span>'
     return f"""
     <section class="mode-context-card">
         <div class="mode-context-label">{s["mode_context"]}</div>

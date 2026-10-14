@@ -2017,6 +2017,16 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertIsNone(straight_after["agent"].last_card)
         self.assertEqual(next_day["agent"].last_card["next_step"], "No phone in bed")
 
+    def test_mode_card_shows_sessions_left_or_used_today(self):
+        web_app, store, user, _ = _signed_in()
+        admin_id = store.create_user("boss@example.com", "Boss", "x", role="admin")
+
+        member = web_app._mode_context_html(web_app._open_session(user, "coach", "template", "en"))
+        admin = web_app._mode_context_html(web_app._open_session(store.get_user(admin_id), "coachee", "template", "zh"))
+
+        self.assertIn("3 of 3 left today", member)
+        self.assertIn("今日已用 0 次", admin)
+
     def test_switching_language_translates_the_ai_opening_question(self):
         web_app, _, user, request = _signed_in()
         session = web_app._open_session(user, "coach", "template", "en")
