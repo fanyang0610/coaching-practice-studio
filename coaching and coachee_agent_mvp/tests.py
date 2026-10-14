@@ -438,6 +438,15 @@ class TestWebAppLayout(unittest.TestCase):
         self.assertIn("-webkit-text-fill-color: #ffffff !important", css)
         self.assertIn("grid-template-rows: auto auto !important", css)
 
+    def test_gradio_never_puts_its_own_server_in_front_of_the_account_pages(self):
+        import gradio as gr
+        import web_app
+
+        with patch.object(web_app.gr, "mount_gradio_app", wraps=gr.mount_gradio_app) as mount:
+            web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "x" * 64, "GRADIO_SSR_MODE": "true"})
+
+        self.assertIs(mount.call_args.kwargs["ssr_mode"], False)
+
     def test_compact_phone_layout_uses_selectors_gradio_can_match(self):
         from web_app import css
 

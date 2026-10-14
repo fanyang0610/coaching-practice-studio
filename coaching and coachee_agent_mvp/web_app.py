@@ -1187,6 +1187,9 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
         favicon_path=str(ROOT / "assets" / "icons" / "studio-icon-192.png"),
         allowed_paths=[str(ROOT / "assets")],
         footer_links=["gradio", "settings"],
+        # Hugging Face turns on Gradio's server-side rendering, which puts a Node server in front that only forwards
+        # Gradio's own routes, hiding the account pages (/privacy, /help, /account, /admin, /healthz).
+        ssr_mode=False,
     )
 
 

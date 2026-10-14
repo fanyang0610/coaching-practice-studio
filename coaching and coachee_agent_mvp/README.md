@@ -156,7 +156,7 @@ For Hugging Face Spaces, keep the README front matter pointed at `app_file: app.
 python3 scripts/deploy_hf_space.py
 ```
 
-The helper stages a temporary Space folder using `.hfignore`, excludes the local wrapper `app.py`, copies local `web_app.py` to staged `app.py`, verifies that `web_app.py` is not uploaded under its own name, and then runs `hf upload`. Use `python3 scripts/deploy_hf_space.py --dry-run` to inspect the staged file list without uploading.
+The helper stages a temporary Space folder using `.hfignore`, excludes the local wrapper `app.py`, copies local `web_app.py` to staged `app.py`, verifies that `web_app.py` is not uploaded under its own name, and then uploads into the existing Space with `huggingface_hub`'s `upload_folder`. (`hf upload` no longer works here: it first tries to create the Space, which Hugging Face refuses for Gradio Spaces on free hardware without a PRO subscription.) Use `python3 scripts/deploy_hf_space.py --dry-run` to inspect the staged file list without uploading.
 
 Before deploying an in-progress local diff, run `python3 scripts/needs_hf_upload.py` to report whether the changed files affect the hosted Space boundary or are local-only verification/development tooling.
 

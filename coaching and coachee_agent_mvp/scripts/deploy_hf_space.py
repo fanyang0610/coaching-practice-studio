@@ -8,7 +8,6 @@ import fnmatch
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 
@@ -128,7 +127,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--commit-message",
         default="Deploy web app as Space entrypoint",
-        help="Commit message for hf upload.",
+        help="Commit message for the upload.",
     )
     parser.add_argument(
         "--dry-run",
@@ -165,20 +164,12 @@ def main() -> int:
             cleanup.cleanup()
         return 0
 
-    subprocess.run(
-        [
-            "hf",
-            "upload",
-            args.space_id,
-            str(stage_dir),
-            ".",
-            "--type",
-            "space",
-            "--commit-message",
-            args.commit_message,
-        ],
-        check=True,
-    )
+    # Upload into the existing Space. `hf upload` first tries to create the repo, which Hugging Face now refuses
+    # (402) for Gradio Spaces on free hardware without PRO, even when the Space already exists.
+    from huggingface_hub import HfApi
+
+    HfApi().upload_folder(repo_id=args.space_id, repo_type="space", folder_path=str(stage_dir),
+                          commit_message=args.commit_message)
 
     if cleanup:
         cleanup.cleanup()
