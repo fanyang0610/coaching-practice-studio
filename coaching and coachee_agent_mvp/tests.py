@@ -447,6 +447,11 @@ class TestWebAppLayout(unittest.TestCase):
 
         self.assertIs(mount.call_args.kwargs["ssr_mode"], False)
 
+    def test_hugging_face_space_badge_is_hidden(self):
+        from web_assets import head
+
+        self.assertIn("#huggingface-space-header { display: none !important; }", head)
+
     def test_compact_phone_layout_uses_selectors_gradio_can_match(self):
         from web_app import css
 

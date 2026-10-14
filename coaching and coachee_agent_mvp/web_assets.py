@@ -183,6 +183,12 @@ head = """
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/studio-icon-192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/studio-icon-180.png">
 <link rel="manifest" href="/site.webmanifest">
+<style>
+/* On Hugging Face, Gradio pins a "Space" badge (name and likes) over the top of the page, covering the app header,
+   Help and Account. It hides itself on phones only when the window is resized, so it showed on every phone visit.
+   This sits in <head> because custom CSS gets prefixed with Gradio's container and can't reach <body> children. */
+#huggingface-space-header { display: none !important; }
+</style>
 """
 
 
@@ -2377,7 +2383,7 @@ div:has(> .tracker-shell) {
     /* Composer: message box, microphone and Send on one row; Skip Ahead and New Session on a slim row below */
     #app-shell #composer-shell {
         padding-top: 6px !important;
-        padding-bottom: max(6px, env(safe-area-inset-bottom)) !important;
+        padding-bottom: 6px !important; /* the page frame already leaves room for the iPhone home bar */
     }
 
     #app-shell .composer-grid {
