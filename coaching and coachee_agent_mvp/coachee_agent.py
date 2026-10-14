@@ -2,7 +2,7 @@ from dataclasses import asdict
 import json
 import random
 import uuid
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coachee_data import (
     COACHEE_ACKNOWLEDGMENTS,
     COACHEE_BRIDGES,
@@ -490,7 +490,7 @@ class EricksonCoacheeAgent:
                     ),
                 }
             ]
-            for msg in self.context[-10:]:
+            for msg in _conversation_window(self.context):
                 role = "assistant" if msg["role"] == self.assistant_role else "user"
                 messages.append({"role": role, "content": msg["content"]})
             raw = ""
@@ -525,7 +525,7 @@ class EricksonCoacheeAgent:
         client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         transcript = []
-        for msg in self.context:
+        for msg in _conversation_window(self.context, head=10, tail=60):
             speaker = "Coach" if msg["role"] == self.user_role else "Coachee"
             transcript.append(f"{speaker}: {msg['content']}")
 
@@ -536,7 +536,7 @@ class EricksonCoacheeAgent:
                 "会话结果：[用一两句话总结本次模拟教练的效果和完整度]\n"
                 "最后得分：[0-100]/100\n"
                 "做得好的部分：\n- [具体的优点1]\n- [具体的优点2]\n"
-                "需要提升的部分：\n- [针对教练练习室体系的具体建议1]\n- [针对教练练习室体系的具体建议2]\n"
+                "需要提升的部分：\n- [具体、可操作的建议1]\n- [具体、可操作的建议2]\n"
                 "下一步教练修炼方向：[针对教练个人成长的一句核心建议]"
             )
         else:
@@ -558,7 +558,7 @@ class EricksonCoacheeAgent:
             f"Respond only in {lang_instr}. {_language_output_rule(self.language)}\n"
             f"{struct}\n\n"
             "COACHING HISTORY TO EVALUATE:\n"
-            + "\n".join(transcript[-25:])
+            + "\n".join(transcript)
         )
 
         resp = client.chat.completions.create(

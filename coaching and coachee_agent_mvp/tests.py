@@ -382,10 +382,10 @@ class TestWebAppLayout(unittest.TestCase):
     def test_module_buttons_explain_user_roles(self):
         import web_app
 
-        self.assertIn("AI教练\n来访者", web_app._module_button_text("coach", "zh", "coach"))
-        self.assertIn("AI学员\n练提问", web_app._module_button_text("coachee", "zh", "coach"))
-        self.assertIn("AI Coach\nClient", web_app._module_button_text("coach", "en", "coach"))
-        self.assertIn("AI Coachee\nPractice", web_app._module_button_text("coachee", "en", "coach"))
+        self.assertIn("被教练\nAI 为你做教练", web_app._module_button_text("coach", "zh", "coach"))
+        self.assertIn("练习做教练\nAI 扮演来访者", web_app._module_button_text("coachee", "zh", "coach"))
+        self.assertIn("Be coached\nby the AI", web_app._module_button_text("coach", "en", "coach"))
+        self.assertIn("Practise coaching\nwith an AI client", web_app._module_button_text("coachee", "en", "coach"))
 
     def test_transformational_studio_contract(self):
         root = Path(__file__).resolve().parent
@@ -398,11 +398,12 @@ class TestWebAppLayout(unittest.TestCase):
         self.assertIn("studio-header", header_html)
         self.assertIn('src="/icons/studio-icon-192.png"', header_html)
         self.assertIn('href="/account"', header_html)
+        self.assertIn('href="/help"', header_html)
         self.assertNotIn("base64", header_html)
         self.assertIn("教练练习室", header_html)
         self.assertNotIn("transformation-hero", header_html)
         self.assertIn("mode-context-card", mode_html)
-        self.assertIn("来访者模式", mode_html)
+        self.assertIn("真实话题", mode_html)
         self.assertLess(source.index('elem_classes="module-card-btn"'), source.index('elem_classes="mode-context-md"'))
         self.assertIn("custom-mic-btn", source)
         self.assertIn("mic-glyph", source)
@@ -1283,6 +1284,32 @@ class TestStore(unittest.TestCase):
         self.store = db.Store("sqlite://")
         self.uid = self.store.create_user("Amy@Example.com ", "Amy", accounts.hash_password("a-long-password"))
 
+    def test_session_results_join_lists_export_and_go_with_the_account(self):
+        import datetime as dt
+
+        trainer = self.store.create_user("trainer@example.com", "Tess", "x", role="trainer")
+        self.store.update_user(self.uid, trainer_id=trainer)
+        practice = self.store.create_session(self.uid, "coachee", "en", "llm", "CLOSING", {"context": []})
+        coaching = self.store.create_session(self.uid, "coach", "en", "llm", "CLOSING", {"context": []})
+        self.store.save_session_result(practice, self.uid, "coachee", score=60)
+        self.store.save_session_result(practice, self.uid, "coachee", score=65)
+        self.store.save_session_result(coaching, self.uid, "coach", card={"goal": "Rest", "next_step": "Walk at lunch"})
+        now = db.utcnow()
+
+        listed = {row["id"]: row for row in self.store.list_sessions(self.uid)}
+        self.assertEqual(listed[practice]["score"], 65)
+        self.assertEqual(listed[coaching]["card"]["next_step"], "Walk at lunch")
+        self.assertEqual(self.store.trainer_visible_sessions(trainer)[0]["score"], 65)
+        self.assertEqual([r["score"] for r in self.store.session_results(self.uid, "coachee")], [65])
+        self.assertEqual(self.store.latest_card(self.uid, now - dt.timedelta(days=1), now + dt.timedelta(minutes=1))["goal"], "Rest")
+        self.assertIsNone(self.store.latest_card(self.uid, now - dt.timedelta(days=1), now - dt.timedelta(hours=8)))
+        exported = {row["id"]: row for row in self.store.export_user(self.uid)["sessions"]}
+        self.assertEqual(exported[practice]["score"], 65)
+        self.assertEqual(exported[coaching]["action_card"]["goal"], "Rest")
+
+        self.store.delete_user(self.uid)
+        self.assertEqual(self.store.session_results(self.uid, "coachee"), [])
+
     def test_emails_are_normalised(self):
         self.assertEqual(self.store.get_user_by_email(" amy@example.COM")["id"], self.uid)
 
@@ -1726,6 +1753,27 @@ class TestAccountPages(unittest.TestCase):
         self.assertNotIn("Your mentor can review", solo)
         self.assertIn("Your mentor can review", learner)
 
+    def test_member_and_mentor_see_scores_and_action_cards_but_the_admin_does_not(self):
+        self._person("owner@example.com", role="admin")
+        trainer = self._person("trainer@example.com", role="trainer")
+        learner = self._person("learner@example.com", trainer_id=trainer)
+        practice = self.store.create_session(learner, "coachee", "en", "llm", "CLOSING", {"context": []})
+        self.store.save_session_result(practice, learner, "coachee", score=81)
+        coaching = self.store.create_session(learner, "coach", "en", "llm", "CLOSING", {"context": []})
+        self.store.save_session_result(coaching, learner, "coach",
+                                       card={"goal": "Run 5 km", "next_step": "Buy running shoes", "by_when": "Saturday", "support": ""})
+
+        account = self._sign_in("learner@example.com").get("/account?lang=en").text
+        mentor = self._sign_in("trainer@example.com").get("/mentor?lang=en").text
+        admin = self._sign_in("owner@example.com").get("/admin?lang=en").text
+
+        self.assertIn("Buy running shoes", account)
+        self.assertIn("Latest 81/100", account)
+        self.assertIn("81/100", mentor)
+        self.assertNotIn("Buy running shoes", mentor)
+        self.assertNotIn("81/100", admin)
+        self.assertNotIn("Buy running shoes", admin)
+
     def test_changing_a_members_mentor_makes_their_shared_sessions_private(self):
         admin = self._person("owner@example.com", role="admin")
         trainer = self._person("trainer@example.com", role="trainer")
@@ -1824,6 +1872,134 @@ class TestAccountPages(unittest.TestCase):
         self.assertEqual(self.client.get("/site.webmanifest").status_code, 200)
         self.assertEqual(self.client.get("/privacy").status_code, 200)
         self.assertEqual(self.client.get("/healthz").json(), {"ok": True})
+
+
+class TestSessionTakeaways(unittest.TestCase):
+    """The coach remembers the goal, and finished sessions leave something to keep: an action card or a score."""
+
+    def test_conversation_window_keeps_the_start_and_the_latest_messages(self):
+        from coaching_core import _conversation_window
+
+        context = [{"role": "client", "content": str(i)} for i in range(40)]
+        window = _conversation_window(context)
+
+        self.assertEqual([m["content"] for m in window[:6]], ["0", "1", "2", "3", "4", "5"])
+        self.assertEqual(window[-1]["content"], "39")
+        self.assertEqual(len(window), 22)
+        self.assertEqual(_conversation_window(context[:10]), context[:10])
+
+    def test_coach_still_sees_the_agreed_goal_late_in_a_long_session(self):
+        from coaching_core import CoachingSubPhase
+
+        calls = []
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [{"role": "coach", "content": "What would you like to focus on?"},
+                         {"role": "client", "content": "My goal is to run a half marathon in May."}]
+        agent.context += [{"role": "coach" if i % 2 == 0 else "client", "content": f"turn {i}"} for i in range(30)]
+        agent.current_sub_phase = CoachingSubPhase.DEEPEN
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["What will help most?"], calls)):
+            list(agent._get_llm_response("server-key"))
+
+        sent = " ".join(message["content"] for message in calls[0]["messages"])
+        self.assertIn("half marathon", sent)
+        self.assertIn("turn 29", sent)
+
+    def test_action_card_reads_the_plan_and_skips_sessions_without_one(self):
+        calls = []
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [{"role": "client", "content": "I'll call my sister on Sunday."}]
+        replies = [json.dumps({"goal": "Reconnect with my sister", "next_step": "Call her", "by_when": "Sunday", "support": ""}),
+                   json.dumps({"goal": "", "next_step": ""})]
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(replies, calls)):
+            card = agent.action_card("server-key")
+            empty = agent.action_card("server-key")
+
+        self.assertEqual(card, {"goal": "Reconnect with my sister", "next_step": "Call her", "by_when": "Sunday", "support": ""})
+        self.assertIsNone(empty)
+        self.assertIn("never invent", calls[0]["messages"][0]["content"])
+
+    def test_opening_follows_up_on_the_last_plan(self):
+        calls = []
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.last_card = {"goal": "Sleep better", "next_step": "Phone out of the bedroom", "by_when": "tonight", "support": ""}
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["How did it go?"], calls)):
+            agent._get_llm_opening_response("server-key")
+
+        prompt = calls[0]["messages"][0]["content"]
+        self.assertIn("FOLLOW-UP", prompt)
+        self.assertIn("Phone out of the bedroom", prompt)
+
+    def test_skipping_to_the_end_closes_with_a_real_summary(self):
+        calls = []
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [{"role": "coach", "content": "What matters here?"}, {"role": "client", "content": "Time with my family."}]
+        agent.current_state = CoachingState.VALUE
+        agent.force_next_state()
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["You found what matters most."], calls)):
+            closing = agent.get_stage_prompt("server-key")
+
+        self.assertEqual(closing, "You found what matters most.")
+
+    def test_ending_an_ai_coach_session_adds_the_action_card_after_the_closing(self):
+        from coaching_core import CoachingSubPhase
+
+        web_app, store, user, request = _signed_in()
+        session = web_app._open_session(user, "coach", "template", "en")
+        agent = session["agent"]
+        agent.mode = "llm"
+        agent.current_state = CoachingState.VALUE
+        agent.current_sub_phase = CoachingSubPhase.DEEPEN
+        agent.turns_in_current_stage = 3
+        card = {"goal": "Learn Spanish", "next_step": "Book the course", "by_when": "Friday", "support": "My partner"}
+        fake = _fake_llm_client(["[[END]] You have a clear plan.", json.dumps(card)], [])
+        with patch.object(web_app, "_safe_key", return_value="server-key"), patch("coach_agent._build_client", return_value=fake), \
+                patch.object(web_app, "_learn_from_session"):
+            outputs = list(web_app.respond("I'll book it on Friday, thanks!", [], session, "coach", "AI", "English", request))
+
+        closing_only, final = outputs[-2][1], outputs[-1][1]
+        self.assertEqual(closing_only[-1]["content"], "You have a clear plan.")
+        self.assertEqual(final[-2]["content"], "You have a clear plan.")
+        self.assertIn("Next step: Book the course", final[-1]["content"])
+        self.assertIn("Saved on your Account page.", final[-1]["content"])
+        self.assertEqual(store.session_results(user["id"], "coach")[0]["card"], card)
+        self.assertEqual(store.get_session(session["id"])["status"], "completed")
+
+    def test_finished_practice_session_keeps_its_score(self):
+        web_app, store, user, _ = _signed_in()
+        session = web_app._open_session(user, "coachee", "template", "en")
+        session["agent"].context.append({"role": "coachee", "content": "Session Result: solid.\nScore: 74/100\nWhat worked: ..."})
+
+        web_app._finish_session(session, "")
+
+        self.assertEqual(store.session_results(user["id"], "coachee")[0]["score"], 74)
+        self.assertEqual(web_app._review_score("会话结果：完整。\n最后得分：68/100"), 68)
+        self.assertIsNone(web_app._review_score("No score here."))
+
+    def test_new_ai_coach_session_follows_up_only_on_a_plan_from_earlier(self):
+        import datetime as dt
+
+        web_app, store, user, _ = _signed_in()
+        earlier = store.create_session(user["id"], "coach", "en", "llm", "CLOSING", {"context": []})
+        store.save_session_result(earlier, user["id"], "coach", card={"goal": "Sleep better", "next_step": "No phone in bed"})
+
+        straight_after = web_app._open_session(user, "coach", "llm", "en")
+        with store.engine.begin() as conn:
+            conn.execute(db.session_results.update().values(created_at=db.utcnow() - dt.timedelta(days=1)))
+        next_day = web_app._open_session(user, "coach", "llm", "en")
+
+        self.assertIsNone(straight_after["agent"].last_card)
+        self.assertEqual(next_day["agent"].last_card["next_step"], "No phone in bed")
+
+    def test_welcome_card_shows_only_on_the_first_visit(self):
+        web_app, _, _, request = _signed_in()
+
+        first = web_app.initial_load(None, "coach", "Template", "English", request)
+        again = web_app.initial_load(None, "coach", "Template", "English", request)
+
+        self.assertIn("welcome-layer", first[-2])
+        self.assertIn("data-welcome-close", first[-2])
+        self.assertIn('href="/help"', first[-2])
+        self.assertEqual(again[-2], "")
 
 
 class TestLanguageAndLocalisation(unittest.TestCase):
@@ -2016,9 +2192,12 @@ class TestProviderAndRegionSupport(unittest.TestCase):
         if not node:
             self.skipTest("node is not installed")
         with tempfile.TemporaryDirectory() as folder:
-            for name in ("force_light_js", "tts_js", "scroll_js", "remember_lang_js"):
+            scripts = {name: "(" + getattr(web_assets, name) + ")" for name in ("force_light_js", "tts_js", "scroll_js", "remember_lang_js")}
+            # An HTML block's js_on_load is a function body that receives the block as `element`.
+            scripts["welcome_js"] = "(function (element) {" + web_assets.welcome_js + "})"
+            for name, source in scripts.items():
                 script = Path(folder) / f"{name}.js"
-                script.write_text("(" + getattr(web_assets, name) + ")", encoding="utf-8")
+                script.write_text(source, encoding="utf-8")
                 result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
 

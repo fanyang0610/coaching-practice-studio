@@ -41,6 +41,13 @@ AI Coach sessions are private by default, because people bring their real lives 
 
 **First admin.** Locally, opening the app with an empty database shows a one-time setup page. On a hosted server, set `ERICKSON_ADMIN_EMAIL` and `ERICKSON_ADMIN_PASSWORD`; the admin is created at startup if no admin exists yet. From a shell you can also run `python3 scripts/manage.py create-admin you@example.com`.
 
+## What Members Get
+
+- **First visit.** A short welcome card explains the two modes ("Be coached" and "Practise coaching") and links to the Help page. It shows only while the person has no sessions yet. The app header always has Help and Account links.
+- **AI Coach.** The coach always sees the start of the conversation (where the goal is agreed) as well as the latest messages. At the end, the person gets an **action card**: goal, next step, by when, and support. It appears in the chat and is kept on the Account page. A new AI Coach session opens by asking how the last plan went, using a card that is 8 hours to 60 days old.
+- **AI Coachee Lab.** The score from each practice review is saved. The Account page shows the latest scores with an average, and the member's mentor sees the scores in their session list.
+- The admin sees neither action cards nor scores, in keeping with "the admin can't read conversations".
+
 ## Configuration
 
 | Variable | Needed | Purpose |

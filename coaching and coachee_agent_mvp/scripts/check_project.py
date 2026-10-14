@@ -73,6 +73,8 @@ def probe_login(database_url: str, secret: str) -> str:
 
     store = db.Store(database_url)
     user_id = store.create_user("probe@example.com", "Probe", accounts.hash_password(secrets.token_urlsafe(16)), role="admin", consented=True)
+    # A returning member: one finished session, so the screenshots show the coaching screen, not the first-visit welcome.
+    store.set_session_status(store.create_session(user_id, "coach", "en", "template", "CLOSING", {"context": []}), "completed")
     return f"{accounts.SESSION_COOKIE}={accounts.make_session_cookie(store.get_user(user_id), secret)}"
 
 

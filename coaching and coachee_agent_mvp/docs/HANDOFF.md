@@ -59,11 +59,11 @@ The branch has 8 commits on top of `main`:
 |---|---|
 | `web_app.py` | Gradio UI and callbacks. `create_app()` mounts Gradio in FastAPI behind sign-in (`auth_dependency`), and `launch_demo()` runs uvicorn. Handlers take `request: gr.Request`, and `request.username` is the signed-in user id. Handles session open/restore/save, quotas, rate limits, the crisis check, feedback, and background profile learning. |
 | `account_pages.py` | Server-rendered pages: `/login`, `/setup` (first admin, local only), `/invite/{code}`, `/reset/{token}`, `/forgot` (only with SMTP), `/account`, `/sessions/{id}`, `/mentor`, `/admin`, `/privacy`, `/help` (public), `/icons/*`, `/healthz`. All strings are in `T["en"]` / `T["zh"]`. |
-| `db.py` | SQLAlchemy Core storage: users, invites, password_resets, coaching_sessions (state JSON), profiles, usage_events, feedback, settings, audit_log. SQLite by default; Postgres via `DATABASE_URL`. |
+| `db.py` | SQLAlchemy Core storage: users, invites, password_resets, coaching_sessions (state JSON), session_results (action card or practice score per finished session), profiles, usage_events, feedback, settings, audit_log. SQLite by default; Postgres via `DATABASE_URL`. |
 | `accounts.py` | scrypt passwords, signed cookies (invalid after a password change), CSRF, login throttle, `can_view_session`. |
 | `quota.py` | Allowances, role defaults with admin overrides (settings key `role_limits`), per-minute message limiter. |
 | `coaching_core.py` | Shared OpenAI-compatible client (45 s timeout, 1 retry), usage metering, streaming, the `[[STAY]]`/`[[NEXT]]`/`[[END]]` stage markers, batched translation, `OPENAI_EXTRA_BODY`, and DeepSeek thinking off. |
-| `coach_agent.py` / `coachee_agent.py` | Agents with `stream_response()`, `to_dict()`/`from_dict()`. The reply itself decides the stage via markers, with no separate check call. |
+| `coach_agent.py` / `coachee_agent.py` | Agents with `stream_response()`, `to_dict()`/`from_dict()`. The reply itself decides the stage via markers, with no separate check call. Both send the model the first 6 and last 16 messages (`_conversation_window` in `coaching_core.py`), so the goal agreed at the start stays in view. `EricksonCoachingAgent.action_card()` writes the end-of-session card; `last_card` makes the opening follow up on the previous plan. |
 | `memory.py` | Per-user, per-module insight profile, capped at 8 items per list. |
 | `safety.py` | Crisis-language check (AI Coach only) and a fixed bilingual safety reply. |
 | `mailer.py` | Optional SMTP for self-service password resets. |
@@ -118,6 +118,20 @@ Screenshots from the browser check land in `/private/tmp/erickson-check/erickson
 3. Watch the Space logs until it's running. This is the first time FastAPI + uvicorn + mounted Gradio runs on HF; HF sets `GRADIO_SERVER_NAME=0.0.0.0` and `GRADIO_SERVER_PORT=7860`.
 4. Have Fan test using the direct `https://<space>.hf.space` address. Sign-in cookies don't work inside the huggingface.co page frame.
 5. Run one real session per module to confirm the stage markers work with a paid model.
+
+**Product improvements (Fan's review, 2026-10-14).** Items 1–3 are done (commit "Clearer first visit, …"):
+1. ✅ Plain mode names ("Be coached" / "Practise coaching", 被教练 / 练习做教练), a one-time welcome card on the first visit (shown while the person has no sessions yet), and a Help link in the app header. The daily allowance pill moved from the header into the mode card, so the app name fits on phones.
+2. ✅ The AI Coach (and the AI client in Coachee Lab) keeps the start of the conversation plus recent messages; the practice review reads (nearly) the whole session.
+3. ✅ Takeaways: the AI Coach ends with an action card (goal, next step, by when, support) in the chat and on the Account page. A new AI Coach session asks how the last plan went, using cards that are 8 hours to 60 days old. Coachee Lab scores are saved and shown with a "Latest · Average" line. Mentors see their members' scores; the admin sees neither cards nor scores. Skipping to the end now gets a real AI closing summary. Each AI message is its own chat bubble.
+
+Still open, in Fan's order:
+4. Hide the AI/Template switch from members; read-aloud off by default.
+5. A more compact phone layout during a conversation, and a real test inside WeChat's built-in browser (voice input especially).
+6. A one-tap "How useful was this session?" at the end.
+7. Several real sessions on DeepSeek to judge the coaching quality with Fan. Nothing in 1–3 has been tried with a real model yet: the action card, the follow-up question and the longer memory were only tested with stand-in replies.
+8. Coachee Lab: choose the client type, a Hint button, and a one-line purpose for each stage.
+9. A progress page with score history over time (the Account page shows the last six).
+10. Mentor comments on sessions.
 
 **Known limits (also in README "Known Limits"):**
 - One server process only (in-memory rate limits).

@@ -114,6 +114,19 @@ feedback = sa.Table(
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
 
+# What a finished session produced: an AI Coach action card, or a Coachee Lab score.
+session_results = sa.Table(
+    "session_results",
+    metadata,
+    sa.Column("session_id", sa.String(36), sa.ForeignKey("coaching_sessions.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("module", sa.String(16), nullable=False),
+    sa.Column("score", sa.Integer),
+    sa.Column("card", sa.Text),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+    sa.Index("ix_results_user_module", "user_id", "module", "created_at"),
+)
+
 settings = sa.Table(
     "settings",
     metadata,
@@ -330,18 +343,49 @@ class Store:
         return self._one(stmt)
 
     def list_sessions(self, user_id: int, limit: int = 100) -> list[dict]:
-        stmt = (sa.select(*_session_summary_columns()).where(coaching_sessions.c.user_id == user_id)
+        """A person's sessions, newest first, each with its score or action card when it has one."""
+        stmt = (sa.select(*_session_summary_columns(), session_results.c.score, session_results.c.card)
+                .select_from(coaching_sessions.outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id))
+                .where(coaching_sessions.c.user_id == user_id)
                 .order_by(coaching_sessions.c.created_at.desc()).limit(limit))
-        return self._all(stmt)
+        return [_with_card(row) for row in self._all(stmt)]
 
     def trainer_visible_sessions(self, trainer_id: int, limit: int = 200) -> list[dict]:
         """Practice sessions of the trainer's trainees, plus coaching sessions they chose to share."""
-        stmt = (sa.select(*_session_summary_columns(), users.c.display_name.label("owner_name"))
-                .join(users, users.c.id == coaching_sessions.c.user_id)
+        stmt = (sa.select(*_session_summary_columns(), users.c.display_name.label("owner_name"),
+                          session_results.c.score, session_results.c.card)
+                .select_from(coaching_sessions.join(users, users.c.id == coaching_sessions.c.user_id)
+                             .outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id))
                 .where(users.c.trainer_id == trainer_id,
                        sa.or_(coaching_sessions.c.module == "coachee", coaching_sessions.c.shared_with_trainer.is_(True)))
                 .order_by(coaching_sessions.c.created_at.desc()).limit(limit))
-        return self._all(stmt)
+        return [_with_card(row) for row in self._all(stmt)]
+
+    # Session results -----------------------------------------------------------
+
+    def save_session_result(self, session_id: str, user_id: int, module: str, *, score: int | None = None,
+                            card: dict | None = None) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(session_results.delete().where(session_results.c.session_id == session_id))
+            conn.execute(session_results.insert().values(
+                session_id=session_id, user_id=user_id, module=module, score=score,
+                card=json.dumps(card, ensure_ascii=False) if card else None, created_at=utcnow()))
+
+    def session_results(self, user_id: int, module: str, limit: int = 10) -> list[dict]:
+        """A person's recent results in one module, newest first."""
+        stmt = (sa.select(session_results).where(session_results.c.user_id == user_id, session_results.c.module == module)
+                .order_by(session_results.c.created_at.desc()).limit(limit))
+        return [_with_card(row) for row in self._all(stmt)]
+
+    def latest_card(self, user_id: int, since: dt.datetime, until: dt.datetime) -> dict | None:
+        """The most recent action card made between two times, so the next session can follow up on it."""
+        stmt = (sa.select(session_results.c.card)
+                .where(session_results.c.user_id == user_id, session_results.c.module == "coach",
+                       session_results.c.card.is_not(None), session_results.c.created_at >= since,
+                       session_results.c.created_at <= until)
+                .order_by(session_results.c.created_at.desc()).limit(1))
+        row = self._one(stmt)
+        return json.loads(row["card"]) if row else None
 
     def recent_sessions(self, limit: int = 200) -> list[dict]:
         stmt = (sa.select(*_session_summary_columns(), users.c.display_name.label("owner_name"))
@@ -450,13 +494,17 @@ class Store:
         user = self.get_user(user_id) or {}
         sessions = self._all(sa.select(coaching_sessions).where(coaching_sessions.c.user_id == user_id)
                              .order_by(coaching_sessions.c.created_at))
+        results = {row["session_id"]: row for row in map(_with_card, self._all(
+            sa.select(session_results).where(session_results.c.user_id == user_id)))}
         return {
             "account": {key: user.get(key) for key in ("email", "display_name", "role", "created_at", "consented_at")},
             "sessions": [
                 {**{key: row[key] for key in ("id", "module", "language", "mode", "status", "stage", "shared_with_trainer",
                                                "created_at", "completed_at")},
                  "transcript": json.loads(row["state"]).get("context", []),
-                 "feedback": self.feedback_for_session(row["id"])}
+                 "feedback": self.feedback_for_session(row["id"]),
+                 "score": results.get(row["id"], {}).get("score"),
+                 "action_card": results.get(row["id"], {}).get("card")}
                 for row in sessions
             ],
             "profiles": {module: self.get_profile(user_id, module) for module in ("coach", "coachee")},
@@ -479,6 +527,13 @@ def _session_summary_columns():
     c = coaching_sessions.c
     return (c.id, c.user_id, c.module, c.language, c.mode, c.status, c.stage, c.shared_with_trainer, c.user_turns,
             c.created_at, c.updated_at, c.completed_at)
+
+
+def _with_card(row: dict) -> dict:
+    """Decode a stored action card in a result row."""
+    if row.get("card"):
+        row["card"] = json.loads(row["card"])
+    return row
 
 
 def _sqlite_pragmas(dbapi_connection, _record):

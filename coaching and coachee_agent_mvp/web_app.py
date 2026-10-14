@@ -1,8 +1,10 @@
 import contextlib
+import datetime as dt
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import secrets
 import socket
 import threading
@@ -21,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 
 import accounts
 import account_pages
-from coach_agent import EricksonCoachingAgent
+from coach_agent import ACTION_CARD_FIELDS, EricksonCoachingAgent
 from coaching_core import CoachingState
 from coachee_agent import EricksonCoacheeAgent
 import db
@@ -40,6 +42,7 @@ from web_assets import (
     remember_lang_js,
     scroll_js,
     tts_js,
+    welcome_js,
 )
 
 
@@ -101,6 +104,9 @@ NEXT_STAGE_OUTPUT_COUNT = 10
 LLM_CONCURRENCY = 24
 MAX_MESSAGE_CHARS = 2000
 MAX_USER_TURNS_PER_SESSION = 40
+# A new AI Coach session asks about the last action card made in this window (not one from minutes ago).
+FOLLOW_UP_WITHIN = dt.timedelta(days=60)
+FOLLOW_UP_AFTER = dt.timedelta(hours=8)
 # Sign-in is the real gate; hiding the endpoints just keeps them off the public API page.
 LLM_EVENT = {"concurrency_id": "llm", "concurrency_limit": LLM_CONCURRENCY, "api_visibility": "private"}
 
@@ -183,10 +189,15 @@ def _mode_context_html(session: dict) -> str:
     s = UI[agent.language]
     mode_title = s["coach_module"] if module_code == "coach" else s["coachee_module"]
     mode_note = s["coach_module_note"] if module_code == "coach" else s["coachee_module_note"]
+    # Today's allowance for this mode, next to its name.
+    allowance = session.get("allowance")
+    quota_pill = ""
+    if allowance and allowance.session_limit is not None:
+        quota_pill = f' <span class="studio-quota">{s["quota_pill"].format(left=allowance.sessions_left, limit=allowance.session_limit)}</span>'
     return f"""
     <section class="mode-context-card">
         <div class="mode-context-label">{s["mode_context"]}</div>
-        <div class="mode-context-title">{mode_title}</div>
+        <div class="mode-context-title">{mode_title}{quota_pill}</div>
         <p>{mode_note}</p>
     </section>
     """
@@ -295,10 +306,6 @@ def _memory_ui_updates(agent, lang_code: str):
 def _header_markdown(session: dict) -> str:
     agent = session["agent"]
     s = UI[agent.language]
-    allowance = session.get("allowance")
-    quota_pill = ""
-    if allowance and allowance.session_limit is not None:
-        quota_pill = f'<span class="studio-quota">{s["quota_pill"].format(left=allowance.sessions_left, limit=allowance.session_limit)}</span>'
     return f"""
     <section class="studio-header">
         <img class="studio-mark" src="{HEADER_ICON_SRC}" alt="" aria-hidden="true">
@@ -306,7 +313,7 @@ def _header_markdown(session: dict) -> str:
             <div class="studio-title">{s["coach_name"]}</div>
             <div class="studio-subtitle">{s["coach_sub"]}</div>
         </div>
-        <div class="studio-account">{quota_pill}<a class="studio-account-link" href="/account">{s["account_link"]}</a></div>
+        <div class="studio-account"><a class="studio-account-link" href="/help">{s["help_link"]}</a><a class="studio-account-link" href="/account">{s["account_link"]}</a></div>
     </section>
     """
 
@@ -336,7 +343,7 @@ def _tracker_html(agent, module_code: str) -> str:
         <div class="tracker-copy">
             <div class="tracker-eyebrow">{s["progress"]} · {mode_badge}</div>
             <div class="tracker-stage">{s["current_stage"]}: {current_name}</div>
-            <div class="tracker-next">{s["up_next"]}: {next_name}</div>
+            {f'<div class="tracker-next">{s["up_next"]}: {next_name}</div>' if current_idx < len(states) - 1 else ""}
         </div>
         <div class="tracker-dots">{''.join(dots)}</div>
     </div>
@@ -429,6 +436,9 @@ def _request_language(request: gr.Request | None, fallback: str | None) -> str |
 def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str) -> dict:
     mode_code = _allowed_mode(user, mode_code, lang_code, module_code)
     agent = _build_agent(module_code, mode_code, lang_code, _load_profile(user["id"], module_code))
+    if module_code == "coach" and mode_code == "llm":
+        now = db.utcnow()
+        agent.last_card = get_store().latest_card(user["id"], since=now - FOLLOW_UP_WITHIN, until=now - FOLLOW_UP_AFTER)
     session_id = get_store().create_session(user["id"], module_code, lang_code, mode_code, agent.current_state.name, agent.to_dict())
     session = _attach({"module": module_code, "agent": agent, "id": session_id}, user)
     _append_opening_prompt(agent)
@@ -515,6 +525,7 @@ def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, r
     """Reopen the person's unfinished session if there is one, otherwise start a new one."""
     user = _require_user(request, _safe_lang(lang_sel))
     preferred = _request_language(request, None)
+    first_visit = not get_store().list_sessions(user["id"], limit=1)
     if not session or session.get("user_id") != user["id"] or not session.get("id"):
         row = get_store().latest_active_session(user["id"])
         session = _restore_session(row, user) if row else None
@@ -528,10 +539,32 @@ def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, r
             agent.set_language(preferred)
             _save(session)
     out = _session_start_outputs(session)
+    welcome = _welcome_html(agent.language) if first_visit else ""
     return (
         out["chat"], out["tracker"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
-        out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"], session,
+        out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"], welcome, session,
     )
+
+
+def _welcome_html(lang_code: str) -> str:
+    """A short orientation shown once, on someone's first visit; welcome_js closes it in the browser."""
+    s = UI[lang_code]
+    return f"""
+    <div class="welcome-layer" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+        <div class="welcome-card">
+            <h2 id="welcome-title">{s["welcome_title"]}</h2>
+            <ul>
+                <li>{s["welcome_coach"]}</li>
+                <li>{s["welcome_coachee"]}</li>
+                <li>{s["welcome_session"]}</li>
+            </ul>
+            <div class="welcome-actions">
+                <button class="welcome-start" type="button" data-welcome-close>{s["welcome_start"]}</button>
+                <a class="welcome-guide" href="/help">{s["welcome_guide"]}</a>
+            </div>
+        </div>
+    </div>
+    """
 
 
 def _respond_outputs(message_update, chat_history, agent, session, tts_update=None, memory_updates=None):
@@ -576,6 +609,50 @@ def _learn_from_session(session: dict, api_key: str):
         agent.user_profile = profile
     except Exception:
         logger.exception("Updating the user profile from a finished session failed")
+
+
+def _review_score(review: str) -> int | None:
+    """The score in a practice review, written as "N/100"."""
+    match = re.search(r"(\d{1,3})\s*/\s*100", review or "")
+    return min(int(match.group(1)), 100) if match else None
+
+
+def _action_card_text(card: dict, lang_code: str) -> str:
+    s = UI[lang_code]
+    sep = "：" if lang_code == "zh" else ": "
+    fields = [f"{s['card_' + key]}{sep}{card[key]}" for key in ACTION_CARD_FIELDS if card.get(key)]
+    return "\n".join([s["card_title"], "", *fields, "", s["card_saved"]])
+
+
+def _makes_action_card(session: dict, api_key: str) -> bool:
+    return session["module"] == "coach" and session["agent"].mode == "llm" and bool(api_key)
+
+
+def _finish_session(session: dict, api_key: str) -> str | None:
+    """Keep what a finished session produced, then learn from it in the background.
+
+    An AI Coach session gets an action card: shown in the chat, listed on the Account page, and followed up on in the
+    next session. A practice session's score is read from its review. Returns the card's text when one was made.
+    """
+    agent = session["agent"]
+    card_text = None
+    try:
+        if session["module"] == "coachee":
+            score = _review_score(agent.context[-1]["content"]) if agent.context else None
+            if score is not None:
+                get_store().save_session_result(session["id"], session["user_id"], "coachee", score=score)
+        elif _makes_action_card(session, api_key):
+            card = agent.action_card(api_key)
+            if card:
+                get_store().save_session_result(session["id"], session["user_id"], "coach", card=card)
+                card_text = _action_card_text(card, agent.language)
+                agent.context.append({"role": agent.assistant_role, "content": card_text})
+                _save(session)
+    except Exception:
+        logger.exception("Keeping the result of a finished session failed")
+    if agent.mode == "llm" and api_key:
+        threading.Thread(target=_learn_from_session, args=(session, api_key), daemon=True).start()
+    return card_text
 
 
 def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, request: gr.Request = None):
@@ -658,13 +735,19 @@ def _stream_reply(user_msg, chat_history, agent, session):
     chat_history.append({"role": "assistant", "content": coach_response})
     _save(session)
 
+    tts_update = gr.update(value=_tts_payload(coach_response))
     is_ended = agent.is_session_ended()
     if is_ended:
         msg = "会话已结束" if agent.language == "zh" else "Session Complete"
         gr.Info(msg)
         session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]), session["module"])
-        if agent.mode == "llm" and api_key:
-            threading.Thread(target=_learn_from_session, args=(session, api_key), daemon=True).start()
+        if _makes_action_card(session, api_key):
+            # Show the closing words first; the action card follows a moment later.
+            yield _respond_outputs(gr.update(value="", interactive=False), list(chat_history), agent, session, tts_update)
+            tts_update = gr.update()
+        card_text = _finish_session(session, api_key)
+        if card_text:
+            chat_history.append({"role": "assistant", "content": card_text})
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
     yield _respond_outputs(
@@ -672,7 +755,7 @@ def _stream_reply(user_msg, chat_history, agent, session):
         chat_history,
         agent,
         session,
-        gr.update(value=_tts_payload(coach_response)),
+        tts_update,
         (m_s, m_g, m_f),
     )
 
@@ -729,6 +812,9 @@ def _advance_stage(chat_history, session):
         msg = "会话已结束" if agent.language == "zh" else "Session Complete"
         gr.Info(msg)
         session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]), session["module"])
+        card_text = _finish_session(session, _safe_key())
+        if card_text:
+            chat_history.append({"role": "assistant", "content": card_text})
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
     return _next_stage_outputs(
@@ -897,7 +983,8 @@ with gr.Blocks(
         tracker = gr.HTML()
 
         with gr.Column(elem_id="chat-stage", min_width=0):
-            chatbot = gr.Chatbot(show_label=False, elem_classes="chatbot", buttons=[], feedback_options=("Like", "Dislike"), min_width=0)
+            chatbot = gr.Chatbot(show_label=False, elem_classes="chatbot", buttons=[], feedback_options=("Like", "Dislike"),
+                                 group_consecutive_messages=False, min_width=0)
 
             with gr.Column(elem_id="composer-shell"):
                 with gr.Row(elem_classes="composer-grid"):
@@ -926,10 +1013,12 @@ with gr.Blocks(
 
                 tts_text = gr.Textbox(visible=False, elem_id="tts-text")
 
+        welcome_html = gr.HTML("", elem_id="welcome-host", js_on_load=welcome_js)
+
     demo.load(
         initial_load,
         [session_state, module_state, mode_radio, lang_radio],
-        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, session_state],
+        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, welcome_html, session_state],
         js=force_light_js,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js)

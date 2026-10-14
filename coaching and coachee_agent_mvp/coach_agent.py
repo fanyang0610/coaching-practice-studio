@@ -2,7 +2,7 @@ import json
 import random
 import uuid
 
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _strip_json_fence, _translate_texts
 from coach_data import (
     ACKNOWLEDGMENTS,
     BRIDGE_PHRASES,
@@ -13,6 +13,9 @@ from coach_data import (
     TRANSLATE_ZH_TO_EN,
     _translate_template_message,
 )
+
+
+ACTION_CARD_FIELDS = ("goal", "next_step", "by_when", "support")
 
 
 class EricksonCoachingAgent:
@@ -31,6 +34,8 @@ class EricksonCoachingAgent:
         # Called with (model, prompt_tokens, completion_tokens) after each model call; set by the web app.
         self.on_usage = None
         self.opening_variation_seed = uuid.uuid4().hex[:8]
+        # The action card from this person's previous session, set by the web app so the opening can follow up on it.
+        self.last_card: dict | None = None
 
     def set_mode(self, mode: str) -> bool:
         if mode in ("template", "llm"):
@@ -80,6 +85,13 @@ class EricksonCoachingAgent:
     def _stream_stage_prompt(self, api_key: str | None = None, decide_stage: bool = False):
         """Yield (text so far, stage signal) pairs; the last pair holds the final prompt."""
         if self.current_state == CoachingState.CLOSING:
+            # Reached by skipping ahead: close with a real summary when the AI is available.
+            if self.mode == "llm" and api_key and self.context:
+                try:
+                    yield self._get_llm_closing_summary(api_key), None
+                    return
+                except Exception:
+                    pass
             yield random.choice(CLOSING_MESSAGES[self.language]), None
             return
 
@@ -183,10 +195,10 @@ class EricksonCoachingAgent:
                 ),
             }
         ]
-        for msg in self.context[-15:]:
+        for msg in _conversation_window(self.context):
             role = "user" if msg["role"] == "client" else "assistant"
             messages.append({"role": role, "content": msg["content"]})
-            
+
         resp = client.chat.completions.create(
             model=_chat_model(),
             messages=messages,
@@ -317,11 +329,17 @@ Generate the first coaching prompt for this stage.
 
 Session variation seed: {self.opening_variation_seed}
 Variation lens: choose a fresh entry point among clarity, desired outcome, useful focus, recent progress, decision tension, inner resource, or first small step."""
+        if self.last_card:
+            notes = "; ".join(f"{key.replace('_', ' ')}: {value}" for key, value in self.last_card.items() if value)
+            system_prompt += f"""
+
+FOLLOW-UP: in their previous session the client made this plan ({notes}).
+Instead of the guidelines' fresh entry point, warmly ask how it went with that next step, and leave room to continue with it or to bring something new today. Still ask only ONE question."""
 
         resp = client.chat.completions.create(
             model=_chat_model(),
             messages=[{"role": "system", "content": system_prompt}],
-            max_tokens=120,
+            max_tokens=160 if self.last_card else 120,
             temperature=0.7,
         )
         return _clean_response_language(_response_text(resp), self.language)
@@ -360,7 +378,7 @@ Guidelines:
                 system_prompt += self._stage_decision_rules()
 
             messages = [{"role": "system", "content": system_prompt}]
-            for msg in self.context[-10:]:
+            for msg in _conversation_window(self.context):
                 role = "user" if msg["role"] == "client" else "assistant"
                 messages.append({"role": role, "content": msg["content"]})
 
@@ -374,6 +392,33 @@ Guidelines:
             yield text, signal
         except Exception as exc:
             raise Exception(f"LLM error: {exc}")
+
+    def action_card(self, api_key: str) -> dict | None:
+        """The plan the client arrived at, as {goal, next_step, by_when, support}, or None if there isn't one yet."""
+        client = _build_client(api_key, on_usage=self.on_usage)
+        lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
+        transcript = "\n".join(
+            f'{"Client" if msg["role"] == "client" else "Coach"}: {msg["content"]}'
+            for msg in _conversation_window(self.context, head=8, tail=30)
+        )
+        prompt = (
+            "Read this finished coaching conversation and write the client's action card. "
+            'Return valid JSON only: {"goal": string, "next_step": string, "by_when": string, "support": string}. '
+            "goal: what the client wants, in one short sentence. next_step: the concrete action they committed to. "
+            "by_when: when they will do it. support: who or what will help them. "
+            "Use the client's own words where possible. If something was not discussed, use an empty string; never invent. "
+            f"Write every value in {lang_instr}. {_language_output_rule(self.language)} Do not include markdown fences.\n\n"
+            f"CONVERSATION:\n{transcript}"
+        )
+        resp = client.chat.completions.create(
+            model=_chat_model(),
+            messages=[{"role": "system", "content": prompt}],
+            max_tokens=300,
+            temperature=0.2,
+        )
+        data = json.loads(_strip_json_fence(_response_text(resp)))
+        card = {key: str(data.get(key) or "").strip()[:300] for key in ACTION_CARD_FIELDS}
+        return card if card["goal"] or card["next_step"] else None
 
     def analyze_session_for_memory(self, api_key: str) -> dict:
         """Analyze the session history to extract new user insights."""

@@ -58,8 +58,8 @@ UI = {
         "module": "Module",
         "coach_module": "AI Coach",
         "coachee_module": "AI Coachee Lab",
-        "coach_module_card": "AI Coach\nClient",
-        "coachee_module_card": "AI Coachee\nPractice",
+        "coach_module_card": "Be coached\nby the AI",
+        "coachee_module_card": "Practise coaching\nwith an AI client",
         "coach_title": "Coaching Practice Studio",
         "coach_sub": "Solution-focused coaching companion",
         "coachee_title": "AI Coachee Lab",
@@ -68,13 +68,26 @@ UI = {
         "hero_title": "Turn reflection into your next clear step.",
         "hero_sub": "A structured coaching space for clarity, choice, and committed action.",
         "mode_context": "Current mode",
-        "coach_module_note": "Client mode: AI coaches you toward one clear next step.",
-        "coachee_module_note": "Practice mode: AI is the coachee; you coach.",
+        "coach_module_note": "The AI coaches you on something real in your life.",
+        "coachee_module_note": "The AI plays a client. You coach, then get a score.",
         "memory_title": "AI Insights (Your Profile)",
         "memory_strengths": "Your Strengths",
         "memory_growth": "Areas for Challenge",
         "memory_last_sync": "Last Sync",
         "memory_no_data": "Complete a session in AI mode to unlock insights.",
+        "help_link": "Help",
+        "welcome_title": "Welcome to Coaching Practice Studio",
+        "welcome_coach": "<b>Be coached</b>: the AI coaches you on something real, such as a goal, a decision or a challenge. Only you can see these sessions.",
+        "welcome_coachee": "<b>Practise coaching</b>: the AI plays a client and you ask the questions. At the end you get a score and feedback.",
+        "welcome_session": "Switch between the two at the top of the screen. A session takes 15 to 20 minutes and moves through five stages. If you leave, it waits for you next time.",
+        "welcome_start": "Start",
+        "welcome_guide": "Read the full guide",
+        "card_title": "Your action card",
+        "card_goal": "Goal",
+        "card_next_step": "Next step",
+        "card_by_when": "By when",
+        "card_support": "Support",
+        "card_saved": "Saved on your Account page.",
     },
     "zh": {
         "placeholder": "把你现在最想理清的事写下来...",
@@ -115,8 +128,8 @@ UI = {
         "module": "模块",
         "coach_module": "AI教练",
         "coachee_module": "AI学员陪练",
-        "coach_module_card": "AI教练\n来访者",
-        "coachee_module_card": "AI学员\n练提问",
+        "coach_module_card": "被教练\nAI 为你做教练",
+        "coachee_module_card": "练习做教练\nAI 扮演来访者",
         "coach_title": "教练练习室",
         "coach_sub": "聚焦解决的教练式对话空间",
         "coachee_title": "AI 学员陪练",
@@ -125,13 +138,26 @@ UI = {
         "hero_title": "把困惑变成下一步。",
         "hero_sub": "专业、可信，也让成长更可感。",
         "mode_context": "当前模式",
-        "coach_module_note": "来访者模式：AI做教练，帮你收束下一步。",
-        "coachee_module_note": "陪练模式：AI做学员，你练习高质量提问。",
+        "coach_module_note": "AI 就你生活中的真实话题为你做教练。",
+        "coachee_module_note": "AI 扮演来访者，你来提问，结束后获得评分和反馈。",
         "memory_title": "AI 洞察 (个人画像)",
         "memory_strengths": "你的强项",
         "memory_growth": "建议挑战的领域",
         "memory_last_sync": "最近同步",
         "memory_no_data": "在 AI 模式下完成一次会话以解锁洞察。",
+        "help_link": "帮助",
+        "welcome_title": "欢迎来到教练练习室",
+        "welcome_coach": "<b>被教练</b>：AI 针对你生活中的真实话题为你做教练，比如一个目标、一个决定或一个挑战。这些会话只有你能看到。",
+        "welcome_coachee": "<b>练习做教练</b>：AI 扮演来访者，由你来提问。结束后你会得到评分和反馈。",
+        "welcome_session": "在页面顶部可以随时切换两种模式。一次会话约 15 到 20 分钟，会经历五个阶段。中途离开也没关系，下次会接着进行。",
+        "welcome_start": "开始",
+        "welcome_guide": "查看完整指南",
+        "card_title": "你的行动卡",
+        "card_goal": "目标",
+        "card_next_step": "下一步",
+        "card_by_when": "时间",
+        "card_support": "支持",
+        "card_saved": "已保存在你的账户页面。",
     },
 }
 
@@ -2131,6 +2157,117 @@ div:has(> .tracker-shell) {
         padding: 5px 10px;
     }
 }
+
+@media (max-width: 480px) {
+    /* Room for Help and Account on phones: the name may take two lines and the tagline steps aside */
+    .studio-subtitle {
+        display: none !important;
+    }
+
+    .studio-title {
+        white-space: normal !important;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        line-height: 1.15 !important;
+    }
+}
+
+.mode-context-title .studio-quota {
+    margin-left: 6px;
+    vertical-align: 1px;
+}
+
+/* First-visit welcome card: a fixed layer over the page, closed in the browser */
+#welcome-host {
+    position: absolute !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+}
+
+.welcome-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    background: rgba(17, 73, 119, 0.28);
+}
+
+.welcome-card {
+    width: min(460px, 100%);
+    max-height: 100%;
+    overflow-y: auto;
+    background: #ffffff;
+    border: 1px solid #d8e5f2;
+    border-radius: 22px;
+    box-shadow: 0 24px 42px rgba(17, 73, 119, 0.20);
+    padding: 24px;
+    color: #18364a;
+    text-align: left;
+}
+
+.welcome-card h2 {
+    margin: 0 0 14px !important;
+    font-size: 22px !important;
+    font-weight: 800 !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.01em;
+    color: #18364a !important;
+}
+
+.welcome-card ul {
+    margin: 0 0 20px !important;
+    padding-left: 20px !important;
+    list-style: disc;
+}
+
+.welcome-card li {
+    margin: 0 0 10px !important;
+    font-size: 15px !important;
+    line-height: 1.5 !important;
+    color: #18364a !important;
+}
+
+.welcome-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.welcome-start {
+    flex: 1 1 160px;
+    min-height: 46px;
+    border: 0;
+    border-radius: 16px;
+    background: #1979ba;
+    color: #ffffff !important;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.welcome-start:hover {
+    background: #0f6aa8;
+}
+
+.welcome-guide {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1979ba !important;
+}
+
+.welcome-start:focus-visible,
+.welcome-guide:focus-visible {
+    outline: 3px solid rgba(25, 121, 186, 0.35);
+    outline-offset: 2px;
+}
 """
 
 
@@ -2462,3 +2599,19 @@ __all__ = [
     "tts_js",
     "remember_lang_js",
 ]
+
+
+# Closes the first-visit welcome card. Runs once when its HTML block loads; listens on the block, so it keeps working
+# after the server fills the block in.
+welcome_js = """
+const close = () => {
+    const layer = element.querySelector(".welcome-layer");
+    if (layer) layer.style.display = "none";
+};
+element.addEventListener("click", (event) => {
+    if (event.target.closest("[data-welcome-close]") || event.target.classList.contains("welcome-layer")) close();
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") close();
+});
+"""

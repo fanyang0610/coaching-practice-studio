@@ -90,6 +90,16 @@ T = {
         "trainer_sees_practice": "Your mentor can review your Coachee Lab practice sessions. AI Coach sessions stay private unless you share them.",
         "no_trainer": "You don't have a mentor. Only you can see your sessions.",
         "your_trainer": "Your mentor: {name}",
+        "action_cards": "Your action cards",
+        "no_action_cards": "Finish an AI Coach session to get an action card with your goal and next step.",
+        "practice_scores": "Practice scores",
+        "no_scores": "Finish an AI Coachee Lab session to see your scores here.",
+        "score_summary": "Latest {latest}/100 · Average {average}/100",
+        "score": "{n}/100",
+        "card_goal": "Goal",
+        "card_next_step": "Next step",
+        "card_by_when": "By when",
+        "card_support": "Support",
         "insights": "AI insights about you",
         "no_insights": "Finish an AI session to build insights.",
         "strengths": "Strengths",
@@ -173,7 +183,7 @@ T = {
             "Open the invite link you were sent. Each link works once and lasts 14 days.",
             "Enter your name, your email and a password of at least 10 characters. Tick the box, then tap Create account.",
             "You're in. Next time, sign in with your email and password at {address}",
-            "Choose a mode at the top of the screen: AI Coach or AI Coachee Lab.",
+            "Choose at the top of the screen: Be coached (AI Coach), or Practise coaching (AI Coachee Lab).",
         ],
         "help_modes_title": "The two modes",
         "help_coach_mode": "The AI coaches you on something real in your life: a goal, a decision or a challenge. These sessions are private to you.",
@@ -184,6 +194,8 @@ T = {
             "Type your reply and tap Send, or tap the microphone to speak.",
             "Skip Ahead moves to the next stage. New Session starts over.",
             "A session takes about 15 to 20 minutes. If you leave halfway, it is saved and reopens the next time you sign in.",
+            "When an AI Coach session ends, you get an action card with your goal and next step. It is kept on your Account page, and next time the coach asks how it went.",
+            "Your AI Coachee Lab scores are kept on your Account page, so you can see your progress.",
             "Tap 👍 or 👎 under a reply to say whether it helped.",
             "Change the language or the reading voice under Settings.",
         ],
@@ -204,7 +216,7 @@ T = {
         "privacy_body": [
             "Coaching Practice Studio is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
             "If you might harm yourself or are in danger, contact your local emergency number now. You can find a free, confidential helpline in your country at findahelpline.com.",
-            "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), short AI-written insights about your coaching, your feedback on replies, and how many AI tokens you used.",
+            "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), the action cards and practice scores they produce, short AI-written insights about your coaching, your feedback on replies, and how many AI tokens you used.",
             "Who can read your sessions: you, and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. The app admin manages accounts and daily allowances and can see when your sessions happen and how long they are, but can't open what was said. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
             "Storage and AI processing: your conversations are stored on the app's server, and your messages are sent to the configured AI model provider to generate replies. The app gives the admin no way to read them, but as with any online service, whoever runs the server and the AI provider handle this data.",
             "Your choices: you can download all your data or delete your account at any time from the Account page. Deleting removes your sessions and insights permanently.",
@@ -272,6 +284,16 @@ T = {
         "trainer_sees_practice": "你的导师可以查看你的 AI学员陪练 会话。AI教练 会话默认私密，除非你主动分享。",
         "no_trainer": "你还没有导师。只有你本人能看到你的会话。",
         "your_trainer": "你的导师：{name}",
+        "action_cards": "你的行动卡",
+        "no_action_cards": "完成一次 AI教练 会话，就会得到一张写有目标和下一步的行动卡。",
+        "practice_scores": "练习得分",
+        "no_scores": "完成一次 AI学员陪练 会话后，得分会显示在这里。",
+        "score_summary": "最近 {latest}/100 · 平均 {average}/100",
+        "score": "{n}/100",
+        "card_goal": "目标",
+        "card_next_step": "下一步",
+        "card_by_when": "时间",
+        "card_support": "支持",
         "insights": "AI 对你的洞察",
         "no_insights": "完成一次 AI 会话后会生成洞察。",
         "strengths": "强项",
@@ -355,7 +377,7 @@ T = {
             "打开你收到的邀请链接。每个链接只能使用一次，14 天内有效。",
             "填写名字、邮箱和至少 10 位的密码，勾选同意，然后点击“创建账户”。",
             "完成！以后请在这里用邮箱和密码登录：{address}",
-            "在页面顶部选择模式：AI教练 或 AI学员陪练。",
+            "在页面顶部选择：被教练（AI教练），或练习做教练（AI学员陪练）。",
         ],
         "help_modes_title": "两种模式",
         "help_coach_mode": "AI 针对你生活中的真实话题为你做教练：一个目标、一个决定或一个挑战。这些会话只有你自己能看到。",
@@ -366,6 +388,8 @@ T = {
             "输入回复后点击“发送”，或点击麦克风用语音输入。",
             "“跳到下一阶段”会进入下一个阶段；“新会话”会重新开始。",
             "一次会话大约 15 到 20 分钟。中途离开也没关系，会话会被保存，下次登录时自动打开。",
+            "AI教练 会话结束时，你会得到一张写有目标和下一步的行动卡。它会保存在账户页面，下次教练会问你进展如何。",
+            "你的 AI学员陪练 得分会保存在账户页面，方便你看到自己的进步。",
             "在回复下方点 👍 或 👎，告诉我们这条回复是否有帮助。",
             "在“设置”里可以切换语言和朗读声音。",
         ],
@@ -386,7 +410,7 @@ T = {
         "privacy_body": [
             "教练练习室是教练练习工具，不是心理治疗、医疗建议或危机援助。",
             "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话。你可以在 findahelpline.com 找到你所在国家的免费保密求助热线。",
-            "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、AI 生成的简短洞察、你对回复的反馈，以及你使用的 AI token 数。",
+            "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、会话产生的行动卡和练习得分、AI 生成的简短洞察、你对回复的反馈，以及你使用的 AI token 数。",
             "谁能看到你的会话：你本人，以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。应用管理员负责管理账户和每日额度，能看到你的会话时间和长度，但无法打开对话内容。除你之外的任何人打开你的会话都会记录在审计日志中。",
             "存储与 AI 处理：你的对话保存在应用的服务器上，你的消息会发送给配置的 AI 模型服务商以生成回复。应用不为管理员提供任何查看对话内容的途径；但和所有在线服务一样，服务器的运营者和 AI 服务商会经手这些数据。",
             "你的选择：你可以随时在账户页面下载全部数据或删除账户。删除后，会话和洞察将被永久移除。",
@@ -450,6 +474,8 @@ button.danger { background:var(--paper); color:var(--warn); border:1px solid #e8
 .row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 14px; padding:12px 14px;
   border:1px solid var(--border); border-radius:16px; background:var(--mist); }
 .row .main { min-width:0; flex:1 1 240px; }
+.row.compact { flex-wrap:nowrap; padding:8px 14px; }
+.row.compact .main { flex:1 1 auto; }
 .row .title { font-weight:700; overflow-wrap:anywhere; }
 .row .meta { color:var(--muted); font-size:14px; overflow-wrap:anywhere; }
 .pill { display:inline-block; font-size:12px; font-weight:800; padding:2px 10px; border-radius:999px; background:var(--tint); color:var(--deep); white-space:nowrap; }
@@ -521,6 +547,10 @@ def current_user(request: Request, store: db.Store, secret: str) -> dict | None:
 
 def _e(value) -> str:
     return html.escape("" if value is None else str(value))
+
+
+def _clip(value: str, limit: int) -> str:
+    return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
 
 
 def _time(value: dt.datetime | None) -> str:
@@ -880,7 +910,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 
     # Account --------------------------------------------------------------------
 
-    def session_row(lang: str, row: dict, *, owner_name: str | None = None, share_form: str = "", link: bool = True) -> str:
+    def session_row(lang: str, row: dict, *, owner_name: str | None = None, share_form: str = "", link: bool = True,
+                    results: bool = False) -> str:
+        """One session in a list. results=True adds its score or next step; the admin's list leaves them out."""
         module = T[lang]["module_coachee" if row["module"] == "coachee" else "module_coach"]
         status = T[lang].get(f"status_{row['status']}", row["status"])
         stage = STAGE_NAMES[lang].get(CoachingState[row["stage"]], row["stage"]) if row["stage"] in CoachingState.__members__ else ""
@@ -891,8 +923,13 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         shared = ""
         if row["module"] == "coach":
             shared = f'<span class="pill{" gold" if row["shared_with_trainer"] else ""}">{_e(T[lang]["shared" if row["shared_with_trainer"] else "private"])}</span>'
-        return f"""<div class="row"><div class="main"><div class="title">{title} <span class="pill">{_e(status)}</span> {shared}</div>
-<div class="meta">{_e(stage)} · {_time(row["created_at"])} · {_e(' · '.join(bits))}</div></div>
+        score, next_step = "", ""
+        if results and row.get("score") is not None:
+            score = f' <span class="pill gold">{_e(text(lang, "score", n=row["score"]))}</span>'
+        if results and (row.get("card") or {}).get("next_step"):
+            next_step = f'<div class="meta">{_e(T[lang]["card_next_step"])}: {_e(_clip(row["card"]["next_step"], 120))}</div>'
+        return f"""<div class="row"><div class="main"><div class="title">{title} <span class="pill">{_e(status)}</span> {shared}{score}</div>
+<div class="meta">{_e(stage)} · {_time(row["created_at"])} · {_e(' · '.join(bits))}</div>{next_step}</div>
 <div class="actions">{share_form}{f'<a class="button secondary" href="/sessions/{_e(row["id"])}">{_e(T[lang]["view"])}</a>' if link else ''}</div></div>"""
 
     def profile_block(lang: str, module: str, data: dict | None, request: Request) -> str:
@@ -906,6 +943,27 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <b>{_e(T[lang]['growth'])}</b><ul class="tight">{growth}</ul>
 <form method="post" action="/account/profile/reset" class="inline">{csrf_field(request)}<input type="hidden" name="module" value="{module}">
 <button class="quiet" type="submit">{_e(T[lang]['reset_insights'])}</button></form></div>"""
+
+    def progress_cards(lang: str, user_id: int) -> str:
+        """Recent action cards and practice scores: what someone takes away from their sessions."""
+        store = get_store()
+        cards = []
+        for result in store.session_results(user_id, "coach", limit=3):
+            card = result.get("card") or {}
+            fields = "".join(f'<div><b>{_e(T[lang]["card_" + key])}</b>: {_e(card[key])}</div>'
+                             for key in ("goal", "next_step", "by_when", "support") if card.get(key))
+            cards.append(f'<div class="row"><div class="main"><div class="meta">{_time(result["created_at"])}</div>{fields}</div></div>')
+        cards_html = "".join(cards) or f'<p class="muted">{_e(T[lang]["no_action_cards"])}</p>'
+        scores = [r for r in store.session_results(user_id, "coachee", limit=6) if r["score"] is not None]
+        if scores:
+            summary = text(lang, "score_summary", latest=scores[0]["score"], average=round(sum(r["score"] for r in scores) / len(scores)))
+            score_rows = "".join(f'<div class="row compact"><div class="main"><div class="meta">{_time(r["created_at"])}</div></div>'
+                                 f'<span class="pill gold">{_e(text(lang, "score", n=r["score"]))}</span></div>' for r in scores)
+            scores_html = f'<p class="muted">{_e(summary)}</p><div class="list">{score_rows}</div>'
+        else:
+            scores_html = f'<p class="muted">{_e(T[lang]["no_scores"])}</p>'
+        return f"""<div class="grid2"><div class="card"><h2>{_e(T[lang]['action_cards'])}</h2><div class="list">{cards_html}</div></div>
+<div class="card"><h2>{_e(T[lang]['practice_scores'])}</h2>{scores_html}</div></div>"""
 
     def account_page(request: Request, user: dict, flash=None) -> HTMLResponse:
         lang = page_lang(request)
@@ -929,11 +987,12 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
                 share_form = (f'<form method="post" action="/account/sessions/{_e(row["id"])}/share" class="inline">{csrf_field(request)}'
                               f'<input type="hidden" name="shared" value="{"no" if row["shared_with_trainer"] else "yes"}">'
                               f'<button class="quiet" type="submit">{_e(label)}</button></form>')
-            rows.append(session_row(lang, row, share_form=share_form))
+            rows.append(session_row(lang, row, share_form=share_form, results=True))
         sessions_html = "".join(rows) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'
         body = f"""<div class="card"><div class="eyebrow">{_e(ROLE_LABELS[lang][user['role']])}</div><h1>{_e(user['display_name'])}</h1>
 <p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{trainer_line}</p>
 <form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
+{progress_cards(lang, user["id"])}
 <div class="card"><h2>{_e(T[lang]['my_sessions'])}</h2><div class="list">{sessions_html}</div></div>
 <div class="card"><h2>{_e(T[lang]['insights'])}</h2><div class="grid2">
 {profile_block(lang, 'coach', store.get_profile(user['id'], 'coach'), request)}
@@ -1084,7 +1143,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             f'<div class="row"><div class="main"><div class="title">{_e(t["display_name"])}</div>'
             f'<div class="meta">{_e(t["email"])} · {_e(text(lang, "tokens_24h", n=usage.get(t["id"], 0)))}</div></div></div>'
             for t in trainees) or f'<p class="muted">{_e(T[lang]["no_trainees"])}</p>'
-        sessions = "".join(session_row(lang, row, owner_name=row["owner_name"]) for row in store.trainer_visible_sessions(user["id"]))
+        sessions = "".join(session_row(lang, row, owner_name=row["owner_name"], results=True) for row in store.trainer_visible_sessions(user["id"]))
         body = f"""{extra}<p class="flash info">{_e(T[lang]['mentor_hint'])}</p>
 <div class="grid2"><div class="card"><h2>{_e(T[lang]['trainees'])}</h2><div class="list">{trainee_rows}</div></div>
 <div class="card"><h2>{_e(T[lang]['invite_trainee'])}</h2>{invite_form(request, lang, '/mentor/invites', roles=('user',), trainers=[])}</div></div>

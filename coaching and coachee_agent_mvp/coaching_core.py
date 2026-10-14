@@ -183,6 +183,16 @@ def _split_stage_signal(raw: str) -> tuple[str | None, str]:
     return signal, visible.strip()
 
 
+def _conversation_window(context: list[dict], head: int = 6, tail: int = 16) -> list[dict]:
+    """The start of a conversation, where the goal is agreed, plus its most recent messages.
+
+    Short sessions are sent whole; long ones keep the goal in view without the cost growing with every turn.
+    """
+    if len(context) <= head + tail:
+        return list(context)
+    return list(context[:head]) + list(context[-tail:])
+
+
 def _strip_json_fence(raw: str) -> str:
     cleaned = raw.strip()
     if cleaned.startswith("```"):
