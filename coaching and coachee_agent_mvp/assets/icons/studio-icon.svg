@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Coaching Practice Studio">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1979ba"/>
+      <stop offset="1" stop-color="#115488"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <path d="M225 717 L369 645 L512 543 L655 430 L799 307" fill="none" stroke="#ffffff" stroke-opacity="0.59" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="799" cy="307" r="143" fill="#ffffff" fill-opacity="0.18"/>
+  <circle cx="225" cy="717" r="51" fill="#ffffff"/>
+  <circle cx="369" cy="645" r="57" fill="#ffffff"/>
+  <circle cx="512" cy="543" r="63" fill="#ffffff"/>
+  <circle cx="655" cy="430" r="70" fill="#ffffff"/>
+  <circle cx="799" cy="307" r="92" fill="#f0b95a"/>
+</svg>

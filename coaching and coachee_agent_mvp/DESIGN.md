@@ -1,14 +1,14 @@
-# Design System: Erickson Coach
+# Design System: Coaching Practice Studio
 
 ## Source and Intent
 
-This design brief is adapted for Erickson Coach after reviewing the `awesome-design-md` pattern and borrowing the spirit of calm editorial minimalism from workspace tools such as Notion and conversational clarity from Intercom. It is not meant to imitate another brand one-to-one. It defines how Erickson Coach should feel: calm, credible, reflective, and quietly supportive.
+This design brief is adapted for Coaching Practice Studio after reviewing the `awesome-design-md` pattern and borrowing the spirit of calm editorial minimalism from workspace tools such as Notion and conversational clarity from Intercom. It is not meant to imitate another brand one-to-one. It defines how Coaching Practice Studio should feel: calm, credible, reflective, and quietly supportive.
 
 The product is a coaching practice environment, not a sales dashboard. Every visual choice should reduce pressure, keep attention on the conversation, and help the user think clearly.
 
 ## 1. Visual Theme & Atmosphere
 
-Erickson Coach should feel like a well-lit coaching studio translated into software:
+Coaching Practice Studio should feel like a well-lit coaching studio translated into software:
 
 - Airy, soft, and structured rather than dense or flashy
 - Trustworthy and calm rather than hyper-technical
@@ -253,7 +253,7 @@ Every UI/UX change must preserve the phone browser contract:
 
 ## 11. Agent Prompt Guide
 
-When creating or updating UI for Erickson Coach, optimize for:
+When creating or updating UI for Coaching Practice Studio, optimize for:
 
 - Calm coaching atmosphere
 - Clear conversation flow
@@ -263,7 +263,7 @@ When creating or updating UI for Erickson Coach, optimize for:
 
 ### Good prompt patterns
 
-- “Design this screen for Erickson Coach using the project `DESIGN.md`: calm studio-blue background, white conversation surfaces, clear coaching hierarchy, and mobile-safe controls.”
+- “Design this screen for Coaching Practice Studio using the project `DESIGN.md`: calm studio-blue background, white conversation surfaces, clear coaching hierarchy, and mobile-safe controls.”
 - “Keep the interface reflective and professional, not startup-flashy. Prioritize readability, strong primary actions, and a focused chat column.”
 - “Use subtle geometric texture and soft depth, but keep the product feeling emotionally steady and uncluttered.”
 

@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import time
@@ -51,7 +52,7 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
             "__pycache__/",
             "*.pyc",
             "user_profile.json",
-            "Erickson Coach.app/",
+            "Coaching Practice Studio.app/",
         ):
             self.assertIn(pattern, ignore_text)
 
@@ -151,13 +152,13 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
 
     def test_macos_launcher_disables_default_browser_auto_open(self):
         root = Path(__file__).resolve().parent
-        launcher_text = (root / "Erickson Coach Launcher.applescript").read_text(encoding="utf-8")
+        launcher_text = (root / "Coaching Practice Studio Launcher.applescript").read_text(encoding="utf-8")
 
         self.assertIn("ERICKSON_INBROWSER=0", launcher_text)
 
     def test_macos_launcher_opens_ui_through_project_launcher(self):
         root = Path(__file__).resolve().parent
-        launcher_text = (root / "Erickson Coach Launcher.applescript").read_text(encoding="utf-8")
+        launcher_text = (root / "Coaching Practice Studio Launcher.applescript").read_text(encoding="utf-8")
 
         self.assertIn("python3 mac_launcher.py", launcher_text)
 
@@ -189,12 +190,12 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
 
         self.assertEqual(
             check_project.LAUNCHER_ICON_SOURCE,
-            root / "assets" / "icons" / "EricksonCoach.icns",
+            root / "assets" / "icons" / "StudioIcon.icns",
         )
         self.assertTrue(check_project.LAUNCHER_ICON_SOURCE.exists())
         self.assertEqual(
             check_project.LAUNCHER_ICON_TARGET,
-            root / "Erickson Coach.app" / "Contents" / "Resources" / "applet.icns",
+            root / "Coaching Practice Studio.app" / "Contents" / "Resources" / "applet.icns",
         )
         self.assertTrue(callable(check_project.compile_launcher))
 
@@ -395,10 +396,10 @@ class TestWebAppLayout(unittest.TestCase):
         mode_html = web_app._mode_context_html({"agent": web_app._new_session()["agent"], "module": "coach"})
 
         self.assertIn("studio-header", header_html)
-        self.assertIn('src="/icons/erickson-icon-192.png"', header_html)
+        self.assertIn('src="/icons/studio-icon-192.png"', header_html)
         self.assertIn('href="/account"', header_html)
         self.assertNotIn("base64", header_html)
-        self.assertIn("埃里克森教练", header_html)
+        self.assertIn("教练练习室", header_html)
         self.assertNotIn("transformation-hero", header_html)
         self.assertIn("mode-context-card", mode_html)
         self.assertIn("来访者模式", mode_html)
@@ -446,7 +447,7 @@ class TestWebAppLayout(unittest.TestCase):
     def test_row_level_surfaces_share_one_alignment_contract(self):
         from web_app import css
 
-        contract = css[css.index("/* Erickson row alignment contract */"):]
+        contract = css[css.index("/* Row alignment contract */"):]
         for selector in (
             ".intro-md",
             "#topbar.module-tabs",
@@ -466,11 +467,11 @@ class TestWebAppLayout(unittest.TestCase):
 
         root = Path(__file__).parent
         icon_paths = {
-            root / "assets" / "icons" / "erickson-icon-source.png": 1024,
-            root / "assets" / "icons" / "erickson-icon.svg": None,
-            root / "assets" / "icons" / "erickson-icon-180.png": 180,
-            root / "assets" / "icons" / "erickson-icon-192.png": 192,
-            root / "assets" / "icons" / "erickson-icon-512.png": 512,
+            root / "assets" / "icons" / "studio-icon-source.png": 1024,
+            root / "assets" / "icons" / "studio-icon.svg": None,
+            root / "assets" / "icons" / "studio-icon-180.png": 180,
+            root / "assets" / "icons" / "studio-icon-192.png": 192,
+            root / "assets" / "icons" / "studio-icon-512.png": 512,
             root / "site.webmanifest": None,
         }
         for path in icon_paths:
@@ -485,7 +486,7 @@ class TestWebAppLayout(unittest.TestCase):
                 self.assertEqual(int.from_bytes(image_file.read(4), "big"), expected_size)
                 self.assertEqual(int.from_bytes(image_file.read(4), "big"), expected_size)
 
-        self.assertTrue((root / "Erickson Coach.app" / "Contents" / "Resources" / "applet.icns").exists())
+        self.assertTrue((root / "Coaching Practice Studio.app" / "Contents" / "Resources" / "applet.icns").exists())
 
         self.assertIn('rel="apple-touch-icon"', web_app.head)
         self.assertIn('rel="manifest"', web_app.head)
@@ -655,11 +656,11 @@ class TestWebAppServerConfig(unittest.TestCase):
         self.assertEqual(agent.mode, "llm")
         self.assertEqual(agent.context[-1]["content"], prompt)
 
-    def test_one_page_erickson_ui_contract_is_present(self):
+    def test_one_page_ui_contract_is_present(self):
         root = Path(__file__).parent
         import web_app
 
-        self.assertTrue((root / "DESIGN.erickson-edu.md").exists())
+        self.assertTrue((root / "DESIGN.md").exists())
         self.assertIn(".module-tabs", web_app.css)
         self.assertIn("height: 100dvh", web_app.css)
         self.assertIn("overflow: hidden", web_app.css)
@@ -1767,7 +1768,7 @@ class TestAccountPages(unittest.TestCase):
         self.assertEqual(self.store.list_sessions(learner), [])
 
     def test_public_icons_and_manifest_need_no_sign_in(self):
-        self.assertEqual(self.client.get("/icons/erickson-icon-180.png").status_code, 200)
+        self.assertEqual(self.client.get("/icons/studio-icon-180.png").status_code, 200)
         self.assertEqual(self.client.get("/site.webmanifest").status_code, 200)
         self.assertEqual(self.client.get("/privacy").status_code, 200)
         self.assertEqual(self.client.get("/healthz").json(), {"ok": True})
@@ -1805,7 +1806,7 @@ class TestLanguageAndLocalisation(unittest.TestCase):
         self.assertEqual(outputs[-1]["id"], session["id"])
         self.assertEqual(outputs[-1]["agent"].language, "zh")
         self.assertEqual(outputs[12]["value"], "中文")
-        self.assertIn("埃里克森教练", outputs[2])
+        self.assertIn("教练练习室", outputs[2])
 
     def test_switching_language_in_the_app_is_remembered_for_the_pages(self):
         import web_app
@@ -1985,6 +1986,30 @@ class TestProviderAndRegionSupport(unittest.TestCase):
         page = TestClient(app).get("/privacy?lang=zh").text
 
         self.assertIn("你的数据处理地点：Server: Hugging Face (US) · AI: DeepSeek (China)", page)
+
+
+class TestIndependentBranding(unittest.TestCase):
+    # Internal names users never see (code identifiers, settings, cookies, files) may keep the old prefix.
+    INTERNAL = re.compile(r"Erickson(Coaching|Coachee)Agent|ERICKSON_\w+|erickson_(session|lang|coach)|\.erickson_secret|"
+                          r"erickson\.db|erickson-[a-z-]+|Erickson-Coach-App|erickson-coach-app")
+
+    def _visible_text(self, path):
+        return self.INTERNAL.sub("", (Path(__file__).parent / path).read_text(encoding="utf-8"))
+
+    def test_no_coaching_school_name_in_what_users_see_or_the_ai_is_told(self):
+        for path in ("web_assets.py", "account_pages.py", "web_app.py", "coach_agent.py", "coachee_agent.py",
+                     "coach_data.py", "coachee_data.py", "coaching_core.py", "safety.py", "site.webmanifest", "cli_app.py"):
+            text = self._visible_text(path)
+            for term in ("erickson", "埃里克森", "arrow model"):
+                self.assertNotIn(term, text.lower(), f"{term!r} in {path}")
+
+    def test_app_name_and_independence_note(self):
+        import account_pages
+        from web_assets import UI
+
+        self.assertEqual((UI["en"]["coach_name"], UI["zh"]["coach_name"]), ("Coaching Practice Studio", "教练练习室"))
+        self.assertIn("Not affiliated", account_pages.T["en"]["independent"])
+        self.assertIn("无关联", account_pages.T["zh"]["independent"])
 
 
 if __name__ == "__main__":

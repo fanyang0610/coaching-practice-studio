@@ -28,7 +28,7 @@ UI = {
         "reset": "New Session",
         "empty_warning": "Please type a message first.",
         "session_ended": "Session complete. Start a new session to continue.",
-        "coach_name": "Erickson Coach",
+        "coach_name": "Coaching Practice Studio",
         "coach_sub": "Solution-focused coaching companion",
         "progress": "Session Progress",
         "current_stage": "Current stage",
@@ -60,10 +60,10 @@ UI = {
         "coachee_module": "AI Coachee Lab",
         "coach_module_card": "AI Coach\nClient",
         "coachee_module_card": "AI Coachee\nPractice",
-        "coach_title": "Erickson Coach",
+        "coach_title": "Coaching Practice Studio",
         "coach_sub": "Solution-focused coaching companion",
         "coachee_title": "AI Coachee Lab",
-        "coachee_sub": "The AI plays the coachee. You coach, and the app scores your Erickson coaching close.",
+        "coachee_sub": "The AI plays the coachee. You coach, and the app scores how well you led the five coaching stages.",
         "hero_eyebrow": "Transformation Studio",
         "hero_title": "Turn reflection into your next clear step.",
         "hero_sub": "A structured coaching space for clarity, choice, and committed action.",
@@ -85,7 +85,7 @@ UI = {
         "reset": "新会话",
         "empty_warning": "请先输入内容。",
         "session_ended": "本次会话已结束，请开启新会话。",
-        "coach_name": "埃里克森教练",
+        "coach_name": "教练练习室",
         "coach_sub": "聚焦解决的教练式对话空间",
         "progress": "会话进度",
         "current_stage": "当前阶段",
@@ -117,10 +117,10 @@ UI = {
         "coachee_module": "AI学员陪练",
         "coach_module_card": "AI教练\n来访者",
         "coachee_module_card": "AI学员\n练提问",
-        "coach_title": "埃里克森教练",
+        "coach_title": "教练练习室",
         "coach_sub": "聚焦解决的教练式对话空间",
         "coachee_title": "AI 学员陪练",
-        "coachee_sub": "AI 扮演被教练者，由你来做教练。结束后系统会按 Erickson 阶段完成度给你评分和反馈。",
+        "coachee_sub": "AI 扮演被教练者，由你来做教练。结束后系统会按五个教练阶段的完成度给你评分和反馈。",
         "hero_eyebrow": "Transformation Studio",
         "hero_title": "把困惑变成下一步。",
         "hero_sub": "专业、可信，也让成长更可感。",
@@ -152,8 +152,8 @@ head = """
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f3f8fd">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/erickson-icon-192.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/erickson-icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/studio-icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/studio-icon-180.png">
 <link rel="manifest" href="/site.webmanifest">
 """
 
@@ -307,7 +307,7 @@ footer {
     background-position: 0 0, 0 0, 0 0, 16px 14px !important;
     background-repeat: no-repeat !important;
     border-color: rgba(24, 104, 162, 0.88) !important;
-    color: #f7fbff !important;
+    color: #f8fbff !important;
     box-shadow: 0 24px 42px rgba(17, 73, 119, 0.20) !important;
 }
 
@@ -970,7 +970,7 @@ footer {
     }
 }
 
-/* Erickson official-site inspired one-page overrides */
+/* One-page layout overrides */
 html,
 body,
 .gradio-container {
@@ -987,8 +987,8 @@ body,
 
 body,
 .gradio-container {
-    background: #f7fbff !important;
-    color: #102f47 !important;
+    background: #f8fbff !important;
+    color: #18364a !important;
 }
 
 .gradio-container {
@@ -1047,14 +1047,14 @@ body,
 
 .module-card-btn {
     background: #ffffff !important;
-    color: #0d4e7a !important;
-    border: 1px solid #d7e7f1 !important;
+    color: #115488 !important;
+    border: 1px solid #d8e5f2 !important;
 }
 
 .module-card-btn.selected {
-    background: #126fa8 !important;
+    background: #1979ba !important;
     color: #ffffff !important;
-    border-color: #0d4e7a !important;
+    border-color: #115488 !important;
 }
 
 #settings-sheet {
@@ -1080,7 +1080,7 @@ body,
     min-height: 64px !important;
     padding: 10px 14px !important;
     border-radius: 8px !important;
-    background: #0d4e7a !important;
+    background: #115488 !important;
     box-shadow: none !important;
 }
 
@@ -1099,7 +1099,7 @@ body,
     max-height: none !important;
     border-radius: 10px !important;
     box-shadow: none !important;
-    border-color: #d7e7f1 !important;
+    border-color: #d8e5f2 !important;
     padding-bottom: 8px !important;
 }
 
@@ -1117,7 +1117,7 @@ body,
 
 #chat-input-msg textarea {
     border-radius: 8px !important;
-    border-color: #d7e7f1 !important;
+    border-color: #d8e5f2 !important;
 }
 
 .send-btn-custom,
@@ -1128,8 +1128,8 @@ body,
 }
 
 .send-btn-custom {
-    background: #126fa8 !important;
-    border-color: #0d4e7a !important;
+    background: #1979ba !important;
+    border-color: #115488 !important;
 }
 
 @media (max-width: 768px) {
@@ -1478,7 +1478,7 @@ body,
     gap: 12px;
     min-width: 0;
     padding: 0 18px;
-    border: 1px solid #d7e7f1;
+    border: 1px solid #d8e5f2;
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.94);
     box-shadow: 0 14px 32px rgba(13, 78, 122, 0.08);
@@ -1508,7 +1508,7 @@ body,
     font-size: 15px;
     line-height: 1.12;
     font-weight: 900;
-    color: #102f47;
+    color: #18364a;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1537,7 +1537,7 @@ body,
     border-radius: 20px;
     border: 1px solid rgba(13, 78, 122, 0.28);
     background:
-        linear-gradient(128deg, #0d4e7a 0%, #126fa8 58%, #2b8fbe 100%),
+        linear-gradient(128deg, #115488 0%, #1979ba 58%, #2b8fbe 100%),
         repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 18px);
     box-shadow: 0 20px 42px rgba(13, 78, 122, 0.20);
 }
@@ -1624,17 +1624,17 @@ body,
 }
 
 .module-card-btn {
-    background: linear-gradient(180deg, #ffffff, #f7fbff) !important;
-    color: #0d4e7a !important;
-    -webkit-text-fill-color: #0d4e7a !important;
-    border: 1px solid #d7e7f1 !important;
+    background: linear-gradient(180deg, #ffffff, #f8fbff) !important;
+    color: #115488 !important;
+    -webkit-text-fill-color: #115488 !important;
+    border: 1px solid #d8e5f2 !important;
 }
 
 .module-card-btn.selected {
-    background: linear-gradient(145deg, #0d4e7a, #126fa8) !important;
+    background: linear-gradient(145deg, #115488, #1979ba) !important;
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff !important;
-    border-color: #0d4e7a !important;
+    border-color: #115488 !important;
     box-shadow: 0 16px 34px rgba(13, 78, 122, 0.18) !important;
 }
 
@@ -1643,7 +1643,7 @@ body,
     border-radius: 17px !important;
     padding: 10px 18px !important;
     background: rgba(255, 255, 255, 0.96) !important;
-    border: 1px solid #d7e7f1 !important;
+    border: 1px solid #d8e5f2 !important;
     box-shadow: 0 12px 28px rgba(13, 78, 122, 0.08) !important;
 }
 
@@ -1655,8 +1655,8 @@ body,
 }
 
 .tracker-stage {
-    color: #102f47 !important;
-    -webkit-text-fill-color: #102f47 !important;
+    color: #18364a !important;
+    -webkit-text-fill-color: #18364a !important;
     font-size: 16px !important;
 }
 
@@ -1667,18 +1667,18 @@ body,
 
 .tracker-dot {
     background: #e7f3fa !important;
-    color: #0d4e7a !important;
+    color: #115488 !important;
     border: 3px solid #ffffff !important;
-    box-shadow: 0 0 0 1px #d7e7f1 !important;
+    box-shadow: 0 0 0 1px #d8e5f2 !important;
 }
 
 .tracker-dot.done {
-    background: #126fa8 !important;
+    background: #1979ba !important;
     color: #ffffff !important;
 }
 
 .tracker-dot.active {
-    background: #f4b44d !important;
+    background: #f0b95a !important;
     color: #4f3600 !important;
     box-shadow: 0 0 0 4px rgba(244, 180, 77, 0.18) !important;
 }
@@ -1694,13 +1694,13 @@ body,
 }
 
 .send-btn-custom {
-    background: linear-gradient(180deg, #2389cb, #126fa8) !important;
-    border-color: #0d4e7a !important;
+    background: linear-gradient(180deg, #2389cb, #1979ba) !important;
+    border-color: #115488 !important;
 }
 
 .custom-mic-btn {
-    color: #126fa8 !important;
-    background: linear-gradient(180deg, #ffffff, #f7fbff) !important;
+    color: #1979ba !important;
+    background: linear-gradient(180deg, #ffffff, #f8fbff) !important;
 }
 
 @media (max-width: 768px) {
@@ -1735,8 +1735,8 @@ body,
     .tracker-shell .tracker-next,
     .tracker-shell .tracker-dot,
     .tracker-shell .tracker-dot span {
-        color: #102f47 !important;
-        -webkit-text-fill-color: #102f47 !important;
+        color: #18364a !important;
+        -webkit-text-fill-color: #18364a !important;
     }
 
     .tracker-shell .tracker-eyebrow,
@@ -1778,7 +1778,7 @@ body,
         min-width: 0 !important;
         border: 3px solid #ffffff !important;
         border-radius: 999px !important;
-        box-shadow: 0 0 0 1px #d7e7f1 !important;
+        box-shadow: 0 0 0 1px #d8e5f2 !important;
     }
 
     .tracker-dot span {
@@ -1830,7 +1830,7 @@ body,
 #topbar.module-tabs {
     margin: 0 0 -9px 0 !important;
     padding: 10px !important;
-    border: 1px solid #d7e7f1 !important;
+    border: 1px solid #d8e5f2 !important;
     border-bottom: 0 !important;
     border-radius: 16px 16px 0 0 !important;
     background:
@@ -1876,7 +1876,7 @@ body,
     min-height: 40px;
     margin: 0;
     padding: 8px 14px 10px 14px;
-    border: 1px solid #d7e7f1;
+    border: 1px solid #d8e5f2;
     border-top: 0;
     border-radius: 0 0 16px 16px;
     background: rgba(255, 255, 255, 0.96);
@@ -1893,7 +1893,7 @@ body,
 }
 
 .mode-context-title {
-    color: #102f47;
+    color: #18364a;
     font-size: 13px;
     font-weight: 900;
     overflow: hidden;
@@ -2004,7 +2004,7 @@ body,
     }
 }
 
-/* Erickson row alignment contract */
+/* Row alignment contract */
 .intro-md,
 #topbar.module-tabs,
 .mode-context-md,
@@ -2091,8 +2091,8 @@ div:has(> .tracker-shell) {
     font-size: 12px;
     line-height: 1.2;
     font-weight: 800;
-    color: #0d4e7a;
-    background: #edf6fb;
+    color: #115488;
+    background: #eef5fb;
     border-radius: 999px;
     padding: 4px 10px;
     white-space: nowrap;
@@ -2102,10 +2102,10 @@ div:has(> .tracker-shell) {
     font-size: 13px;
     line-height: 1.2;
     font-weight: 800;
-    color: #126fa8 !important;
+    color: #1979ba !important;
     text-decoration: none !important;
     padding: 6px 12px;
-    border: 1px solid #d7e7f1;
+    border: 1px solid #d8e5f2;
     border-radius: 12px;
     background: #ffffff;
     white-space: nowrap;

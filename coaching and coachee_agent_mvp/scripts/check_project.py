@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run repeatable local checks for Erickson Coach."""
+"""Run repeatable local checks for Coaching Practice Studio."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER_ICON_SOURCE = ROOT / "assets" / "icons" / "EricksonCoach.icns"
-LAUNCHER_ICON_TARGET = ROOT / "Erickson Coach.app" / "Contents" / "Resources" / "applet.icns"
+LAUNCHER_ICON_SOURCE = ROOT / "assets" / "icons" / "StudioIcon.icns"
+LAUNCHER_ICON_TARGET = ROOT / "Coaching Practice Studio.app" / "Contents" / "Resources" / "applet.icns"
 PYTHON_FILES = [
     "app.py",
     "cli_app.py",
@@ -106,12 +106,12 @@ def run_browser_check(port: int) -> None:
 
 
 def compile_launcher() -> None:
-    run(["osacompile", "-o", "Erickson Coach.app", "Erickson Coach Launcher.applescript"])
+    run(["osacompile", "-o", "Coaching Practice Studio.app", "Coaching Practice Studio Launcher.applescript"])
     shutil.copyfile(LAUNCHER_ICON_SOURCE, LAUNCHER_ICON_TARGET)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run Erickson Coach project checks.")
+    parser = argparse.ArgumentParser(description="Run Coaching Practice Studio project checks.")
     parser.add_argument("--browser", action="store_true", help="Run desktop and mobile browser screenshots.")
     parser.add_argument("--launcher", action="store_true", help="Recompile the local macOS launcher app.")
     parser.add_argument("--port", type=int, default=8787, help="Port for browser checks.")

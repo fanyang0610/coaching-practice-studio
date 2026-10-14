@@ -1,10 +1,10 @@
 # Codex Project Context
 
-This file captures durable context from recent Codex work on the Erickson Coach MVP. Use it as a handoff note before making future changes.
+This file captures durable context from recent Codex work on the Coaching Practice Studio MVP. Use it as a handoff note before making future changes.
 
 ## 1. Project Goal
 
-Erickson Coach is a bilingual Gradio web app for practicing Erickson-style coaching conversations.
+Coaching Practice Studio is a bilingual Gradio web app for practicing solution-focused coaching conversations. It is an independent, non-commercial tool and deliberately carries no coaching school's name, logo, colors or proprietary terms.
 
 The app has two main modules:
 
@@ -15,7 +15,7 @@ The intended product feel is a calm, credible coaching practice environment, not
 
 ## 2. Completed Design Decisions
 
-- The canonical visual direction is defined in `DESIGN.md`, supplemented by `DESIGN.erickson-edu.md`.
+- The canonical visual direction is defined in `DESIGN.md`.
 - The interface uses a bright white and soft-blue institutional coaching style, with restrained gold accent.
 - Module switching is treated as compact tabs/segmented controls, especially on mobile, rather than oversized cards.
 - The stage tracker remains visible and compact; all five coaching stages should fit on phone widths.
@@ -48,7 +48,7 @@ The intended product feel is a calm, credible coaching practice environment, not
 - `Dockerfile`: Always-on deployment for Docker hosts (kept out of the HF upload).
 - `README.md`: Maintenance and launch instructions.
 - `AGENTS.md`: Project-specific operating rules for Codex.
-- `Erickson Coach Launcher.applescript` and `Erickson Coach.app`: local macOS launcher.
+- `Coaching Practice Studio Launcher.applescript` and `Coaching Practice Studio.app`: local macOS launcher.
 
 Older generic files such as `agent.py` should not be reintroduced. Tests assert that explicit agent modules replace the generic agent file.
 
@@ -59,7 +59,7 @@ Older generic files such as `agent.py` should not be reintroduced. Tests assert 
 - Default model: `gpt-4o-mini`, configurable with `OPENAI_MODEL`.
 - Default app mode: AI (`llm`), with template mode available as backup.
 - API key handling: server-side only through `OPENAI_API_KEY`; do not add client-side API key fields back.
-- State model: five Erickson stages in `CoachingState`: Contract, Experience/Reality, Action/Possibilities, Value/Commitment, Closing.
+- State model: five coaching stages in `CoachingState`: Contract, Experience/Reality, Action/Possibilities, Value/Commitment, Closing.
 - Conversation modes:
   - Template mode provides deterministic fallback and testable behavior.
   - LLM mode uses server key when configured, but initial openings should not block on an LLM call.
@@ -67,7 +67,7 @@ Older generic files such as `agent.py` should not be reintroduced. Tests assert 
   - Run `python3 tests.py`.
   - Run compile checks for core Python files when changing runtime code.
   - Use `ERICKSON_INBROWSER=0` and `manual_ui_probe.py` for screenshots.
-  - Recompile `Erickson Coach.app` after code changes.
+  - Recompile `Coaching Practice Studio.app` after code changes.
 
 ## 5. Known Pitfalls
 
@@ -89,6 +89,6 @@ Older generic files such as `agent.py` should not be reintroduced. Tests assert 
 - Keep consolidating layout rules around the one-page contract: no outer document scroll, no horizontal scroll, chat transcript scrolls internally.
 - Add tests around server-side key behavior for hosted deployment, especially missing `OPENAI_API_KEY`, custom `OPENAI_BASE_URL`, and `OPENAI_MODEL`.
 - Consider extracting long CSS and JavaScript strings from `web_app.py` only if edits become risky. Do not refactor just for cleanliness.
-- Before any UI change, reread `DESIGN.md` and `DESIGN.erickson-edu.md`, then verify desktop and `390x844` screenshots.
+- Before any UI change, reread `DESIGN.md`, then verify desktop and `390x844` screenshots.
 - Before reporting any fix complete, run:
   - `python3 scripts/check_project.py --browser --launcher`

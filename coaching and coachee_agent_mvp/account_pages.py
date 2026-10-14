@@ -34,7 +34,8 @@ LANG_COOKIE = "erickson_lang"
 
 T = {
     "en": {
-        "brand": "Erickson Coach",
+        "brand": "Coaching Practice Studio",
+        "independent": "An independent, free practice tool. Not affiliated with any coaching school or certification body.",
         "back_to_app": "Back to coaching",
         "account": "Account",
         "trainer": "Mentor",
@@ -48,22 +49,22 @@ T = {
         "confirm_password": "Confirm password",
         "current_password": "Current password",
         "your_name": "Your name",
-        "invite_only": "Erickson Coach is invite-only. Sign in with your email, or open the invite link you were sent.",
+        "invite_only": "Coaching Practice Studio is invite-only. Sign in with your email, or open the invite link you were sent.",
         "forgot": "Forgot your password? Ask your mentor or the admin for a reset link.",
         "forgot_link": "Forgot your password?",
         "forgot_title": "Reset your password",
         "forgot_hint": "Enter your account email. If it belongs to an account, we'll email a reset link that works for 2 hours.",
         "forgot_sent": "If that email belongs to an account, a reset link is on its way. Check your inbox and spam folder.",
         "send_link": "Email me a reset link",
-        "reset_email_subject": "Reset your Erickson Coach password",
-        "reset_email_body": "Someone asked to reset the password for your Erickson Coach account.\n\nTo choose a new password, open this link within 2 hours:\n{link}\n\nIf this wasn't you, ignore this email and your password stays the same.",
-        "open_new_tab": "Signing in doesn't work inside an embedded page. Open Erickson Coach in its own tab.",
+        "reset_email_subject": "Reset your Coaching Practice Studio password",
+        "reset_email_body": "Someone asked to reset the password for your Coaching Practice Studio account.\n\nTo choose a new password, open this link within 2 hours:\n{link}\n\nIf this wasn't you, ignore this email and your password stays the same.",
+        "open_new_tab": "Signing in doesn't work inside an embedded page. Open Coaching Practice Studio in its own tab.",
         "bad_login": "That email and password don't match an active account.",
         "throttled": "Too many attempts. Please wait 15 minutes and try again.",
         "setup_title": "Create the first admin account",
         "setup_hint": "No accounts exist yet. This page is only available on this computer.",
         "create_account": "Create account",
-        "signup_title": "Join Erickson Coach",
+        "signup_title": "Join Coaching Practice Studio",
         "signup_hint": "You were invited as {role}. Choose a password with at least {n} characters.",
         "invite_invalid": "This invite link has expired, was already used, or was revoked. Ask for a new one.",
         "email_taken": "An account with this email already exists. Sign in instead.",
@@ -71,7 +72,7 @@ T = {
         "password_too_short": "Passwords need at least {n} characters.",
         "password_mismatch": "The two passwords don't match.",
         "wrong_password": "Your current password isn't correct.",
-        "consent": "I've read the privacy notice. I understand Erickson Coach is coaching practice, not therapy or crisis support.",
+        "consent": "I've read the privacy notice. I understand Coaching Practice Studio is coaching practice, not therapy or crisis support.",
         "consent_required": "Please confirm you've read the privacy notice.",
         "reset_title": "Set a new password",
         "reset_invalid": "This reset link has expired or was already used. Ask for a new one.",
@@ -162,7 +163,7 @@ T = {
         "privacy_title": "Privacy and safety",
         "data_locations": "Where your data is processed: {where}",
         "privacy_body": [
-            "Erickson Coach is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
+            "Coaching Practice Studio is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
             "If you might harm yourself or are in danger, contact your local emergency number now. You can find a free, confidential helpline in your country at findahelpline.com.",
             "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), short AI-written insights about your coaching, your feedback on replies, and how many AI tokens you used.",
             "Who can read your sessions: you; the app admin; and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
@@ -178,7 +179,8 @@ T = {
         },
     },
     "zh": {
-        "brand": "埃里克森教练",
+        "brand": "教练练习室",
+        "independent": "独立、免费的教练练习工具，与任何教练学校或认证机构均无关联。",
         "back_to_app": "返回教练对话",
         "account": "账户",
         "trainer": "导师",
@@ -192,22 +194,22 @@ T = {
         "confirm_password": "确认密码",
         "current_password": "当前密码",
         "your_name": "你的名字",
-        "invite_only": "埃里克森教练仅限受邀用户。请用邮箱登录，或打开你收到的邀请链接。",
+        "invite_only": "教练练习室仅限受邀用户。请用邮箱登录，或打开你收到的邀请链接。",
         "forgot": "忘记密码？请联系你的导师或管理员获取重置链接。",
         "forgot_link": "忘记密码？",
         "forgot_title": "重置密码",
         "forgot_hint": "请输入账户邮箱。如果该邮箱有账户，我们会发送一个 2 小时内有效的重置链接。",
         "forgot_sent": "如果该邮箱有账户，重置链接已经发出。请查看收件箱和垃圾邮件。",
         "send_link": "发送重置链接",
-        "reset_email_subject": "重置你的埃里克森教练密码",
-        "reset_email_body": "有人请求重置你的埃里克森教练账户密码。\n\n如需设置新密码，请在 2 小时内打开此链接：\n{link}\n\n如果不是你本人操作，请忽略此邮件，你的密码不会改变。",
-        "open_new_tab": "嵌入页面中无法登录，请在新标签页中打开埃里克森教练。",
+        "reset_email_subject": "重置你的教练练习室密码",
+        "reset_email_body": "有人请求重置你的教练练习室账户密码。\n\n如需设置新密码，请在 2 小时内打开此链接：\n{link}\n\n如果不是你本人操作，请忽略此邮件，你的密码不会改变。",
+        "open_new_tab": "嵌入页面中无法登录，请在新标签页中打开教练练习室。",
         "bad_login": "邮箱和密码与有效账户不匹配。",
         "throttled": "尝试次数过多，请 15 分钟后再试。",
         "setup_title": "创建第一个管理员账户",
         "setup_hint": "目前还没有任何账户。此页面只能在本机访问。",
         "create_account": "创建账户",
-        "signup_title": "加入埃里克森教练",
+        "signup_title": "加入教练练习室",
         "signup_hint": "你受邀的身份是 {role}。请设置至少 {n} 位的密码。",
         "invite_invalid": "此邀请链接已过期、已被使用或已撤销，请重新申请。",
         "email_taken": "该邮箱已有账户，请直接登录。",
@@ -215,7 +217,7 @@ T = {
         "password_too_short": "密码至少需要 {n} 位。",
         "password_mismatch": "两次输入的密码不一致。",
         "wrong_password": "当前密码不正确。",
-        "consent": "我已阅读隐私说明，并理解埃里克森教练是教练练习工具，不是心理治疗或危机援助。",
+        "consent": "我已阅读隐私说明，并理解教练练习室是教练练习工具，不是心理治疗或危机援助。",
         "consent_required": "请确认你已阅读隐私说明。",
         "reset_title": "设置新密码",
         "reset_invalid": "此重置链接已过期或已被使用，请重新申请。",
@@ -306,7 +308,7 @@ T = {
         "privacy_title": "隐私与安全",
         "data_locations": "你的数据处理地点：{where}",
         "privacy_body": [
-            "埃里克森教练是教练练习工具，不是心理治疗、医疗建议或危机援助。",
+            "教练练习室是教练练习工具，不是心理治疗、医疗建议或危机援助。",
             "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话。你可以在 findahelpline.com 找到你所在国家的免费保密求助热线。",
             "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、AI 生成的简短洞察、你对回复的反馈，以及你使用的 AI token 数。",
             "谁能看到你的会话：你本人；应用管理员；以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。除你之外的任何人打开你的会话都会记录在审计日志中。",
@@ -495,9 +497,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         page = f"""<!doctype html><html lang="{'zh-CN' if lang == 'zh' else 'en'}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f3f8fd"><title>{_e(title)} · {_e(T[lang]['brand'])}</title>
-<link rel="icon" type="image/png" href="/icons/erickson-icon-192.png"><link rel="apple-touch-icon" href="/icons/erickson-icon-180.png">
+<link rel="icon" type="image/png" href="/icons/studio-icon-192.png"><link rel="apple-touch-icon" href="/icons/studio-icon-180.png">
 <style>{CSS}</style></head><body><main class="shell">
-<header class="bar"><a class="brand" href="/"><img src="/icons/erickson-icon-192.png" alt="">{_e(T[lang]['brand'])}</a>{nav}</header>
+<header class="bar"><a class="brand" href="/"><img src="/icons/studio-icon-192.png" alt="">{_e(T[lang]['brand'])}</a>{nav}</header>
 {flash_html}{body}{switch}</main>{LOCAL_TIME_JS}</body></html>"""
         response = HTMLResponse(page, status_code=status_code)
         if request.query_params.get("lang") in ("en", "zh"):
@@ -558,7 +560,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <label for="email">{_e(T[lang]['email'])}</label><input id="email" name="email" type="email" autocomplete="email" required value="{_e(email)}">
 <label for="password">{_e(T[lang]['password'])}</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 <button class="full" type="submit">{_e(T[lang]['sign_in'])}</button></form>
-<p class="hint">{forgot}</p></div>
+<p class="hint">{forgot}</p><p class="hint">{_e(T[lang]['independent'])}</p></div>
 <script>if (window.top !== window.self) document.getElementById('frame-note').style.display = 'block';</script>"""
         return render(request, lang, T[lang]["sign_in"], body, flash=flash, status_code=status_code)
 
@@ -641,7 +643,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <label for="password">{_e(T[lang]['password'])}</label><input id="password" name="password" type="password" autocomplete="new-password" required>
 <label for="confirm">{_e(T[lang]['confirm_password'])}</label><input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
 <label class="check"><input type="checkbox" name="consent" value="yes"><span>{_e(T[lang]['consent'])} <a href="/privacy" target="_blank">{_e(T[lang]['privacy'])}</a></span></label>
-<button class="full" type="submit">{_e(T[lang]['create_account'])}</button></form></div>"""
+<button class="full" type="submit">{_e(T[lang]['create_account'])}</button></form>
+<p class="hint">{_e(T[lang]['independent'])}</p></div>"""
         return render(request, lang, T[lang]["signup_title"], body, flash=flash)
 
     def invalid_invite(request, lang) -> HTMLResponse:
@@ -756,7 +759,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
     def privacy(request: Request):
         lang = page_lang(request)
         user = current_user(request, get_store(), settings.secret)
-        paragraphs = "".join(f"<p>{_e(line)}</p>" for line in T[lang]["privacy_body"])
+        paragraphs = f"<p>{_e(T[lang]['independent'])}</p>" + "".join(f"<p>{_e(line)}</p>" for line in T[lang]["privacy_body"])
         if settings.data_locations:
             paragraphs += f'<p><b>{_e(text(lang, "data_locations", where=settings.data_locations))}</b></p>'
         body = f'<div class="card"><h1>{_e(T[lang]["privacy_title"])}</h1>{paragraphs}</div>'
@@ -887,7 +890,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             return login_redirect(request)
         data = json.dumps(get_store().export_user(user["id"]), ensure_ascii=False, indent=2, default=str)
         return Response(data, media_type="application/json",
-                        headers={"Content-Disposition": 'attachment; filename="erickson-coach-data.json"'})
+                        headers={"Content-Disposition": 'attachment; filename="coaching-practice-studio-data.json"'})
 
     @router.post("/account/delete")
     def delete_account(request: Request, csrf: str = Form(""), confirm: str = Form("")):

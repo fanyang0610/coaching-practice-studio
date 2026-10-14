@@ -22,8 +22,8 @@ LOCAL_VERIFICATION_TOOLING = {
     "scripts/needs_hf_upload.py",
     "scripts/load_test.py",
     "scripts/manage.py",
-    "Erickson Coach Launcher.applescript",
-    "Erickson Coach.app",
+    "Coaching Practice Studio Launcher.applescript",
+    "Coaching Practice Studio.app",
     "cli_app.py",
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simulate many users chatting at once against a local Erickson Coach, with a fake LLM.
+"""Simulate many users chatting at once against a local Coaching Practice Studio, with a fake LLM.
 
 The fake model answers every call after a fixed delay and streams its reply, so the
 numbers measure the app's own queueing rather than a real provider. Nothing is billed.

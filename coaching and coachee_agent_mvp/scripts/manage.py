@@ -22,7 +22,7 @@ import db  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Manage Erickson Coach accounts.")
+    parser = argparse.ArgumentParser(description="Manage Coaching Practice Studio accounts.")
     commands = parser.add_subparsers(dest="command", required=True)
 
     create_admin = commands.add_parser("create-admin", help="Create an admin account (prompts for the password).")

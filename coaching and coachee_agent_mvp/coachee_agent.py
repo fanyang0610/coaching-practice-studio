@@ -250,7 +250,7 @@ class EricksonCoacheeAgent:
             )
 
         prompt = (
-            "Create one realistic Erickson coach-training coachee case. "
+            "Create one realistic coachee case for coach-training practice. "
             "Return valid JSON only with this shape: "
             "{"
             "\"intro\": string, "
@@ -477,7 +477,7 @@ class EricksonCoacheeAgent:
                 {
                     "role": "system",
                     "content": (
-                        "You are role-playing a coachee in an Erickson coach-training simulation. "
+                        "You are role-playing a coachee in a coach-training simulation. "
                         "The human user is the coach. Stay in first person as the coachee. "
                         f"Current stage: {self.current_state.name} ({STAGE_DESCRIPTIONS[self.current_state]}). "
                         f"Stage intent: {COACHEE_STAGE_HINTS[self.language][self.current_state]}. "
@@ -529,14 +529,14 @@ class EricksonCoacheeAgent:
             speaker = "Coach" if msg["role"] == self.user_role else "Coachee"
             transcript.append(f"{speaker}: {msg['content']}")
 
-        # Richer Erickson assessment prompt
+        # Assessment prompt for the five-stage coaching practice
         if self.language == "zh":
             struct = (
                 "请严格按照以下格式输出：\n"
                 "会话结果：[用一两句话总结本次模拟教练的效果和完整度]\n"
                 "最后得分：[0-100]/100\n"
                 "做得好的部分：\n- [具体的优点1]\n- [具体的优点2]\n"
-                "需要提升的部分：\n- [针对埃里克森教练体系的具体建议1]\n- [针对埃里克森教练体系的具体建议2]\n"
+                "需要提升的部分：\n- [针对教练练习室体系的具体建议1]\n- [针对教练练习室体系的具体建议2]\n"
                 "下一步教练修炼方向：[针对教练个人成长的一句核心建议]"
             )
         else:
@@ -550,9 +550,9 @@ class EricksonCoacheeAgent:
             )
 
         prompt = (
-            "You are an expert Erickson Professional Coach Assessor. "
+            "You are an experienced professional coaching assessor. "
             "The human 'Coach' is training with an AI 'Coachee'. "
-            "Analyze the provided transcript based on the Erickson solution-focused coaching methodology (The 5 Stages: Contract, Experience, Action, Value, Closing). "
+            "Analyze the provided transcript based on solution-focused coaching and the five stages of this practice (Contract, Reality, Possibilities, Commitment, Closing). "
             "Evaluate competencies like: Establishing the Contract, Creating Presence, Powerful Questioning, Active Listening, and Designing Actions. "
             "If the session was very short or skipped phases, provide a realistic (low) score and constructive feedback on why it was incomplete. "
             f"Respond only in {lang_instr}. {_language_output_rule(self.language)}\n"
@@ -584,7 +584,7 @@ class EricksonCoacheeAgent:
         raw_score = min(28, self.metrics.total_questions * 3 + sum(len(self.metrics.facts_shared[state]) for state in COACHEE_STAGE_ORDER))
         if self.language == "zh":
             return (
-                "会话结果：当前证据不足，不能判定这次陪练已经完成了一次有效的 Erickson 教练过程。\n"
+                "会话结果：当前证据不足，不能判定这次陪练已经完成了一次有效的教练过程。\n"
                 f"最后得分：{raw_score}/100\n"
                 "做得好的部分：\n"
                 "- 你已经开始尝试进入教练对话，但过程还没有形成完整阶段闭环。\n"
@@ -596,7 +596,7 @@ class EricksonCoacheeAgent:
             )
 
         return (
-            "Session Result: There is not enough evidence to judge this as a complete Erickson coaching practice.\n"
+            "Session Result: There is not enough evidence to judge this as a complete coaching practice.\n"
             f"Score: {raw_score}/100\n"
             "What worked:\n"
             "- You started the coaching interaction, but the session did not complete a full stage-by-stage coaching arc.\n"
@@ -752,7 +752,7 @@ class EricksonCoacheeAgent:
             
             prompt = (
                 "You are an AI learning module analyzing a human coach's training performance. "
-                "Evaluate the human 'Coach' based on Erickson methodology. "
+                "Evaluate the human 'Coach' based on solution-focused coaching practice. "
                 "Identify their recurring strengths and the specific areas where they should be challenged more in future simulations. "
                 "Return ONLY a JSON object with this shape: "
                 "{"

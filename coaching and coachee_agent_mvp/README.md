@@ -1,5 +1,5 @@
 ---
-title: Erickson Coach App
+title: Coaching Practice Studio
 emoji: 🧭
 colorFrom: blue
 colorTo: indigo
@@ -10,13 +10,24 @@ pinned: false
 fullWidth: true
 ---
 
-# Erickson Coaching Agent MVP - Maintenance Guide
+# Coaching Practice Studio - Maintenance Guide
 
 This original folder is the canonical project. Locally, `app.py` is a wrapper around `web_app.py`, and `web_app.py` contains the full UI implementation. For Hugging Face Spaces, the remote `app.py` must be uploaded from this local `web_app.py`; do not upload the local wrapper `app.py` as the Space entrypoint. The app defaults to AI mode and keeps the LLM API key on the server side; users do not enter or see API keys in the UI.
 
+## Name and Independence
+
+The app is called **Coaching Practice Studio / 教练练习室**. It is an independent, free, non-commercial practice tool built on general solution-focused coaching ideas: a five-stage conversation (contract, reality, possibilities, commitment, closing). It carries no coaching school's name, logo, colors or proprietary terms, and the sign-in, signup and privacy pages say it is not affiliated with any coaching school or certification body. A test fails if a school's name returns to anything users see or the AI is told.
+
+Still to rename outside the code, which only the account owner can do:
+
+- The Hugging Face Space (Settings → Rename), then update `DEFAULT_SPACE_ID` in `scripts/deploy_hf_space.py` and the Space address in this README.
+- The GitHub repository `Erickson-Coach-MVP` (Settings → Repository name). Consider making it private.
+
+Internal names nobody sees, such as code class names, `ERICKSON_*` settings, cookie names and the `erickson.db` file, are unchanged so that existing configuration keeps working.
+
 ## Accounts and Roles
 
-Erickson Coach is invite-only. Everyone signs in with an email and password, and new people join through one-use invite links.
+Coaching Practice Studio is invite-only. Everyone signs in with an email and password, and new people join through one-use invite links.
 
 Both coaching modules are always one person talking with the AI: in AI Coach the AI coaches the person, and in Coachee Lab the person practises coaching an AI coachee. The roles below are about people and who may read whose transcripts.
 
@@ -147,16 +158,16 @@ Before deploying an in-progress local diff, run `python3 scripts/needs_hf_upload
 
 ## 1. One-Click Launch (macOS)
 
-The project includes an **Erickson Coach.app** which can be double-clicked to start the application.
+The project includes an **Coaching Practice Studio.app** which can be double-clicked to start the application.
 It runs `mac_launcher.py`, starts the server with `ERICKSON_INBROWSER=0`, and opens the UI in an isolated Chrome profile at `/private/tmp/erickson-coach-chrome-profile` so the normal Chrome profile cannot show crash-reopen prompts. It reads server-side settings from this workspace `.env` file when present, and stores local accounts and sessions in `erickson.db` in this folder. The launcher opens whichever folder the `.app` sits in, so copies of the project each launch their own version. After changing the AppleScript, re-compile the app with:
 
 ```zsh
-osacompile -o "Erickson Coach.app" "Erickson Coach Launcher.applescript"
+osacompile -o "Coaching Practice Studio.app" "Coaching Practice Studio Launcher.applescript"
 ```
 
 ## Design Direction
 
-The app uses `DESIGN.md` plus `DESIGN.erickson-edu.md`. The UI is intended to fit in one viewport on laptop and phone; only the chat transcript scrolls internally.
+The app uses `DESIGN.md`. The UI is intended to fit in one viewport on laptop and phone; only the chat transcript scrolls internally.
 
 ## 2. iOS Adaptation Checklist
 
@@ -171,7 +182,7 @@ Before every commit or major change, ensure the following iOS-specific adaptatio
 
 For every change to the project:
 
-1. **Re-verify State Transitions**: Run `python3 tests.py` to ensure the Erickson coaching logic is intact.
+1. **Re-verify State Transitions**: Run `python3 tests.py` to ensure the coaching stage logic is intact.
 2. **Re-compile App Bundle**: Run the `osacompile` command above to ensure the `.app` remains synced with the latest codebase.
 3. **Check iOS Viewport**: Verify that no new elements break the "One Page" layout on mobile Safari.
 4. **Compile Check**: `scripts/check_project.py` compiles every Python file in the project.

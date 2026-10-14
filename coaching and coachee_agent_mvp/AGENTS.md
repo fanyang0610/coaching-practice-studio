@@ -2,7 +2,7 @@
 
 - For any UI, UX, visual styling, or layout work, consult `DESIGN.md` first and keep new screens aligned with that design system unless the user explicitly asks for a different direction.
 - After every fix or code change, validate both desktop web browser and iPhone-sized mobile browser compatibility before reporting completion.
-- After every fix or code change, recompile the local `Erickson Coach.app` launcher in this folder so clicking the app opens the latest version in this workspace.
+- After every fix or code change, recompile the local `Coaching Practice Studio.app` launcher in this folder so clicking the app opens the latest version in this workspace.
 - Keep the launcher behavior aligned with the current workspace layout instead of hardcoding obsolete paths.
 - For screenshot verification, start the app with `ERICKSON_INBROWSER=0` and use `python3 manual_ui_probe.py --url http://127.0.0.1:<port>` so Chrome runs with an isolated temporary profile and cannot trigger the normal browser reopen/crash prompt.
 - The app requires sign-in. `scripts/check_project.py --browser` creates a throwaway probe account and passes its cookie to `manual_ui_probe.py --cookie`; do the same when probing by hand. The account, trainer and admin pages (`account_pages.py`) are UI too: check them at desktop and iPhone widths.

@@ -61,7 +61,7 @@ def launch() -> int:
                 opened = True
         return proc.wait()
     except KeyboardInterrupt:
-        print("Stopping Erickson Coach...", flush=True)
+        print("Stopping Coaching Practice Studio...", flush=True)
         if proc.poll() is None:
             proc.terminate()
             try:

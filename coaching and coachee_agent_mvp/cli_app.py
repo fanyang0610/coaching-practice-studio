@@ -5,7 +5,7 @@ from coaching_core import CoachingState
 
 
 def main():
-    print("Welcome to the Erickson Coaching Assistant MVP")
+    print("Welcome to the Coaching Practice Studio")
     print("Type 'quit' to exit, 'next' to manually force next stage, 'mode llm' or 'mode template' to swap modes.")
     print("Type 'key <API_KEY>' to set the API key for CLI LLM mode.")
 

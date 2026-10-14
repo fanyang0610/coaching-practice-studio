@@ -301,7 +301,7 @@ async def _wait_for_ready(call, timeout_seconds: float = 45.0):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Capture isolated desktop and mobile screenshots for Erickson Coach.")
+    parser = argparse.ArgumentParser(description="Capture isolated desktop and mobile screenshots for Coaching Practice Studio.")
     parser.add_argument("--url", default="http://127.0.0.1:8787")
     parser.add_argument("--out-dir", default="/private/tmp")
     parser.add_argument("--cookie", help="name=value cookie to set first, such as a signed-in session")

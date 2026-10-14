@@ -45,7 +45,7 @@ from web_assets import (
 
 ROOT = Path(__file__).resolve().parent
 # Served publicly by account_pages so the header doesn't carry a 50 KB base64 image on every reply.
-HEADER_ICON_SRC = "/icons/erickson-icon-192.png"
+HEADER_ICON_SRC = "/icons/studio-icon-192.png"
 
 logger = logging.getLogger("erickson_coach")
 
@@ -853,7 +853,7 @@ clean_indigo_theme = gr.themes.Default(
 
 
 with gr.Blocks(
-    title="Erickson Coach",
+    title="Coaching Practice Studio · 教练练习室",
     fill_height=True,
     fill_width=True,
 ) as demo:
@@ -1084,7 +1084,7 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
         theme=clean_indigo_theme,
         css=css,
         head=head,
-        favicon_path=str(ROOT / "assets" / "icons" / "erickson-icon-192.png"),
+        favicon_path=str(ROOT / "assets" / "icons" / "studio-icon-192.png"),
         allowed_paths=[str(ROOT / "assets")],
         footer_links=["gradio", "settings"],
     )

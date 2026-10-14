@@ -1,7 +1,7 @@
 """Storage for accounts, invites, coaching sessions, profiles and the audit log.
 
 Uses a local SQLite file by default. In production set DATABASE_URL to a managed Postgres
-database, e.g. postgresql+psycopg://user:password@host:5432/erickson. Timestamps are naive UTC.
+database, e.g. postgresql+psycopg://user:password@host:5432/coaching. Timestamps are naive UTC.
 """
 
 from __future__ import annotations

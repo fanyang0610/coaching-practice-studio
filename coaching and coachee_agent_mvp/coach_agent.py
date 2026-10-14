@@ -175,7 +175,7 @@ class EricksonCoachingAgent:
             {
                 "role": "system",
                 "content": (
-                    "You are a professional Erickson Solution-Focused Coach. "
+                    "You are a professional solution-focused coach. "
                     "The coaching session has ended. Based on the conversation history, "
                     "provide a brief, warm, and inspiring closing summary. "
                     "Acknowledge the client's progress and the actions they committed to. "
@@ -303,7 +303,7 @@ Never mention the marker or stage names in the reply itself."""
         client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         stage_desc = STAGE_DESCRIPTIONS[self.current_state]
-        system_prompt = f"""You are a professional Erickson Solution-Focused Coach following the Arrow Model.
+        system_prompt = f"""You are a professional solution-focused coach guiding a five-stage coaching conversation (contract, reality, possibilities, commitment, closing).
 Current stage: **{self.current_state.name}** ({stage_desc})
 Sub-phase: OPEN
 
@@ -343,7 +343,7 @@ Variation lens: choose a fresh entry point among clarity, desired outcome, usefu
                     "Adjust your level of challenge and focus to help the user grow in their 'Growth Areas'."
                 )
 
-            system_prompt = f"""You are a professional Erickson Solution-Focused Coach following the Arrow Model.
+            system_prompt = f"""You are a professional solution-focused coach guiding a five-stage coaching conversation (contract, reality, possibilities, commitment, closing).
 Current stage: **{self.current_state.name}** ({stage_desc})
 Sub-phase: {self.current_sub_phase.name}
 

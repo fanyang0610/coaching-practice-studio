@@ -3,7 +3,7 @@
 __pycache__/
 *.pyc
 user_profile.json
-Erickson Coach.app/
+Coaching Practice Studio.app/
 erickson.db
 erickson.db-*
 .erickson_secret
