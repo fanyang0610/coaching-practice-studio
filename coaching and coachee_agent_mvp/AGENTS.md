@@ -1,5 +1,6 @@
 # Project Instructions
 
+- **Start every new session by reading `docs/HANDOFF.md`**: current state, decisions already made, open items, and how the owner wants work done.
 - For any UI, UX, visual styling, or layout work, consult `DESIGN.md` first and keep new screens aligned with that design system unless the user explicitly asks for a different direction.
 - After every fix or code change, validate both desktop web browser and iPhone-sized mobile browser compatibility before reporting completion.
 - After every fix or code change, recompile the local `Coaching Practice Studio.app` launcher in this folder so clicking the app opens the latest version in this workspace.

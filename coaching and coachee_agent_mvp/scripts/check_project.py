@@ -36,6 +36,7 @@ PYTHON_FILES = [
     "scripts/check_project.py",
     "scripts/load_test.py",
     "scripts/manage.py",
+    "scripts/dev_server.py",
     "db.py",
     "accounts.py",
     "account_pages.py",
