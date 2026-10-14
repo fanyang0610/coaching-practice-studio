@@ -1422,12 +1422,21 @@ class TestAccounts(unittest.TestCase):
         stranger = {"id": 5, "role": "user"}
 
         self.assertTrue(accounts.can_view_session(owner, private, owner))
-        self.assertTrue(accounts.can_view_session(admin, private, owner))
         self.assertTrue(accounts.can_view_session(trainer, practice, owner))
         self.assertTrue(accounts.can_view_session(trainer, shared, owner))
         self.assertFalse(accounts.can_view_session(trainer, private, owner))
         self.assertFalse(accounts.can_view_session(other_trainer, practice, owner))
         self.assertFalse(accounts.can_view_session(stranger, practice, owner))
+        for session in (practice, private, shared):
+            self.assertFalse(accounts.can_view_session(admin, session, owner))
+
+    def test_an_admin_who_is_the_assigned_mentor_sees_only_what_a_mentor_sees(self):
+        owner = {"id": 1, "role": "user", "trainer_id": 4}
+        admin_mentor = {"id": 4, "role": "admin"}
+
+        self.assertTrue(accounts.can_view_session(admin_mentor, {"user_id": 1, "module": "coachee", "shared_with_trainer": False}, owner))
+        self.assertTrue(accounts.can_view_session(admin_mentor, {"user_id": 1, "module": "coach", "shared_with_trainer": True}, owner))
+        self.assertFalse(accounts.can_view_session(admin_mentor, {"user_id": 1, "module": "coach", "shared_with_trainer": False}, owner))
 
 
 class TestQuota(unittest.TestCase):
@@ -1682,12 +1691,55 @@ class TestAccountPages(unittest.TestCase):
         self.assertEqual(trainer_client.get(f"/sessions/{practice}").status_code, 200)
         self.assertEqual(trainer_client.get(f"/sessions/{private}").status_code, 403)
 
+        self.assertEqual(admin_client.get(f"/sessions/{practice}").status_code, 403)
+        self.assertEqual(admin_client.get(f"/sessions/{private}").status_code, 403)
+
         learner_client.post(f"/account/sessions/{private}/share", data={"csrf": self._csrf(learner_client), "shared": "yes"})
         self.assertEqual(trainer_client.get(f"/sessions/{private}").status_code, 200)
-        self.assertEqual(admin_client.get(f"/sessions/{private}").status_code, 200)
+        self.assertEqual(admin_client.get(f"/sessions/{private}").status_code, 403)
 
         viewers = [entry["actor_id"] for entry in self.store.audit_entries() if entry["action"] == "session_viewed"]
-        self.assertCountEqual(viewers, [trainer, trainer, admin])
+        self.assertCountEqual(viewers, [trainer, trainer])
+
+    def test_admin_page_lists_sessions_without_opening_them(self):
+        self._person("owner@example.com", role="admin")
+        learner = self._person("learner@example.com")
+        session = self.store.create_session(learner, "coachee", "en", "llm", "CONTRACT",
+                                            {"context": [{"role": "coachee", "content": "A very private sentence"}]})
+        admin_client = self._sign_in("owner@example.com")
+
+        page = admin_client.get("/admin?lang=en").text
+
+        self.assertIn("AI Coachee Lab", page)
+        self.assertIn("not what was said", page)
+        self.assertNotIn(f"/sessions/{session}", page)
+        self.assertNotIn("A very private sentence", page)
+
+    def test_account_page_mentions_a_mentor_only_to_people_who_have_one(self):
+        self._person("solo@example.com")
+        self._person("learner@example.com", trainer_id=self._person("trainer@example.com", role="trainer"))
+
+        solo = self._sign_in("solo@example.com").get("/account?lang=en").text
+        learner = self._sign_in("learner@example.com").get("/account?lang=en").text
+
+        self.assertIn("Only you can see your sessions.", solo)
+        self.assertNotIn("Your mentor can review", solo)
+        self.assertIn("Your mentor can review", learner)
+
+    def test_changing_a_members_mentor_makes_their_shared_sessions_private(self):
+        admin = self._person("owner@example.com", role="admin")
+        trainer = self._person("trainer@example.com", role="trainer")
+        learner = self._person("learner@example.com", trainer_id=trainer)
+        private = self.store.create_session(learner, "coach", "en", "llm", "CONTRACT", {"context": []})
+        self.store.set_session_shared(private, True)
+        admin_client = self._sign_in("owner@example.com")
+
+        admin_client.post(f"/admin/users/{learner}", data={"csrf": self._csrf(admin_client), "role": "user",
+                                                           "trainer_id": str(admin), "status": "active"})
+
+        self.assertEqual(self.store.get_user(learner)["trainer_id"], admin)
+        self.assertFalse(self.store.get_session(private)["shared_with_trainer"])
+        self.assertEqual(admin_client.get(f"/sessions/{private}").status_code, 403)
 
     def test_posts_without_a_csrf_token_change_nothing(self):
         learner = self._person("learner@example.com", trainer_id=self._person("trainer@example.com", role="trainer"))

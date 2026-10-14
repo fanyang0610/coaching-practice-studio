@@ -314,6 +314,12 @@ class Store:
             conn.execute(coaching_sessions.update().where(coaching_sessions.c.id == session_id).values(
                 shared_with_trainer=shared))
 
+    def unshare_sessions(self, user_id: int) -> None:
+        """Make all of a person's shared sessions private again, e.g. when their mentor changes."""
+        with self.engine.begin() as conn:
+            conn.execute(coaching_sessions.update().where(coaching_sessions.c.user_id == user_id).values(
+                shared_with_trainer=False))
+
     def get_session(self, session_id: str) -> dict | None:
         return self._one(sa.select(coaching_sessions).where(coaching_sessions.c.id == session_id))
 

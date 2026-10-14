@@ -106,9 +106,13 @@ class LoginThrottle:
 
 
 def can_view_session(viewer: dict, session: dict, owner: dict | None) -> bool:
-    """Owners and admins see everything; a trainer sees their trainees' practice sessions and shared coaching sessions."""
-    if viewer["id"] == session["user_id"] or viewer["role"] == "admin":
+    """Owners see their own sessions; a member's assigned mentor sees their practice sessions and shared coaching sessions.
+
+    Being an admin grants no access to anyone's conversations. An admin who is someone's assigned mentor sees what any
+    mentor would, because the member can see who their mentor is.
+    """
+    if viewer["id"] == session["user_id"]:
         return True
-    if viewer["role"] == "trainer" and owner and owner.get("trainer_id") == viewer["id"]:
+    if viewer["role"] in ("trainer", "admin") and owner and owner.get("trainer_id") == viewer["id"]:
         return session["module"] == "coachee" or bool(session["shared_with_trainer"])
     return False

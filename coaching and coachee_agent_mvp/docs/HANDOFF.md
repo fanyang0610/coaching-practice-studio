@@ -47,10 +47,13 @@ The branch has 8 commits on top of `main`:
 - **Signup:** invite-only. Roles are admin / **Mentor** (key `trainer`) / **Member** (key `user`).
   - Mentors are real people, such as coaching instructors, who review the practice of the members assigned to them. Both modules are always a person talking with the AI.
   - Fan was confused by "trainer/trainee" earlier. Always explain roles plainly.
-- **Who sees transcripts:**
-  - The owner and the admin see everything.
-  - A mentor sees their members' Coachee Lab sessions, plus any AI Coach session the member explicitly shares.
+- **Who sees transcripts** (Fan decided 2026-10-14 that the admin must not read conversations, so members feel safe to speak openly):
+  - The member sees their own sessions.
+  - Their assigned mentor sees their Coachee Lab sessions, plus any AI Coach session the member explicitly shares. This also applies to an admin who is assigned as someone's mentor, because the member can see who their mentor is.
+  - **The admin sees no conversation content**, in either module. The Admin page lists sessions (who, when, stage, length) without "View" links.
+  - Changing a member's mentor makes their shared AI Coach sessions private again.
   - Every view by someone other than the owner is written to the audit log.
+  - The privacy page says honestly that whoever runs the server and the AI provider handle the data.
 - **Allowances:** rolling 24 hours, per module.
   - Member: 3 AI Coach and 5 Coachee Lab finished sessions, 400k tokens shared.
   - Mentor: 10 / 20 / 1.5M. Admin: no limit.

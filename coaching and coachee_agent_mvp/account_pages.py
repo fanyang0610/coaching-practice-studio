@@ -1,5 +1,7 @@
 """Server-rendered pages around the coaching app: sign-in, invites, password resets, the account page,
-transcript review for mentors and admins, and the admin console.
+transcript review for members and their mentors, and the admin console.
+
+Admins manage people, invites and allowances, and see when sessions happen, but never what was said.
 
 Mentors are people (role key "trainer"), such as coaching instructors, who review the practice of the members
 assigned to them. Both coaching modules are always a member talking with the AI.
@@ -86,7 +88,7 @@ T = {
         "shared": "Shared",
         "private": "Private",
         "trainer_sees_practice": "Your mentor can review your Coachee Lab practice sessions. AI Coach sessions stay private unless you share them.",
-        "no_trainer": "You don't have a mentor. Only you and the app admin can see your sessions.",
+        "no_trainer": "You don't have a mentor. Only you can see your sessions.",
         "your_trainer": "Your mentor: {name}",
         "insights": "AI insights about you",
         "no_insights": "Finish an AI session to build insights.",
@@ -157,6 +159,7 @@ T = {
         "reset_created": "Password reset link for {name} (valid 48 hours, one use):",
         "tokens_24h": "{n} tokens in 24h",
         "recent_sessions": "Recent sessions",
+        "recent_sessions_hint": "To protect privacy, the admin sees when sessions happen and how long they are, not what was said.",
         "audit": "Audit log",
         "storage_warning": "Data is stored in a temporary SQLite file on this server and will be lost on restart. Set DATABASE_URL to a Postgres database before inviting people.",
         "feedback_summary": "Feedback in the last 7 days: {up} helpful, {down} not helpful",
@@ -190,7 +193,7 @@ T = {
         "help_faq_title": "Questions",
         "help_faq": [
             ["I forgot my password.", "Ask the person who invited you to send you a reset link."],
-            ["Who can see my conversations?", "You and the app admin. If you have a mentor, they can see your AI Coachee Lab practice, plus any AI Coach session you choose to share. The privacy page has the details."],
+            ["Who can see my conversations?", "Only you. If you have a mentor, they can see your AI Coachee Lab practice, plus any AI Coach session you choose to share. The app admin can't open your conversations. The privacy page has the details."],
             ["The microphone doesn't work.", "Voice input depends on your browser. Safari works well. In some regions Chrome's voice service is blocked. You can always type instead."],
             ["The page won't load.", "The server may be waking up: wait a minute, then refresh. If it still won't open, your network may be blocking the server. Try another network or a VPN."],
             ["Is this therapy?", "No. This is a coaching practice tool. If you are in crisis, contact your local emergency number, or find a free helpline at findahelpline.com."],
@@ -202,8 +205,8 @@ T = {
             "Coaching Practice Studio is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
             "If you might harm yourself or are in danger, contact your local emergency number now. You can find a free, confidential helpline in your country at findahelpline.com.",
             "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), short AI-written insights about your coaching, your feedback on replies, and how many AI tokens you used.",
-            "Who can read your sessions: you; the app admin; and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
-            "AI processing: your messages are sent to the configured AI model provider to generate replies.",
+            "Who can read your sessions: you, and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. The app admin manages accounts and daily allowances and can see when your sessions happen and how long they are, but can't open what was said. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
+            "Storage and AI processing: your conversations are stored on the app's server, and your messages are sent to the configured AI model provider to generate replies. The app gives the admin no way to read them, but as with any online service, whoever runs the server and the AI provider handle this data.",
             "Your choices: you can download all your data or delete your account at any time from the Account page. Deleting removes your sessions and insights permanently.",
         ],
         "audit_actions": {
@@ -267,7 +270,7 @@ T = {
         "shared": "已分享",
         "private": "私密",
         "trainer_sees_practice": "你的导师可以查看你的 AI学员陪练 会话。AI教练 会话默认私密，除非你主动分享。",
-        "no_trainer": "你还没有导师。只有你本人和应用管理员能看到你的会话。",
+        "no_trainer": "你还没有导师。只有你本人能看到你的会话。",
         "your_trainer": "你的导师：{name}",
         "insights": "AI 对你的洞察",
         "no_insights": "完成一次 AI 会话后会生成洞察。",
@@ -338,6 +341,7 @@ T = {
         "reset_created": "{name} 的密码重置链接（48 小时内有效，仅限一次）：",
         "tokens_24h": "24 小时内 {n} tokens",
         "recent_sessions": "最近的会话",
+        "recent_sessions_hint": "为保护隐私，管理员只能看到会话的时间和长度，看不到对话内容。",
         "audit": "审计日志",
         "storage_warning": "数据目前存放在服务器上的临时 SQLite 文件中，重启后会丢失。邀请用户前请将 DATABASE_URL 设置为 Postgres 数据库。",
         "feedback_summary": "最近 7 天的反馈：{up} 有帮助，{down} 没帮助",
@@ -371,7 +375,7 @@ T = {
         "help_faq_title": "常见问题",
         "help_faq": [
             ["忘记密码怎么办？", "请联系邀请你的人，让他给你发送重置链接。"],
-            ["谁能看到我的对话？", "你本人和应用管理员。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。详情见隐私页面。"],
+            ["谁能看到我的对话？", "只有你本人。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。应用管理员无法打开你的对话。详情见隐私页面。"],
             ["麦克风用不了。", "语音输入取决于你的浏览器。Safari 效果很好；在部分地区，Chrome 的语音服务无法使用。你随时可以改为打字。"],
             ["页面打不开。", "服务器可能正在唤醒：请等一分钟后刷新。如果仍然打不开，可能是你的网络无法访问服务器，请换一个网络或使用 VPN。"],
             ["这是心理治疗吗？", "不是。这是一个教练练习工具。如果你正处于危机中，请拨打当地紧急电话，或在 findahelpline.com 找到免费求助热线。"],
@@ -383,8 +387,8 @@ T = {
             "教练练习室是教练练习工具，不是心理治疗、医疗建议或危机援助。",
             "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话。你可以在 findahelpline.com 找到你所在国家的免费保密求助热线。",
             "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、AI 生成的简短洞察、你对回复的反馈，以及你使用的 AI token 数。",
-            "谁能看到你的会话：你本人；应用管理员；以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。除你之外的任何人打开你的会话都会记录在审计日志中。",
-            "AI 处理：你的消息会发送给配置的 AI 模型服务商以生成回复。",
+            "谁能看到你的会话：你本人，以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。应用管理员负责管理账户和每日额度，能看到你的会话时间和长度，但无法打开对话内容。除你之外的任何人打开你的会话都会记录在审计日志中。",
+            "存储与 AI 处理：你的对话保存在应用的服务器上，你的消息会发送给配置的 AI 模型服务商以生成回复。应用不为管理员提供任何查看对话内容的途径；但和所有在线服务一样，服务器的运营者和 AI 服务商会经手这些数据。",
             "你的选择：你可以随时在账户页面下载全部数据或删除账户。删除后，会话和洞察将被永久移除。",
         ],
         "audit_actions": {
@@ -915,7 +919,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             else:
                 quota_lines.append(text(lang, "ai_left", module=name, left=allowance.sessions_left, limit=allowance.session_limit))
         trainer = store.get_user(user["trainer_id"]) if user["trainer_id"] else None
-        trainer_line = text(lang, "your_trainer", name=trainer["display_name"]) if trainer else T[lang]["no_trainer"]
+        trainer_line = (f'{_e(text(lang, "your_trainer", name=trainer["display_name"]))}<br>{_e(T[lang]["trainer_sees_practice"])}'
+                        if trainer else _e(T[lang]["no_trainer"]))
         rows = []
         for row in store.list_sessions(user["id"]):
             share_form = ""
@@ -927,7 +932,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             rows.append(session_row(lang, row, share_form=share_form))
         sessions_html = "".join(rows) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'
         body = f"""<div class="card"><div class="eyebrow">{_e(ROLE_LABELS[lang][user['role']])}</div><h1>{_e(user['display_name'])}</h1>
-<p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{_e(trainer_line)}<br>{_e(T[lang]['trainer_sees_practice'])}</p>
+<p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{trainer_line}</p>
 <form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
 <div class="card"><h2>{_e(T[lang]['my_sessions'])}</h2><div class="list">{sessions_html}</div></div>
 <div class="card"><h2>{_e(T[lang]['insights'])}</h2><div class="grid2">
@@ -1178,7 +1183,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <div class="card"><h2>{_e(T[lang]['invites'])}</h2><div class="list">{''.join(invite_rows) or '<p class="muted">—</p>'}</div></div></div>
 <div class="card"><h2>{_e(T[lang]['allowances'])}</h2><p class="hint">{_e(T[lang]['allowances_hint'])}</p><div class="list">{allowance_forms}</div></div>
 <div class="card"><h2>{_e(T[lang]['users'])}</h2><p class="muted">{_e(text(lang, 'feedback_summary', up=votes.get('like', 0), down=votes.get('dislike', 0)))}</p><div class="list">{''.join(user_rows)}</div></div>
-<div class="card"><h2>{_e(T[lang]['recent_sessions'])}</h2><div class="list">{''.join(session_row(lang, row, owner_name=row['owner_name']) for row in store.recent_sessions(60)) or '<p class="muted">—</p>'}</div></div>
+<div class="card"><h2>{_e(T[lang]['recent_sessions'])}</h2><p class="hint">{_e(T[lang]['recent_sessions_hint'])}</p><div class="list">{''.join(session_row(lang, row, owner_name=row['owner_name'], link=False) for row in store.recent_sessions(60)) or '<p class="muted">—</p>'}</div></div>
 <div class="card"><h2>{_e(T[lang]['audit'])}</h2><div class="list">{audit_rows or '<p class="muted">—</p>'}</div></div>"""
         return render(request, lang, T[lang]["admin"], body, user=user, current="admin")
 
@@ -1245,6 +1250,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         if losing_admin and store.count_admins() <= 1:
             return admin_page(request, admin_user, f'<div class="flash error">{_e(T[lang]["last_admin"])}</div>')
         store.update_user(user_id, **fields)
+        if fields["trainer_id"] != target["trainer_id"]:
+            # A share was meant for the old mentor, so a new mentor (possibly this admin) doesn't inherit it.
+            store.unshare_sessions(user_id)
         changes = ", ".join(f"{key}={value}" for key, value in fields.items() if target[key] != value)
         store.log(admin_user["id"], "user_updated", target_user_id=user_id, detail=changes)
         return admin_page(request, admin_user, f'<div class="flash ok">{_e(T[lang]["user_updated"])}</div>')
