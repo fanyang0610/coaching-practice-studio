@@ -104,7 +104,7 @@ T = {
         "ai_left": "{module}: {left} of {limit} AI sessions left today",
         "ai_unlimited": "{module}: no daily AI limit",
         "module_coach": "AI Coach",
-        "module_coachee": "Coachee Lab",
+        "module_coachee": "AI Coachee Lab",
         "status_active": "In progress",
         "status_completed": "Completed",
         "status_abandoned": "Left early",
@@ -145,7 +145,7 @@ T = {
         "allowances": "Daily AI allowances",
         "allowances_hint": "Per person, over a rolling 24 hours. Finished AI sessions count per module, and started ones are capped at twice that. Tokens are shared by both modules. Leave a field empty for no limit. Admins are never limited.",
         "coach_sessions": "AI Coach sessions",
-        "coachee_sessions": "Coachee Lab sessions",
+        "coachee_sessions": "AI Coachee Lab sessions",
         "tokens_per_day": "Tokens",
         "allowances_saved": "Allowances saved.",
         "unlimited": "no limit",
@@ -161,6 +161,42 @@ T = {
         "storage_warning": "Data is stored in a temporary SQLite file on this server and will be lost on restart. Set DATABASE_URL to a Postgres database before inviting people.",
         "feedback_summary": "Feedback in the last 7 days: {up} helpful, {down} not helpful",
         "privacy_title": "Privacy and safety",
+        "help": "Help",
+        "help_eyebrow": "Getting started",
+        "help_title": "How Coaching Practice Studio works",
+        "help_intro": "A free place to be coached by AI, or to practise coaching an AI client. Here is everything you need for your first session.",
+        "help_join_title": "Joining",
+        "help_steps": [
+            "Open the invite link you were sent. Each link works once and lasts 14 days.",
+            "Enter your name, your email and a password of at least 10 characters. Tick the box, then tap Create account.",
+            "You're in. Next time, sign in with your email and password at {address}",
+            "Choose a mode at the top of the screen: AI Coach or AI Coachee Lab.",
+        ],
+        "help_modes_title": "The two modes",
+        "help_coach_mode": "The AI coaches you on something real in your life: a goal, a decision or a challenge. These sessions are private to you.",
+        "help_coachee_mode": "You practise being the coach. The AI plays a client with a realistic situation, and you ask the questions. At the end you get a score and feedback.",
+        "help_session_title": "During a session",
+        "help_session_items": [
+            "A session moves through five stages: {stages}. The numbered dots near the top show where you are.",
+            "Type your reply and tap Send, or tap the microphone to speak.",
+            "Skip Ahead moves to the next stage. New Session starts over.",
+            "A session takes about 15 to 20 minutes. If you leave halfway, it is saved and reopens the next time you sign in.",
+            "Tap 👍 or 👎 under a reply to say whether it helped.",
+            "Change the language or the reading voice under Settings.",
+        ],
+        "help_limits_title": "Daily allowance",
+        "help_limits": "Each day (a rolling 24 hours) you have {coach} AI Coach sessions and {coachee} AI Coachee Lab sessions with the AI. If you use them up, you can keep practising with built-in questions until the AI is available again. Your Account page shows what is left.",
+        "help_unlimited": "no limit",
+        "help_faq_title": "Questions",
+        "help_faq": [
+            ["I forgot my password.", "Ask the person who invited you to send you a reset link."],
+            ["Who can see my conversations?", "You and the app admin. If you have a mentor, they can see your AI Coachee Lab practice, plus any AI Coach session you choose to share. The privacy page has the details."],
+            ["The microphone doesn't work.", "Voice input depends on your browser. Safari works well. In some regions Chrome's voice service is blocked. You can always type instead."],
+            ["The page won't load.", "The server may be waking up: wait a minute, then refresh. If it still won't open, your network may be blocking the server. Try another network or a VPN."],
+            ["Is this therapy?", "No. This is a coaching practice tool. If you are in crisis, contact your local emergency number, or find a free helpline at findahelpline.com."],
+        ],
+        "help_forgot_email": "Use \"Forgot your password?\" on the sign-in page, or ask the person who invited you.",
+        "help_cta": "Go to sign in",
         "data_locations": "Where your data is processed: {where}",
         "privacy_body": [
             "Coaching Practice Studio is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
@@ -306,6 +342,42 @@ T = {
         "storage_warning": "数据目前存放在服务器上的临时 SQLite 文件中，重启后会丢失。邀请用户前请将 DATABASE_URL 设置为 Postgres 数据库。",
         "feedback_summary": "最近 7 天的反馈：{up} 有帮助，{down} 没帮助",
         "privacy_title": "隐私与安全",
+        "help": "帮助",
+        "help_eyebrow": "使用指南",
+        "help_title": "教练练习室怎么用",
+        "help_intro": "一个免费的地方：可以让 AI 为你做教练，也可以练习给 AI 学员做教练。下面是第一次使用需要知道的全部内容。",
+        "help_join_title": "加入",
+        "help_steps": [
+            "打开你收到的邀请链接。每个链接只能使用一次，14 天内有效。",
+            "填写名字、邮箱和至少 10 位的密码，勾选同意，然后点击“创建账户”。",
+            "完成！以后请在这里用邮箱和密码登录：{address}",
+            "在页面顶部选择模式：AI教练 或 AI学员陪练。",
+        ],
+        "help_modes_title": "两种模式",
+        "help_coach_mode": "AI 针对你生活中的真实话题为你做教练：一个目标、一个决定或一个挑战。这些会话只有你自己能看到。",
+        "help_coachee_mode": "你来练习做教练。AI 扮演一位有真实处境的来访者，由你来提问。结束后你会得到评分和反馈。",
+        "help_session_title": "会话过程中",
+        "help_session_items": [
+            "一次会话会经历五个阶段：{stages}。页面上方带数字的圆点显示你当前所在的阶段。",
+            "输入回复后点击“发送”，或点击麦克风用语音输入。",
+            "“跳到下一阶段”会进入下一个阶段；“新会话”会重新开始。",
+            "一次会话大约 15 到 20 分钟。中途离开也没关系，会话会被保存，下次登录时自动打开。",
+            "在回复下方点 👍 或 👎，告诉我们这条回复是否有帮助。",
+            "在“设置”里可以切换语言和朗读声音。",
+        ],
+        "help_limits_title": "每日额度",
+        "help_limits": "每天（滚动 24 小时）你可以与 AI 进行 AI教练 会话 {coach} 次、AI学员陪练 会话 {coachee} 次。用完后仍可以用内置问题继续练习，直到 AI 恢复可用。账户页面会显示剩余次数。",
+        "help_unlimited": "不限",
+        "help_faq_title": "常见问题",
+        "help_faq": [
+            ["忘记密码怎么办？", "请联系邀请你的人，让他给你发送重置链接。"],
+            ["谁能看到我的对话？", "你本人和应用管理员。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。详情见隐私页面。"],
+            ["麦克风用不了。", "语音输入取决于你的浏览器。Safari 效果很好；在部分地区，Chrome 的语音服务无法使用。你随时可以改为打字。"],
+            ["页面打不开。", "服务器可能正在唤醒：请等一分钟后刷新。如果仍然打不开，可能是你的网络无法访问服务器，请换一个网络或使用 VPN。"],
+            ["这是心理治疗吗？", "不是。这是一个教练练习工具。如果你正处于危机中，请拨打当地紧急电话，或在 findahelpline.com 找到免费求助热线。"],
+        ],
+        "help_forgot_email": "可以在登录页点击“忘记密码？”，或联系邀请你的人。",
+        "help_cta": "前往登录",
         "data_locations": "你的数据处理地点：{where}",
         "privacy_body": [
             "教练练习室是教练练习工具，不是心理治疗、医疗建议或危机援助。",
@@ -387,6 +459,11 @@ form.inline { display:inline; margin:0; }
 .fields.three { grid-template-columns:repeat(3, minmax(0, 1fr)); }
 code.link { display:block; word-break:break-all; background:var(--mist); border:1px solid var(--border); padding:10px 12px; border-radius:12px; font-size:13px; }
 ul.tight { margin:6px 0 0; padding-left:1.2em; }
+.steps { margin:0; padding-left:1.4em; }
+.steps li { margin:8px 0; overflow-wrap:anywhere; }
+.faq { padding:12px 0; border-top:1px solid var(--border); }
+.faq:first-of-type { border-top:0; padding-top:0; }
+.faq p { margin:4px 0 0; color:var(--muted); }
 .transcript .msg { max-width:85%; padding:10px 14px; border-radius:16px; margin:10px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .msg.ai { background:var(--paper); border:1px solid var(--border); }
 .msg.human { background:var(--tint); margin-left:auto; }
@@ -493,7 +570,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             ) + "</nav>"
         flash_html = f'<div class="flash {flash[0]}" role="status">{_e(flash[1])}</div>' if flash else ""
         other = "en" if lang == "zh" else "zh"
-        switch = f'<p class="lang"><a href="?lang={other}">{"English" if other == "en" else "中文"}</a> · <a href="/privacy">{_e(T[lang]["privacy"])}</a></p>'
+        switch = (f'<p class="lang"><a href="?lang={other}">{"English" if other == "en" else "中文"}</a> · '
+                  f'<a href="/help">{_e(T[lang]["help"])}</a> · <a href="/privacy">{_e(T[lang]["privacy"])}</a></p>')
         page = f"""<!doctype html><html lang="{'zh-CN' if lang == 'zh' else 'en'}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f3f8fd"><title>{_e(title)} · {_e(T[lang]['brand'])}</title>
@@ -752,6 +830,37 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         store.update_user(user_id, password_hash=accounts.hash_password(password))
         store.log(user_id, "password_reset", target_user_id=user_id)
         return set_login(RedirectResponse("/", status_code=303), store.get_user(user_id))
+
+    # Help (public, so it can be sent along with an invite) --------------------
+
+    @router.get("/help")
+    def help_page(request: Request):
+        lang = page_lang(request)
+        store = get_store()
+        user = current_user(request, store, settings.secret)
+        limits = quota.role_limits(store)["user"]
+        address = base_url(request)
+        stages = " → ".join(STAGE_NAMES[lang][state] for state in CoachingState)
+
+        def allowance(value):
+            return T[lang]["help_unlimited"] if value is None else value
+
+        steps = "".join(f"<li>{_e(step.format(address=address))}</li>" for step in T[lang]["help_steps"])
+        session_items = "".join(f"<li>{_e(item.format(stages=stages))}</li>" for item in T[lang]["help_session_items"])
+        faq_items = [list(item) for item in T[lang]["help_faq"]]
+        if settings.mailer:
+            faq_items[0][1] = T[lang]["help_forgot_email"]
+        faq = "".join(f'<div class="faq"><b>{_e(question)}</b><p>{_e(answer)}</p></div>' for question, answer in faq_items)
+        body = f"""<div class="card"><div class="eyebrow">{_e(T[lang]['help_eyebrow'])}</div><h1>{_e(T[lang]['help_title'])}</h1>
+<p class="hint">{_e(T[lang]['help_intro'])}</p><p class="hint">{_e(T[lang]['independent'])}</p></div>
+<div class="card"><h2>{_e(T[lang]['help_join_title'])}</h2><ol class="steps">{steps}</ol></div>
+<div class="grid2"><div class="card"><h2>{_e(T[lang]['module_coach'])}</h2><p>{_e(T[lang]['help_coach_mode'])}</p></div>
+<div class="card"><h2>{_e(T[lang]['module_coachee'])}</h2><p>{_e(T[lang]['help_coachee_mode'])}</p></div></div>
+<div class="card"><h2>{_e(T[lang]['help_session_title'])}</h2><ul class="steps">{session_items}</ul></div>
+<div class="card"><h2>{_e(T[lang]['help_limits_title'])}</h2><p>{_e(text(lang, 'help_limits', coach=allowance(limits['coach']), coachee=allowance(limits['coachee'])))}</p></div>
+<div class="card"><h2>{_e(T[lang]['help_faq_title'])}</h2>{faq}</div>
+{'' if user else f'<p><a class="button full" href="/login">{_e(T[lang]["help_cta"])}</a></p>'}"""
+        return render(request, lang, T[lang]["help"], body, user=user)
 
     # Privacy --------------------------------------------------------------------
 

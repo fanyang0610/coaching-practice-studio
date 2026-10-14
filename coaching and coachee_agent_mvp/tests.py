@@ -2012,5 +2012,35 @@ class TestIndependentBranding(unittest.TestCase):
         self.assertIn("无关联", account_pages.T["zh"]["independent"])
 
 
+class TestHelpPage(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+        import web_app
+
+        self.store = db.Store("sqlite://")
+        self.client = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret"}))
+
+    def test_help_is_public_and_bilingual(self):
+        english = self.client.get("/help?lang=en")
+        chinese = self.client.get("/help?lang=zh")
+
+        self.assertEqual((english.status_code, chinese.status_code), (200, 200))
+        self.assertIn("How Coaching Practice Studio works", english.text)
+        self.assertIn("教练练习室怎么用", chinese.text)
+        self.assertIn("http://testserver", english.text)
+        self.assertIn('href="/login"', english.text)
+
+    def test_help_shows_the_current_allowances(self):
+        import quota
+
+        quota.save_role_limits(self.store, "user", 4, 6, 400_000)
+        page = self.client.get("/help?lang=en").text
+
+        self.assertIn("you have 4 AI Coach sessions and 6 AI Coachee Lab sessions", page)
+
+    def test_every_page_links_to_help(self):
+        self.assertIn('href="/help"', self.client.get("/privacy").text)
+
+
 if __name__ == "__main__":
     unittest.main()
