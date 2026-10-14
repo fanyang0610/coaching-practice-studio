@@ -21,7 +21,6 @@ The app is called **Coaching Practice Studio / 教练练习室**. It is an indep
 Still to rename outside the code, which only the account owner can do:
 
 - The Hugging Face Space (Settings → Rename), then update `DEFAULT_SPACE_ID` in `scripts/deploy_hf_space.py` and the Space address in this README.
-- The GitHub repository `Erickson-Coach-MVP` (Settings → Repository name). Consider making it private.
 
 Internal names nobody sees, such as code class names, `ERICKSON_*` settings, cookie names and the `erickson.db` file, are unchanged so that existing configuration keeps working.
 

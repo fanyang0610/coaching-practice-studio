@@ -30,7 +30,7 @@ Then paste:
 | **Current work** | `Vibe Coding/erickson-coach-scale/coaching and coachee_agent_mvp/` on branch **`scale/phase-0-1`**. This is a git worktree of the repo rooted at `Vibe Coding/`. |
 | Original (fallback) | `Vibe Coding/coaching and coachee_agent_mvp/` on `main`. Don't modify. |
 | Stale copies | `Vibe Coding/coaching_agent_mvp/` and `Vibe Coding/coaching_agent_mvp branch/` (March, unused). A leftover worktree from a side session is at `coaching_agent_mvp branch/.claude/worktrees/hopeful-aryabhata-bef63a`; its fix is already merged and the folder can be removed. |
-| GitHub | `github.com/fanyang0610/Erickson-Coach-MVP`. **Public**, still named "Erickson". **Nothing from this branch has been pushed.** `main` is also 2 commits ahead of `origin/main` (older work). Push only when Fan asks; suggest making the repo private first. |
+| GitHub | `github.com/fanyang0610/coaching-practice-studio`. Renamed from `Erickson-Coach-MVP` and made **private** on 2026-10-15; no keys or secret files were ever in its history. `scale/phase-0-1` was pushed that day as a backup (with Fan's OK). `origin/main` is untouched, and local `main` is still 2 commits ahead of it (older work). Push only when Fan asks. |
 | Hugging Face Space | `fanyang0610/Erickson-Coach-App` (public, free CPU). It still runs the **old** version, which has no sign-in and leaves the API key open to anyone. Fan plans to rename it. `scripts/deploy_hf_space.py` has `DEFAULT_SPACE_ID`, which must be updated after the rename. The `hf` CLI on this Mac is logged in as `fanyang0610`. |
 | Local secrets | `.env` in the project folder (OpenRouter key, `OPENAI_MODEL=openrouter/free`). It is not committed. Never print its values. |
 
@@ -109,7 +109,7 @@ Screenshots from the browser check land in `/private/tmp/erickson-check/erickson
    - `ERICKSON_ADMIN_EMAIL`
    - `ERICKSON_ADMIN_PASSWORD` (at least 10 characters)
    - `ERICKSON_DATA_LOCATIONS` (e.g. "Server: Hugging Face (USA) · AI: OpenAI via OpenRouter (USA)")
-4. Rename the GitHub repo and consider making it private.
+4. ✅ GitHub repo renamed to `coaching-practice-studio` and made private (2026-10-15).
 
 **Next steps for Claude, once Fan says "secrets are set, deploy":**
 
