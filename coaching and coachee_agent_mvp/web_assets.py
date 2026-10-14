@@ -797,6 +797,11 @@ footer {
     overflow: visible !important;
 }
 
+/* Read-aloud sits alone on its row now that the mode switch is hidden, so it takes the full width */
+.settings-controls > .form > div:last-child {
+    grid-column: 1 / -1 !important;
+}
+
 .settings-controls > div,
 .settings-controls > .form > div {
     width: 100% !important;

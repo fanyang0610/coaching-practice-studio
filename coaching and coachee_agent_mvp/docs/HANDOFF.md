@@ -125,7 +125,7 @@ Screenshots from the browser check land in `/private/tmp/erickson-check/erickson
 3. ✅ Takeaways: the AI Coach ends with an action card (goal, next step, by when, support) in the chat and on the Account page. A new AI Coach session asks how the last plan went, using cards that are 8 hours to 60 days old. Coachee Lab scores are saved and shown with a "Latest · Average" line. Mentors see their members' scores; the admin sees neither cards nor scores. Skipping to the end now gets a real AI closing summary. Each AI message is its own chat bubble.
 
 Still open, in Fan's order:
-4. Hide the AI/Template switch from members; read-aloud off by default.
+4. ✅ (2026-10-15) The AI/Template switch is hidden (it stays in the page because every handler reads it, and it always holds the default). A session keeps the mode it opened with. Read-aloud is off by default. The insights heading in Settings now follows the language (it used to be fixed Chinese).
 5. A more compact phone layout during a conversation, and a real test inside WeChat's built-in browser (voice input especially).
 6. A one-tap "How useful was this session?" at the end.
 7. Real sessions on DeepSeek: **partly done 2026-10-15.** I ran 20 full sessions on `deepseek/deepseek-chat` with a second model call playing the person (the script lives only in that session's scratchpad). Each session cost under one cent (5k–14k tokens), so the $4.84 balance covers roughly a thousand sessions. Found and fixed:

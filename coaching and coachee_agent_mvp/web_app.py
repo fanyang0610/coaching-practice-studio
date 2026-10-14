@@ -477,8 +477,7 @@ def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel:
 
     agent = session["agent"]
     agent.set_language(lang_code)
-    if mode_code != agent.mode:
-        agent.set_mode(_allowed_mode(user, mode_code, lang_code, session["module"]))
+    # A session keeps the mode it opened with: AI, or templates once today's allowance was used up.
     return session
 
 
@@ -517,7 +516,8 @@ def _session_start_outputs(session: dict):
         memory=(m_s, m_g, m_f),
         module=gr.update(value=session["module"]),
         lang=gr.update(value=_lang_selector(lc)),
-        mode=gr.update(choices=_mode_choices(lc), value=_mode_label(agent.mode, lc)),
+        # The hidden mode setting stays on the default; the daily allowance alone decides when a session uses templates.
+        mode=gr.update(choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
     )
 
 
@@ -542,8 +542,13 @@ def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, r
     welcome = _welcome_html(agent.language) if first_visit else ""
     return (
         out["chat"], out["tracker"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
-        out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"], welcome, session,
+        out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"],
+        _memory_title(agent.language), welcome, session,
     )
+
+
+def _memory_title(lang_code: str) -> str:
+    return f"### {UI[lang_code]['memory_title']}"
 
 
 def _welcome_html(lang_code: str) -> str:
@@ -868,10 +873,11 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
         gr.update(label=s["settings"], open=False),
         gr.update(value=s["mode_hint"]),
         gr.update(label=s["language"], value=new_lang),
-        gr.update(label=s["mode"], choices=_mode_choices(lc), value=_mode_label(agent.mode, lc)),
+        gr.update(label=s["mode"], choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
         gr.update(label=s["tts_enable"]),
         gr.update(label=s["tts_voice"], choices=[s["voice_f"], s["voice_m"]]),
         m_s, m_g, m_f,
+        _memory_title(lc),
         gr.update(value=session["module"]),
         session,
     )
@@ -958,7 +964,9 @@ with gr.Blocks(
         mode_context_md = gr.HTML("", elem_classes="mode-context-md")
 
         with gr.Accordion(UI["zh"]["settings"], open=False, elem_id="settings-sheet") as settings_sheet:
-            settings_hint = gr.Markdown(UI["zh"]["mode_hint"], elem_classes="settings-hint")
+            # The AI/Template switch is a technical fallback, so members don't see it (template mode starts by itself
+            # when today's allowance is used up). It stays in the page because every handler reads its value.
+            settings_hint = gr.Markdown(UI["zh"]["mode_hint"], elem_classes="settings-hint", visible=False)
             with gr.Row(elem_classes="settings-controls"):
                 lang_radio = gr.Radio(["English", "中文"], label=UI["zh"]["language"], value="中文", scale=1, min_width=0)
                 mode_radio = gr.Radio(
@@ -967,14 +975,16 @@ with gr.Blocks(
                     value=_mode_label(default_mode, "zh"),
                     scale=1,
                     min_width=0,
+                    visible=False,
                 )
                 tts_voice = gr.Radio([UI["zh"]["voice_f"], UI["zh"]["voice_m"]], label=UI["zh"]["tts_voice"], value=UI["zh"]["voice_f"], scale=1, min_width=0)
-                tts_toggle = gr.Checkbox(label=UI["zh"]["tts_enable"], value=True, scale=1, min_width=0)
+                # Off until someone turns it on, so replies aren't read aloud unexpectedly, e.g. in an office.
+                tts_toggle = gr.Checkbox(label=UI["zh"]["tts_enable"], value=False, scale=1, min_width=0)
             
             # AI Insights Dashboard
             gr.Markdown("---")
             with gr.Column(elem_classes="memory-dashboard"):
-                memory_title_md = gr.Markdown(f"### {UI['zh']['memory_title']}")
+                memory_title_md = gr.Markdown(_memory_title("zh"))
                 with gr.Row():
                     memory_strengths_md = gr.Markdown(f"**{UI['zh']['memory_strengths']}**\n\n- (Pending)")
                     memory_growth_md = gr.Markdown(f"**{UI['zh']['memory_growth']}**\n\n- (Pending)")
@@ -1018,7 +1028,7 @@ with gr.Blocks(
     demo.load(
         initial_load,
         [session_state, module_state, mode_radio, lang_radio],
-        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, welcome_html, session_state],
+        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, session_state],
         js=force_light_js,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js)
@@ -1074,6 +1084,7 @@ with gr.Blocks(
             memory_strengths_md,
             memory_growth_md,
             memory_footer_md,
+            memory_title_md,
             module_state,
             session_state,
         ],

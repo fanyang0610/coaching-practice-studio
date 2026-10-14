@@ -1990,12 +1990,30 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertIsNone(straight_after["agent"].last_card)
         self.assertEqual(next_day["agent"].last_card["next_step"], "No phone in bed")
 
+    def test_template_session_keeps_its_mode_without_repeating_the_allowance_warning(self):
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coach", "template", "en")
+
+        with patch.object(web_app.gr, "Warning") as warning:
+            list(web_app.respond("I want more focus.", [], session, "coach", "AI", "English", request))
+
+        self.assertEqual(session["agent"].mode, "template")
+        warning.assert_not_called()
+
+    def test_members_see_no_mode_switch_and_read_aloud_starts_off(self):
+        import web_app
+
+        components = {getattr(block, "label", None): block for block in web_app.demo.blocks.values()}
+        self.assertFalse(components["模式"].visible)
+        self.assertFalse(components["自动朗读回复"].value)
+
     def test_welcome_card_shows_only_on_the_first_visit(self):
         web_app, _, _, request = _signed_in()
 
         first = web_app.initial_load(None, "coach", "Template", "English", request)
         again = web_app.initial_load(None, "coach", "Template", "English", request)
 
+        self.assertIn("AI Insights", first[-3])
         self.assertIn("welcome-layer", first[-2])
         self.assertIn("data-welcome-close", first[-2])
         self.assertIn('href="/help"', first[-2])
