@@ -44,31 +44,12 @@ The branch has 8 commits on top of `main`:
   - Plan for the first test: OpenRouter with `openai/gpt-4o-mini`. Fan's account currently has **$0 credit**.
   - `openrouter/free` is unusable: in a sample, 1 in 6 replies was usable.
   - DeepSeek is supported (`OPENAI_BASE_URL=https://api.deepseek.com`, `OPENAI_MODEL=deepseek-flash`; thinking is switched off automatically) but **not yet tested with a real key**.
-  - **Key test, 2026-10-14.** Fan added $5. The OpenRouter key in `.env` works and has its own $4 spending cap.
-    - From this Mac (China time zone), `openai/gpt-4o-mini` is refused with HTTP 403 "violation of provider Terms Of Service". Most likely OpenAI doesn't serve mainland China or Hong Kong. **A Hong Kong server would hit the same block**, so pair HK hosting with DeepSeek, or host in Singapore.
-    - `deepseek/deepseek-chat` through OpenRouter works from this Mac.
+  - **Key test, 2026-10-14.** Fan added $5.
+    - **`openai/gpt-4o-mini` is refused for this OpenRouter account** with HTTP 403 "The request is prohibited due to a violation of provider Terms Of Service". OpenRouter saw the test connection as US (`openrouter.ai/cdn-cgi/trace` gave `loc=US`, via Fan's VPN), so it is not about the caller's location. It looks account-level: a brand-new key didn't help on the HF Space either. The cause isn't confirmed; possibly the account or payment country.
+    - `deepseek/deepseek-chat` through OpenRouter works on the same account.
     - `openrouter/free` returned an empty reply.
-    - The old HF Space (model variable `openai/gpt-4o-mini`) still shows "no valid opening", and its attempt didn't register on the `.env` key. The account has at least one other key (about $0.08 spent elsewhere), so the Space secret probably holds a different, capped or old key. Fan to check OpenRouter → Keys, and replace the Space's `OPENAI_API_KEY` if needed.
-- **Signup:** invite-only. Roles are admin / **Mentor** (key `trainer`) / **Member** (key `user`).
-  - Mentors are real people, such as coaching instructors, who review the practice of the members assigned to them. Both modules are always a person talking with the AI.
-  - Fan was confused by "trainer/trainee" earlier. Always explain roles plainly.
-- **Who sees transcripts** (Fan decided 2026-10-14 that the admin must not read conversations, so members feel safe to speak openly):
-  - The member sees their own sessions.
-  - Their assigned mentor sees their Coachee Lab sessions, plus any AI Coach session the member explicitly shares. This also applies to an admin who is assigned as someone's mentor, because the member can see who their mentor is.
-  - **The admin sees no conversation content**, in either module. The Admin page lists sessions (who, when, stage, length) without "View" links.
-  - Changing a member's mentor makes their shared AI Coach sessions private again.
-  - Every view by someone other than the owner is written to the audit log.
-  - The privacy page says honestly that whoever runs the server and the AI provider handle the data.
-- **Allowances:** rolling 24 hours, per module.
-  - Member: 3 AI Coach and 5 Coachee Lab finished sessions, 400k tokens shared.
-  - Mentor: 10 / 20 / 1.5M. Admin: no limit.
-  - Started sessions are capped at twice the finished allowance.
-  - Admins can edit all of this on the Admin page. Over the limit, new sessions open in template mode, and a running session is never cut off.
-- **Name:** "Coaching Practice Studio / 教练练习室". Internal identifiers keep the old prefix on purpose (`ERICKSON_*` settings, class names `EricksonCoachingAgent` / `EricksonCoacheeAgent`, cookies `erickson_session` / `erickson_lang`, `erickson.db`, `.erickson_secret`).
-- **Language:**
-  - The app and the account pages share one setting (cookie `erickson_lang`). A first visit follows the browser.
-  - A reopened session is translated into the person's current language.
-  - Every string must exist in both languages; tests check this.
+    - Fan deleted the key that was in `.env` and made a new one, which went into the HF Space secret. **The `.env` key is now dead**: Fan has to paste the new key into `.env` for local runs.
+    - Refused (403) requests don't show up in a key's usage, so usage numbers can't tell you which key a Space is using.
 
 ## 4. What is built (module map)
 
