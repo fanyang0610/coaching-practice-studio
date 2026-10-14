@@ -44,6 +44,11 @@ The branch has 8 commits on top of `main`:
   - Plan for the first test: OpenRouter with `openai/gpt-4o-mini`. Fan's account currently has **$0 credit**.
   - `openrouter/free` is unusable: in a sample, 1 in 6 replies was usable.
   - DeepSeek is supported (`OPENAI_BASE_URL=https://api.deepseek.com`, `OPENAI_MODEL=deepseek-flash`; thinking is switched off automatically) but **not yet tested with a real key**.
+  - **Key test, 2026-10-14.** Fan added $5. The OpenRouter key in `.env` works and has its own $4 spending cap.
+    - From this Mac (China time zone), `openai/gpt-4o-mini` is refused with HTTP 403 "violation of provider Terms Of Service". Most likely OpenAI doesn't serve mainland China or Hong Kong. **A Hong Kong server would hit the same block**, so pair HK hosting with DeepSeek, or host in Singapore.
+    - `deepseek/deepseek-chat` through OpenRouter works from this Mac.
+    - `openrouter/free` returned an empty reply.
+    - The old HF Space (model variable `openai/gpt-4o-mini`) still shows "no valid opening", and its attempt didn't register on the `.env` key. The account has at least one other key (about $0.08 spent elsewhere), so the Space secret probably holds a different, capped or old key. Fan to check OpenRouter → Keys, and replace the Space's `OPENAI_API_KEY` if needed.
 - **Signup:** invite-only. Roles are admin / **Mentor** (key `trainer`) / **Member** (key `user`).
   - Mentors are real people, such as coaching instructors, who review the practice of the members assigned to them. Both modules are always a person talking with the AI.
   - Fan was confused by "trainer/trainee" earlier. Always explain roles plainly.
@@ -141,7 +146,7 @@ Screenshots from the browser check land in `/private/tmp/erickson-check/erickson
 
 ## 8. Gotchas learned the hard way
 
-- **Real model calls in tests:** `.env` loads the real key, so `tests.py` blanks `OPENAI_API_KEY` at the top. Never open an `llm`-mode session in a test without patching. One test once did, which slowed the suite and spent free quota.
+- **Real model calls in tests:** `.env` loads the real key, so `tests.py` blanks `OPENAI_API_KEY` at the top, and so does the browser check in `scripts/check_project.py` (before 2026-10-14 it used up free-model requests on every run). Never open an `llm`-mode session in a test without patching. One test once did, which slowed the suite and spent free quota.
 - **Python 3.10 on HF:** don't use `datetime.UTC` (it's 3.11+); use `datetime.timezone.utc`. Run the 3.10 suite before deploying.
 - **JavaScript inside Python strings:** `\'` in a normal Python string becomes `'` and breaks JS. `TestProviderAndRegionSupport.test_browser_scripts_are_valid_javascript` runs `node --check` on the evaluated scripts. Use typographic apostrophes (’) in JS text.
 - **Gradio fonts:** Gradio wraps theme font names in quotes, so generic names like `system-ui` stop working. Use concrete font names, ending with `sans-serif`.

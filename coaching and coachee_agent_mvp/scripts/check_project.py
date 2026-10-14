@@ -79,6 +79,8 @@ def probe_login(database_url: str, secret: str) -> str:
 def run_browser_check(port: int) -> None:
     workdir = tempfile.mkdtemp(prefix="erickson-check-")
     env = os.environ.copy()
+    # An empty key stops web_app from loading the real one from .env, so screenshots never call (or use up) the model.
+    env["OPENAI_API_KEY"] = ""
     env["ERICKSON_INBROWSER"] = "0"
     env["GRADIO_SERVER_PORT"] = str(port)
     env["DATABASE_URL"] = f"sqlite:///{workdir}/check.db"
