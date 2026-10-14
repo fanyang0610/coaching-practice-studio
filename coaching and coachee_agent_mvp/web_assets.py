@@ -74,6 +74,7 @@ UI = {
         "memory_strengths": "Your Strengths",
         "memory_growth": "Areas for Challenge",
         "memory_last_sync": "Last Sync",
+        "memory_never": "Never",
         "memory_no_data": "Complete a session in AI mode to unlock insights.",
         "help_link": "Help",
         "welcome_title": "Welcome to Coaching Practice Studio",
@@ -144,6 +145,7 @@ UI = {
         "memory_strengths": "你的强项",
         "memory_growth": "建议挑战的领域",
         "memory_last_sync": "最近同步",
+        "memory_never": "暂无",
         "memory_no_data": "在 AI 模式下完成一次会话以解锁洞察。",
         "help_link": "帮助",
         "welcome_title": "欢迎来到教练练习室",
@@ -829,6 +831,12 @@ footer {
 .memory-dashboard {
     padding-left: 2px !important;
     padding-right: 2px !important;
+}
+
+/* The insight text sat on the edge of a scrolling box, which cut off its first letter */
+.memory-dashboard .block {
+    overflow: visible !important;
+    padding-left: 4px !important;
 }
 
 .memory-dashboard ul {
@@ -2272,6 +2280,179 @@ div:has(> .tracker-shell) {
 .welcome-guide:focus-visible {
     outline: 3px solid rgba(25, 121, 186, 0.35);
     outline-offset: 2px;
+}
+
+/* Compact phone layout: the conversation gets most of the screen.
+   Every band stays visible, but spacing, padding and stacked rows shrink.
+   Gradio prefixes each selector with its container, so selectors start at #app-shell, never at body. */
+@media (max-width: 767px) {
+    #app-shell {
+        gap: 6px !important;
+    }
+
+    /* The HTML blocks around the header, mode card and stage bar carry 20px of padding */
+    #app-shell .intro-md .html-container,
+    #app-shell .mode-context-md .html-container,
+    #app-shell .tracker-md .html-container {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    #app-shell .studio-header {
+        height: 44px !important;
+        min-height: 44px !important;
+    }
+
+    #app-shell #topbar.module-tabs {
+        padding: 5px !important;
+        margin-bottom: -6px !important;
+        gap: 5px !important;
+    }
+
+    #app-shell .module-card-btn,
+    #app-shell .module-card-btn.selected {
+        height: 40px !important;
+        min-height: 40px !important;
+        padding: 0 10px !important;
+        font-size: 12px !important;
+        line-height: 1.15 !important;
+    }
+
+    /* Mode card: one line with the mode name and today's allowance; the description is in the mode buttons */
+    #app-shell .mode-context-card {
+        min-height: 0 !important;
+        padding: 6px 11px 6px 11px !important;
+        row-gap: 0 !important;
+    }
+
+    #app-shell .mode-context-card p {
+        display: none !important;
+    }
+
+    #app-shell #settings-sheet {
+        padding: 6px 12px !important;
+    }
+
+    /* Stage bar: the stage name and the five dots on one row */
+    #app-shell .tracker-shell {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 10px !important;
+        min-height: 0 !important;
+        padding: 6px 10px 6px 12px !important;
+    }
+
+    #app-shell .tracker-shell .tracker-eyebrow {
+        display: none !important;
+    }
+
+    #app-shell .tracker-copy {
+        width: auto !important;
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+        text-align: left !important;
+    }
+
+    #app-shell .tracker-stage {
+        font-size: 14px !important;
+    }
+
+    #app-shell .tracker-dots {
+        display: flex !important;
+        width: auto !important;
+        flex: 0 0 auto !important;
+        gap: 5px !important;
+    }
+
+    #app-shell .tracker-dot {
+        width: 22px !important;
+        height: 22px !important;
+        min-width: 22px !important;
+        font-size: 11px !important;
+        border-width: 2px !important;
+    }
+
+    /* Composer: message box, microphone and Send on one row; Skip Ahead and New Session on a slim row below */
+    #app-shell #composer-shell {
+        padding-top: 6px !important;
+        padding-bottom: max(6px, env(safe-area-inset-bottom)) !important;
+    }
+
+    #app-shell .composer-grid {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto !important;
+        grid-template-areas: "input actions" "steps steps" !important;
+        gap: 6px !important;
+        align-items: stretch !important;
+    }
+
+    #app-shell #input-panel {
+        grid-area: input !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }
+
+    #app-shell #action-panel {
+        display: contents !important;
+    }
+
+    #app-shell #top-action-row {
+        grid-area: actions !important;
+        display: flex !important;
+        gap: 6px !important;
+        width: auto !important;
+        height: auto !important;
+    }
+
+    #app-shell #mic-btn-wrap {
+        width: 46px !important;
+        min-width: 46px !important;
+        max-width: 46px !important;
+        flex: 0 0 46px !important;
+    }
+
+    #app-shell .send-btn-custom {
+        width: 72px !important;
+        min-width: 72px !important;
+        flex: 0 0 72px !important;
+        height: auto !important;
+        min-height: 46px !important;
+    }
+
+    #app-shell #bottom-action-row {
+        grid-area: steps !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-rows: 36px !important;
+        gap: 6px !important;
+    }
+
+    #app-shell #next-btn,
+    #app-shell #reset-btn {
+        height: 36px !important;
+        min-height: 36px !important;
+        font-size: 13px !important;
+    }
+
+    /* Two lines of 16px text (smaller text makes iPhones zoom the page when the box is tapped) */
+    #app-shell #input-panel,
+    #app-shell #chat-input-msg textarea {
+        height: 58px !important;
+        min-height: 58px !important;
+        max-height: 58px !important;
+    }
+
+    #app-shell #chat-input-msg textarea {
+        padding: 8px 12px !important;
+        font-size: 16px !important;
+        line-height: 1.3 !important;
+    }
+
+    #app-shell .send-btn-custom {
+        min-height: 58px !important;
+    }
 }
 """
 

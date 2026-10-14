@@ -126,7 +126,7 @@ Screenshots from the browser check land in `/private/tmp/erickson-check/erickson
 
 Still open, in Fan's order:
 4. ✅ (2026-10-15) The AI/Template switch is hidden (it stays in the page because every handler reads it, and it always holds the default). A session keeps the mode it opened with. Read-aloud is off by default. The insights heading in Settings now follows the language (it used to be fixed Chinese).
-5. A more compact phone layout during a conversation, and a real test inside WeChat's built-in browser (voice input especially).
+5. ✅ Compact phone layout (2026-10-15). The chat's share of the screen went from 31% to 56% on a 390x844 iPhone, and from 13% to 44% on a 375x667 iPhone SE; the laptop is unchanged. The styles are in the "Compact phone layout" block at the end of the CSS in `web_assets.py`. **Still open: a real test inside WeChat's built-in browser** (voice input especially). It needs the deployed app and Fan's phone.
 6. A one-tap "How useful was this session?" at the end.
 7. Real sessions on DeepSeek: **partly done 2026-10-15.** I ran 20 full sessions on `deepseek/deepseek-chat` with a second model call playing the person (the script lives only in that session's scratchpad). Each session cost under one cent (5k–14k tokens), so the $4.84 balance covers roughly a thousand sessions. Found and fixed:
    - **Chinese Coachee Lab failed to start 4 times in 5:** the case JSON came back with mismatched brackets.
@@ -159,6 +159,7 @@ Still open, in Fan's order:
 - **Real model calls in tests:** `.env` loads the real key, so `tests.py` blanks `OPENAI_API_KEY` at the top, and so does the browser check in `scripts/check_project.py` (before 2026-10-14 it used up free-model requests on every run). Never open an `llm`-mode session in a test without patching. One test once did, which slowed the suite and spent free quota.
 - **Python 3.10 on HF:** don't use `datetime.UTC` (it's 3.11+); use `datetime.timezone.utc`. Run the 3.10 suite before deploying.
 - **JavaScript inside Python strings:** `\'` in a normal Python string becomes `'` and breaks JS. `TestProviderAndRegionSupport.test_browser_scripts_are_valid_javascript` runs `node --check` on the evaluated scripts. Use typographic apostrophes (’) in JS text.
+- **Gradio CSS prefix:** Gradio 6 prefixes every custom CSS selector with `.gradio-container… .contain`, so selectors starting at `body` silently never match. Start at `#app-shell`. Check in the browser with `document.styleSheets` when a rule seems to do nothing.
 - **Gradio fonts:** Gradio wraps theme font names in quotes, so generic names like `system-ui` stop working. Use concrete font names, ending with `sans-serif`.
 - **`api_visibility="private"` is not security:** it only hides endpoints from the API page. Sign-in (`auth_dependency`) is the real gate.
 - **Session state:** `gr.State` is copied only when a browser session starts, so the per-agent locks in a `WeakKeyDictionary` are valid.

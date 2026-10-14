@@ -436,6 +436,17 @@ class TestWebAppLayout(unittest.TestCase):
         self.assertIn("-webkit-text-fill-color: #ffffff !important", css)
         self.assertIn("grid-template-rows: auto auto !important", css)
 
+    def test_compact_phone_layout_uses_selectors_gradio_can_match(self):
+        from web_app import css
+
+        block = css[css.index("/* Compact phone layout"):]
+        # Gradio prefixes every selector with its container, so a selector starting at body never matches.
+        self.assertNotIn("body main.contain", block)
+        self.assertIn("@media (max-width: 767px)", block)
+        self.assertIn('grid-template-areas: "input actions" "steps steps"', block)
+        self.assertIn("#app-shell #action-panel {\n        display: contents", block)
+        self.assertIn("font-size: 16px !important", block)  # smaller text makes iPhones zoom on focus
+
     def test_mode_context_note_wraps_instead_of_single_line_ellipsis(self):
         from web_app import UI, css
 

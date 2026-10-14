@@ -290,7 +290,7 @@ def _memory_ui_updates(agent, lang_code: str):
         return (
             f"**{s['memory_strengths']}**\n\n{s['memory_no_data']}",
             f"**{s['memory_growth']}**\n\n- ",
-            f"*{s['memory_last_sync']}: Never*"
+            f"*{s['memory_last_sync']}: {s['memory_never']}*"
         )
     
     strengths = "\n".join([f"- {i}" for i in p.strengths]) if p.strengths else "- "
@@ -988,9 +988,9 @@ with gr.Blocks(
                 with gr.Row():
                     memory_strengths_md = gr.Markdown(f"**{UI['zh']['memory_strengths']}**\n\n- (Pending)")
                     memory_growth_md = gr.Markdown(f"**{UI['zh']['memory_growth']}**\n\n- (Pending)")
-                memory_footer_md = gr.Markdown(f"*{UI['zh']['memory_last_sync']}: Never*")
+                memory_footer_md = gr.Markdown(f"*{UI['zh']['memory_last_sync']}: {UI['zh']['memory_never']}*")
 
-        tracker = gr.HTML()
+        tracker = gr.HTML(elem_classes="tracker-md")
 
         with gr.Column(elem_id="chat-stage", min_width=0):
             chatbot = gr.Chatbot(show_label=False, elem_classes="chatbot", buttons=[], feedback_options=("Like", "Dislike"),
