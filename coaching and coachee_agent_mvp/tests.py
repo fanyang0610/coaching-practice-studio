@@ -1009,7 +1009,7 @@ class TestHostedAccessAndLimits(unittest.TestCase):
 
         with patch.object(web_app.gr, "mount_gradio_app") as mount:
             with self.assertRaises(SystemExit):
-                web_app.create_app(store=db.Store("sqlite://"), env={"SPACE_ID": "fanyang0610/Erickson-Coach-App"})
+                web_app.create_app(store=db.Store("sqlite://"), env={"SPACE_ID": "fanyang0610/Coaching-Practice-Studio"})
             mount.assert_not_called()
             web_app.create_app(store=db.Store("sqlite://"), env={"SPACE_ID": "x", "ERICKSON_SECRET_KEY": "k" * 64})
 

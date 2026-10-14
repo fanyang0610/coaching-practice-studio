@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 
-DEFAULT_SPACE_ID = "fanyang0610/Erickson-Coach-App"
+DEFAULT_SPACE_ID = "fanyang0610/Coaching-Practice-Studio"
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE_ENTRYPOINT = "app.py"
 LOCAL_ENTRYPOINT_SOURCE = "web_app.py"

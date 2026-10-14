@@ -18,9 +18,7 @@ This original folder is the canonical project. Locally, `app.py` is a wrapper ar
 
 The app is called **Coaching Practice Studio / 教练练习室**. It is an independent, free, non-commercial practice tool built on general solution-focused coaching ideas: a five-stage conversation (contract, reality, possibilities, commitment, closing). It carries no coaching school's name, logo, colors or proprietary terms, and the sign-in, signup and privacy pages say it is not affiliated with any coaching school or certification body. A test fails if a school's name returns to anything users see or the AI is told.
 
-Still to rename outside the code, which only the account owner can do:
-
-- The Hugging Face Space (Settings → Rename), then update `DEFAULT_SPACE_ID` in `scripts/deploy_hf_space.py` and the Space address in this README.
+The GitHub repository (`coaching-practice-studio`, private) and the Hugging Face Space (`Coaching-Practice-Studio`) were renamed in October 2026.
 
 Internal names nobody sees, such as code class names, `ERICKSON_*` settings, cookie names and the `erickson.db` file, are unchanged so that existing configuration keeps working.
 
@@ -93,7 +91,7 @@ Whatever you choose, run one real session before inviting people, to see that re
 2. Switch `OPENAI_MODEL` to a paid model and set a monthly credit limit on the API key.
 3. Set `ERICKSON_SECRET_KEY`, `ERICKSON_ADMIN_EMAIL` and `ERICKSON_ADMIN_PASSWORD`.
 4. Deploy:
-   - **Hugging Face Space:** add the variables above as Space secrets and run `python3 scripts/deploy_hf_space.py`. Share the direct `https://fanyang0610-erickson-coach-app.hf.space` URL; browsers block sign-in cookies inside the huggingface.co page frame.
+   - **Hugging Face Space:** add the variables above as Space secrets and run `python3 scripts/deploy_hf_space.py`. Share the direct `https://fanyang0610-coaching-practice-studio.hf.space` URL; browsers block sign-in cookies inside the huggingface.co page frame.
    - **Always-on host (Render, Fly.io, Railway, Cloud Run):** build the included `Dockerfile` and set the same variables. It serves on `$PORT` (default 7860) and exposes `/healthz` for health checks.
 5. Sign in as the admin, create trainer invites on the Admin page, and let trainers invite their trainees.
 6. Point an uptime monitor at `/healthz`. Backups come from the managed Postgres provider.
