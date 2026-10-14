@@ -160,6 +160,7 @@ T = {
         "storage_warning": "Data is stored in a temporary SQLite file on this server and will be lost on restart. Set DATABASE_URL to a Postgres database before inviting people.",
         "feedback_summary": "Feedback in the last 7 days: {up} helpful, {down} not helpful",
         "privacy_title": "Privacy and safety",
+        "data_locations": "Where your data is processed: {where}",
         "privacy_body": [
             "Erickson Coach is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
             "If you might harm yourself or are in danger, contact your local emergency number now. You can find a free, confidential helpline in your country at findahelpline.com.",
@@ -303,6 +304,7 @@ T = {
         "storage_warning": "数据目前存放在服务器上的临时 SQLite 文件中，重启后会丢失。邀请用户前请将 DATABASE_URL 设置为 Postgres 数据库。",
         "feedback_summary": "最近 7 天的反馈：{up} 有帮助，{down} 没帮助",
         "privacy_title": "隐私与安全",
+        "data_locations": "你的数据处理地点：{where}",
         "privacy_body": [
             "埃里克森教练是教练练习工具，不是心理治疗、医疗建议或危机援助。",
             "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话。你可以在 findahelpline.com 找到你所在国家的免费保密求助热线。",
@@ -331,7 +333,7 @@ CSS = """
   --border:#d8e5f2; --blue:#1979ba; --blue-hover:#0f6aa8; --deep:#115488; --gold:#f0b95a; --warn:#8a3a26; }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin:0; background:var(--bg); color:var(--ink); font-family:Manrope,"Noto Sans SC",system-ui,sans-serif;
+body { margin:0; background:var(--bg); color:var(--ink); font-family:Manrope,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
   font-size:16px; line-height:1.5; }
 a { color:var(--blue); }
 .shell { max-width:980px; margin:0 auto; padding:16px 16px max(24px, env(safe-area-inset-bottom)); }
@@ -410,6 +412,8 @@ class PageSettings:
     storage_warning: bool = False
     # send(to, subject, body); set when SMTP is configured, enabling self-service password resets.
     mailer: Callable[[str, str, str], None] | None = None
+    # Plain-language note on where the server and AI provider process data, shown on the privacy page.
+    data_locations: str = ""
 
 
 def preferred_language(cookies, headers, fallback: str | None = "en") -> str | None:
@@ -753,6 +757,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         lang = page_lang(request)
         user = current_user(request, get_store(), settings.secret)
         paragraphs = "".join(f"<p>{_e(line)}</p>" for line in T[lang]["privacy_body"])
+        if settings.data_locations:
+            paragraphs += f'<p><b>{_e(text(lang, "data_locations", where=settings.data_locations))}</b></p>'
         body = f'<div class="card"><h1>{_e(T[lang]["privacy_title"])}</h1>{paragraphs}</div>'
         return render(request, lang, T[lang]["privacy_title"], body, user=user)
 

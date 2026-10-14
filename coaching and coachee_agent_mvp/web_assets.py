@@ -2339,6 +2339,23 @@ force_light_js = """() => {
         let isListening = false;
         let isStarting = false;
 
+        // Chrome sends speech to Google, which is unreachable from mainland China; say so instead of failing silently.
+        const showMicHint = (errorCode) => {
+            const hints = {
+                network: ['Voice input can’t reach its speech service on this network. Please type, or try Safari.', '当前网络无法使用语音输入服务。请直接打字，或换用 Safari 浏览器。'],
+                'service-not-allowed': ['Voice input isn’t available in this browser. Please type, or try Safari.', '此浏览器无法使用语音输入。请直接打字，或换用 Safari 浏览器。'],
+                'not-allowed': ['Microphone access is blocked. Allow it in your browser settings, or type instead.', '麦克风权限被拒绝。请在浏览器设置中允许，或直接打字。'],
+                'audio-capture': ['No microphone was found. Please type instead.', '没有检测到麦克风，请直接打字。'],
+            };
+            const hint = hints[errorCode];
+            const textarea = document.querySelector('#chat-input-msg textarea');
+            if (!hint || !textarea) return;
+            const english = document.querySelector('input[type="radio"][value="English"]')?.checked;
+            const original = textarea.placeholder;
+            textarea.placeholder = english ? hint[0] : hint[1];
+            setTimeout(() => { if (textarea.placeholder === (english ? hint[0] : hint[1])) textarea.placeholder = original; }, 7000);
+        };
+
         btn.addEventListener('click', (event) => {
             event.preventDefault();
 
@@ -2369,10 +2386,11 @@ force_light_js = """() => {
                 textarea.dispatchEvent(new Event('input', { bubbles: true }));
             };
 
-            recognition.onerror = () => {
+            recognition.onerror = (errorEvent) => {
                 isStarting = false;
                 isListening = false;
                 setMicState(btn, false);
+                showMicHint(errorEvent && errorEvent.error);
                 focusInput();
             };
 

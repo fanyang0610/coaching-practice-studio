@@ -808,7 +808,9 @@ clean_indigo_theme = gr.themes.Default(
     primary_hue=gr.themes.colors.blue,
     secondary_hue=gr.themes.colors.sky,
     neutral_hue=gr.themes.colors.slate,
-    font=[gr.themes.GoogleFont("Noto Sans SC"), gr.themes.GoogleFont("Manrope"), "sans-serif"],
+    # Fonts already on people's devices: Google Fonts is blocked in mainland China and would stall page loads there.
+    font=["Manrope", "Helvetica Neue", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+          "Noto Sans SC", "Noto Sans CJK SC", "Roboto", "Arial", "sans-serif"],
 ).set(
     body_background_fill="#f3f8fd",
     body_background_fill_dark="#f3f8fd",
@@ -1059,6 +1061,7 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
         public_url=env.get("ERICKSON_PUBLIC_URL", "").strip(),
         storage_warning=public and store.is_sqlite,
         mailer=mailer.smtp_sender(env),
+        data_locations=env.get("ERICKSON_DATA_LOCATIONS", "").strip(),
     )
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(account_pages.build_router(get_store, settings))

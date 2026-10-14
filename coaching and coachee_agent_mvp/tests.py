@@ -1920,5 +1920,72 @@ class TestSelfServiceAndAdminControls(unittest.TestCase):
         self.assertEqual(mode, 0o600)
 
 
+class TestProviderAndRegionSupport(unittest.TestCase):
+    def test_deepseek_gets_thinking_switched_off_on_every_call(self):
+        import coaching_core
+
+        calls = []
+        raw = _fake_llm_client(["Hello", "Hi there"], calls)
+        with patch.dict(os.environ, {"OPENAI_EXTRA_BODY": ""}):
+            with patch.object(coaching_core, "_shared_client", return_value=raw):
+                client = coaching_core._build_client("key", "https://api.deepseek.com")
+                client.chat.completions.create(model="deepseek-flash", messages=[])
+                list(coaching_core._stream_text(coaching_core._build_client("key", "https://api.deepseek.com", on_usage=lambda *a: None),
+                                                model="deepseek-flash", messages=[]))
+
+        self.assertEqual(calls[0]["extra_body"], {"thinking": {"type": "disabled"}})
+        self.assertEqual(calls[1]["extra_body"], {"thinking": {"type": "disabled"}})
+        self.assertEqual(calls[1]["stream_options"], {"include_usage": True})
+
+    def test_extra_request_fields_can_be_set_for_any_provider(self):
+        import coaching_core
+
+        with patch.dict(os.environ, {"OPENAI_EXTRA_BODY": '{"enable_thinking": false}'}):
+            self.assertEqual(coaching_core._provider_extra_body("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+                             {"enable_thinking": False})
+        with patch.dict(os.environ, {"OPENAI_EXTRA_BODY": ""}):
+            self.assertEqual(coaching_core._provider_extra_body("https://openrouter.ai/api/v1"), {})
+
+    def test_no_fonts_are_downloaded_from_google(self):
+        import gradio as gr
+        import web_app
+
+        fonts = web_app.clean_indigo_theme._font + web_app.clean_indigo_theme._font_mono
+        self.assertFalse(any(isinstance(font, gr.themes.GoogleFont) for font in fonts))
+        self.assertNotIn("googleapis", web_app.css + web_app.head)
+
+    def test_browser_scripts_are_valid_javascript(self):
+        import shutil
+        import subprocess
+        import web_assets
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        with tempfile.TemporaryDirectory() as folder:
+            for name in ("force_light_js", "tts_js", "scroll_js", "remember_lang_js"):
+                script = Path(folder) / f"{name}.js"
+                script.write_text("(" + getattr(web_assets, name) + ")", encoding="utf-8")
+                result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
+
+    def test_voice_input_explains_failures(self):
+        import web_assets
+
+        for code in ("network", "service-not-allowed", "not-allowed"):
+            self.assertIn(code, web_assets.force_light_js)
+        self.assertIn("showMicHint(errorEvent && errorEvent.error)", web_assets.force_light_js)
+
+    def test_privacy_page_can_say_where_data_is_processed(self):
+        from fastapi.testclient import TestClient
+        import web_app
+
+        app = web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "test-secret",
+                                                                  "ERICKSON_DATA_LOCATIONS": "Server: Hugging Face (US) · AI: DeepSeek (China)"})
+        page = TestClient(app).get("/privacy?lang=zh").text
+
+        self.assertIn("你的数据处理地点：Server: Hugging Face (US) · AI: DeepSeek (China)", page)
+
+
 if __name__ == "__main__":
     unittest.main()

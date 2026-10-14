@@ -48,7 +48,22 @@ def _build_client(api_key: str, base_url: str | None = None, on_usage=None):
     if not resolved_base_url and api_key.startswith("sk" + "-or-"):
         resolved_base_url = "https://openrouter.ai/api/v1"
     client = _shared_client(api_key, resolved_base_url or None)
-    return _MeteredClient(client, on_usage) if on_usage else client
+    extra_body = _provider_extra_body(resolved_base_url)
+    return _MeteredClient(client, on_usage, extra_body) if on_usage or extra_body else client
+
+
+def _provider_extra_body(base_url: str | None) -> dict:
+    """Provider-specific request fields: OPENAI_EXTRA_BODY (JSON) if set, else known defaults.
+
+    DeepSeek turns "thinking" on by default, which spends the short reply budgets on hidden
+    reasoning and returns empty replies, so it is switched off.
+    """
+    raw = os.environ.get("OPENAI_EXTRA_BODY", "").strip()
+    if raw:
+        return json.loads(raw)
+    if "deepseek.com" in (base_url or ""):
+        return {"thinking": {"type": "disabled"}}
+    return {}
 
 
 def _estimate_tokens(text: str) -> int:
@@ -70,16 +85,23 @@ def _report_usage(on_usage, create_kwargs: dict, usage, output_text: str) -> Non
 
 
 class _MeteredClient:
-    def __init__(self, client, on_usage):
-        self.chat = types.SimpleNamespace(completions=_MeteredCompletions(client.chat.completions, on_usage))
+    """Adds provider request fields to every completion and, when on_usage is given, reports token usage."""
+
+    def __init__(self, client, on_usage=None, extra_body: dict | None = None):
+        self.chat = types.SimpleNamespace(completions=_MeteredCompletions(client.chat.completions, on_usage, extra_body))
 
 
 class _MeteredCompletions:
-    def __init__(self, completions, on_usage):
+    def __init__(self, completions, on_usage=None, extra_body: dict | None = None):
         self._completions = completions
         self._on_usage = on_usage
+        self._extra_body = extra_body or {}
 
     def create(self, **create_kwargs):
+        if self._extra_body:
+            create_kwargs["extra_body"] = {**self._extra_body, **create_kwargs.get("extra_body", {})}
+        if not self._on_usage:
+            return self._completions.create(**create_kwargs)
         if create_kwargs.get("stream"):
             create_kwargs.setdefault("stream_options", {"include_usage": True})
             return _MeteredStream(self._completions.create(**create_kwargs), create_kwargs, self._on_usage)

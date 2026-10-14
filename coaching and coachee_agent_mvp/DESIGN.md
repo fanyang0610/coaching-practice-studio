@@ -70,8 +70,9 @@ The visual core is a cool paper-blue canvas with white cards, a steady coaching 
 
 ### Font families
 
-- **Primary Latin UI font**: `Manrope`
-- **Primary CJK font**: `Noto Sans SC`
+- **Primary Latin UI font**: `Manrope` when installed, otherwise the system UI font (San Francisco / Helvetica Neue, Segoe UI, Roboto)
+- **Primary CJK font**: the system Chinese font (PingFang SC, Microsoft YaHei, Noto Sans SC)
+- **No web-font downloads**: a large share of learners is in mainland China, where Google Fonts is blocked and stalls page loads. Use locally installed fonts only.
 - **Fallbacks**: `system-ui`, `sans-serif`
 
 The app is bilingual and must feel coherent in both English and Chinese. Typography should remain clean and legible first, expressive second.

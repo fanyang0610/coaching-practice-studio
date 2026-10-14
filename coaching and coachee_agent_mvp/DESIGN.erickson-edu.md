@@ -23,7 +23,7 @@ This brief is inferred from the public Erickson Coaching International site at `
 
 ## Typography
 
-- Use `Noto Sans SC`, `Manrope`, and system sans-serif fallbacks.
+- Use locally installed fonts only (`Manrope` if present, then system UI and Chinese fonts); never load web fonts from Google.
 - Headings: bold, compact, institutional.
 - Eyebrows: uppercase English with moderate tracking.
 - Body: readable 14-16px; avoid oversized hero type inside the tool.

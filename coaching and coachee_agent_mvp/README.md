@@ -36,12 +36,14 @@ AI Coach sessions are private by default, because people bring their real lives 
 |---|---|---|
 | `OPENAI_API_KEY` | yes | Server-side model key. Users never see it. |
 | `OPENAI_MODEL` | yes | Use a paid model, e.g. `openai/gpt-4o-mini` on OpenRouter (about a cent per full session). `openrouter/free` routes to random free models that often return nothing or hit rate limits. |
-| `OPENAI_BASE_URL` | for gateways | e.g. `https://openrouter.ai/api/v1`. |
+| `OPENAI_BASE_URL` | for gateways | e.g. `https://openrouter.ai/api/v1`, or `https://api.deepseek.com` for DeepSeek. |
+| `OPENAI_EXTRA_BODY` | optional | Extra JSON fields sent with every model request, for provider-specific switches, e.g. `{"enable_thinking": false}` for Qwen. For DeepSeek, thinking is switched off automatically. |
 | `DATABASE_URL` | hosted | Postgres URL, e.g. from Neon or Supabase. Without it, data goes to a local `erickson.db` SQLite file, which a Space restart erases. |
 | `ERICKSON_SECRET_KEY` | hosted | Signs sign-in cookies. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`. Startup refuses to run publicly without it. |
 | `ERICKSON_ADMIN_EMAIL`, `ERICKSON_ADMIN_PASSWORD` | first deploy | Creates the first admin (password at least 10 characters). |
 | `ERICKSON_PUBLIC_URL` | optional | Base URL for invite and reset links if the server can't infer it. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | optional | Enables self-service password reset emails (port 587 uses STARTTLS, 465 uses SSL). |
+| `ERICKSON_DATA_LOCATIONS` | recommended | One line for the privacy page saying where data is processed, e.g. `Server: Hugging Face (US) · AI: DeepSeek (China)`. |
 | `SENTRY_DSN` | optional | Crash reports. Request bodies and local variables are never sent, so transcripts stay on the server. |
 | `GRADIO_SERVER_NAME`, `GRADIO_SERVER_PORT` / `PORT` | hosting | Bind address and port. Hugging Face and Render set these. |
 
@@ -58,6 +60,15 @@ Allowances use a rolling 24 hours and are checked when an AI session starts, so 
 Started sessions (including ones left early, which still cost an opening call) are capped at twice the finished allowance. Admins change the role defaults in the "Daily AI allowances" panel on the Admin page, with no code change, and can override any one person's limits. A full session uses about 30,000–60,000 tokens; at gpt-4o-mini prices, even 50 members using every allowance every day would cost a few dollars a day, and typical use is far less. The defaults live in `quota.py`. Every model call's token usage is recorded per person and session. Other limits live in `web_app.py`: 2,000 characters per message, 40 messages per session, 10 messages per minute per person, and 24 model calls running at once, shared by all events.
 
 Replies stream in. In one reply call the model also decides whether the coaching stage moves on (the `[[STAY]]`/`[[NEXT]]`/`[[END]]` markers), so a turn costs one model call.
+
+## Choosing the AI Model
+
+Any provider with an OpenAI-compatible API works through the three `OPENAI_*` settings; no code change is needed.
+
+- **DeepSeek** (good Chinese and English, low cost, reachable from mainland China): `OPENAI_BASE_URL=https://api.deepseek.com`, `OPENAI_MODEL=deepseek-flash`, and a DeepSeek API key with some credit. DeepSeek turns "thinking" on by default, which would use up the short reply budgets and return empty replies, so the app switches it off automatically for `deepseek.com` addresses. DeepSeek processes data in China; say so in `ERICKSON_DATA_LOCATIONS`.
+- **OpenRouter**: `OPENAI_BASE_URL=https://openrouter.ai/api/v1` with a paid model such as `openai/gpt-4o-mini`. Avoid `openrouter/free`: it routes each call to a random free model, and in testing only about 1 in 6 replies was usable.
+
+Whatever you choose, run one real session before inviting people, to see that replies arrive and the coaching stages move on.
 
 ## Deploying for Invited Users
 
@@ -94,6 +105,9 @@ The app and the account pages share one language setting. On a first visit it fo
 - **One organisation.** Everyone shares one app with per-person data separation; there are no separate workspaces for different schools or teams.
 - **Gradio's own small labels.** A few built-in Gradio labels, such as the thumbs-up tooltips, stay in English.
 - **Sign-in is by email.** There is no phone-number or WeChat login.
+- **Hugging Face and mainland China.** `*.hf.space` addresses are generally not reachable from mainland China without a VPN, so learners there may not be able to open the app while it is hosted on Hugging Face. A Hong Kong or Singapore server (the included `Dockerfile` runs on any Docker host) reaches both mainland China and other countries.
+- **Voice input in mainland China.** Chrome sends speech to Google, which is blocked there, so the microphone shows a message suggesting typing or Safari. Safari on iPhone and Mac works.
+- **Outside references in Gradio's page template.** Gradio's own page includes connection hints for Google Fonts and a background script from Cloudflare's CDN. Neither blocks the page; the app itself loads no web fonts.
 
 ## Launch Commands
 
