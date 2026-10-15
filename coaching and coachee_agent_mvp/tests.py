@@ -869,24 +869,68 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(_split_stage_signal("[[NEXT]] Great"), ("NEXT", "Great"))
         self.assertEqual(_split_stage_signal("Sounds good [[ST"), (None, "Sounds good"))
         self.assertEqual(_split_stage_signal("Plain reply"), (None, "Plain reply"))
+        self.assertEqual(_split_stage_signal("[[2]] Great"), ("2", "Great"))
+        self.assertEqual(_split_stage_signal("[[ Commitment ]]Great"), ("COMMITMENT", "Great"))
 
-    def test_coach_reply_decides_next_stage_in_one_streamed_call(self):
+    def test_coach_reply_names_its_stage_and_the_tracker_moves_at_once(self):
         from coaching_core import CoachingSubPhase
 
         agent = self._deepening_coach()
         calls = []
-        client = _fake_llm_client(["[[NEXT]] You have a clear goal. What is happening right now?"], calls)
+        client = _fake_llm_client(["[[REALITY]] You have a clear goal. What is happening right now?"], calls)
 
         with patch("coach_agent._build_client", return_value=client):
             partials = list(agent.stream_response("I want two focused hours a day.", api_key="server-key"))
 
         self.assertEqual(len(calls), 1)
         self.assertTrue(calls[0]["stream"])
-        self.assertIn("[[NEXT]]", calls[0]["messages"][0]["content"])
+        self.assertIn("The conversation has reached [[GOAL]]", calls[0]["messages"][0]["content"])
         self.assertTrue(all("[[" not in text for text in partials))
         self.assertEqual(partials[-1], "You have a clear goal. What is happening right now?")
-        self.assertEqual(agent.current_sub_phase, CoachingSubPhase.BRIDGE)
-        self.assertEqual(agent.context[-1], {"role": "coach", "content": partials[-1]})
+        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
+        self.assertEqual((agent.current_sub_phase, agent.turns_in_current_stage), (CoachingSubPhase.DEEPEN, 0))
+        self.assertEqual(agent.context[-1], {"role": "coach", "content": partials[-1], "stage": 2})
+
+    def test_past_replies_reach_the_model_with_their_markers(self):
+        # Shown their earlier replies without markers, models stopped writing markers after a few turns.
+        agent = self._deepening_coach()
+        agent.context[0]["stage"] = 1
+        calls = []
+
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["[[GOAL]] What else?"], calls)):
+            agent.generate_response("Mornings.", api_key="server-key")
+
+        sent = [m["content"] for m in calls[0]["messages"][1:]]
+        self.assertEqual(sent, ["[[GOAL]] What would you like to focus on?", "My time management.", "Mornings."])
+        self.assertEqual(agent.context[0]["content"], "What would you like to focus on?")
+        self.assertEqual(agent.context[-1]["stage"], 1)
+
+    def test_coach_stage_follows_the_client_forward_but_never_back(self):
+        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent.context = [{"role": "coach", "content": "What would you like from today?"}]
+        replies = ["[[OPTIONS]] You already know mornings work. What could you try first?", "[[GOAL]] What do you want?",
+                   "[[5]] What will you take away?"]
+
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(replies, [])):
+            agent.generate_response("I want to write daily and mornings already work for me.", api_key="server-key")
+            self.assertEqual(agent.current_state, CoachingState.ACTION)  # decided on the very first answer
+            agent.generate_response("Maybe a timer.", api_key="server-key")
+            self.assertEqual(agent.current_state, CoachingState.ACTION)
+            agent.generate_response("I'll start tomorrow.", api_key="server-key")
+
+        self.assertEqual(agent.current_state, CoachingState.VALUE)  # only [[END]] closes the session
+        self.assertFalse(agent.is_session_ended())
+
+    def test_coach_is_nudged_to_move_on_after_a_long_stage(self):
+        agent = self._deepening_coach()
+        agent.turns_in_current_stage = 4
+        calls = []
+
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["[[GOAL]] What else matters?"], calls)):
+            agent.generate_response("It matters a lot.", api_key="server-key")
+
+        self.assertIn("This stage has already taken 5 exchanges. Unless the client is in the middle of something important, "
+                      "now move on with [[REALITY]]", calls[0]["messages"][0]["content"])
 
     def test_coach_reply_can_end_the_session(self):
         agent = self._deepening_coach()
@@ -914,18 +958,16 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(agent.current_state, CoachingState.CONTRACT)
         self.assertEqual(agent.current_sub_phase, CoachingSubPhase.DEEPEN)
 
-    def test_coach_reply_without_marker_paces_stage_like_template_mode(self):
-        from coaching_core import CoachingSubPhase
-
+    def test_coach_reply_without_marker_moves_on_once_nudged(self):
         agent = self._deepening_coach()
-        agent.turns_in_current_stage = 3
+        agent.turns_in_current_stage = 4
         calls = []
         client = _fake_llm_client(["Let's look at where things stand now."], calls)
 
         with patch("coach_agent._build_client", return_value=client):
             agent.generate_response("Yes, that's the goal.", api_key="server-key")
 
-        self.assertEqual(agent.current_sub_phase, CoachingSubPhase.BRIDGE)
+        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
 
     def test_reply_emptied_by_language_cleanup_falls_back_to_template(self):
         agent = EricksonCoachingAgent(mode="llm", language="zh")
@@ -974,6 +1016,26 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(reply, "I want to feel calmer at work.")
         self.assertEqual(agent.current_sub_phase, CoachingSubPhase.BRIDGE)
         self.assertEqual(len(calls), 1)
+
+    def test_coachee_follows_the_stage_the_coach_is_asking_about(self):
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent._llm_scenario_ready = True
+        agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
+        calls = []
+        client = _fake_llm_client(["[[OPTIONS]] I could ask my manager for one quiet afternoon."], calls)
+
+        with patch("coachee_agent._build_client", return_value=client):
+            agent.generate_response("What options do you see?", api_key="server-key")
+
+        self.assertEqual(agent.current_state, CoachingState.ACTION)
+        self.assertEqual(agent.metrics.stage_questions[CoachingState.ACTION], 1)
+        self.assertEqual(agent.metrics.stage_questions[CoachingState.CONTRACT], 0)
+        self.assertIsNone(agent.manual_advance_guard())
+        prompt = calls[0]["messages"][0]["content"]
+        # The whole case is there, so the answer can come from the stage the coach asked about.
+        self.assertIn("Stage 3:", prompt)
+        self.assertIn(agent.scenario.action["possibility"]["en"][0], prompt)
+        self.assertIn("the stage the coach's latest message works on", prompt)
 
     def test_history_translation_is_one_call(self):
         agent = EricksonCoachingAgent(mode="llm", language="en")

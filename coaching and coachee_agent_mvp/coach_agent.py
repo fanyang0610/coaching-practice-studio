@@ -3,7 +3,7 @@ import logging
 import random
 import uuid
 
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _as_written, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coach_data import (
     ACKNOWLEDGMENTS,
     BRIDGE_PHRASES,
@@ -17,6 +17,8 @@ from coach_data import (
 
 
 ACTION_CARD_FIELDS = ("goal", "next_step", "by_when", "support")
+# After this many client turns in one stage, the AI coach is asked to sum up and move on.
+STAGE_NUDGE_TURNS = 5
 
 
 class EricksonCoachingAgent:
@@ -176,9 +178,11 @@ class EricksonCoachingAgent:
             self.context = self.context[:old_context_len]
             raise exc
 
+        reply = {"role": "coach", "content": response}
         if decide_stage or signal == "END":
             self._apply_stage_signal(signal)
-        self.context.append({"role": "coach", "content": response})
+            reply["stage"] = "END" if self.is_session_ended() else self.current_state.value
+        self.context.append(reply)
 
     def _get_llm_closing_summary(self, api_key: str) -> str:
         client = _build_client(api_key, on_usage=self.on_usage)
@@ -240,20 +244,17 @@ class EricksonCoachingAgent:
 
     def _evaluate_state_transition(self, api_key: str | None = None) -> bool:
         """Advance the stage flow for a new client turn. Returns True when the LLM reply should decide it."""
+        if self.mode == "llm" and api_key:
+            # Every AI reply names the stage it works on (_apply_stage_signal); a long stage gets a nudge to move on.
+            nudge = self.turns_in_current_stage >= STAGE_NUDGE_TURNS
+            self.current_sub_phase = CoachingSubPhase.BRIDGE if nudge else CoachingSubPhase.DEEPEN
+            return True
+
         if self.current_sub_phase == CoachingSubPhase.OPEN:
             self.current_sub_phase = CoachingSubPhase.DEEPEN
             return False
 
         if self.current_sub_phase == CoachingSubPhase.DEEPEN:
-            if self.turns_in_current_stage <= 2:
-                return False
-
-            if self.turns_in_current_stage >= 6:
-                self.current_sub_phase = CoachingSubPhase.BRIDGE
-                return False
-
-            if self.mode == "llm" and api_key:
-                return True
             if self.turns_in_current_stage >= 4:
                 self.current_sub_phase = CoachingSubPhase.BRIDGE
             return False
@@ -271,20 +272,35 @@ class EricksonCoachingAgent:
             self.current_state = CoachingState.CLOSING
             self.current_sub_phase = CoachingSubPhase.OPEN
             self.turns_in_current_stage = 0
-        elif signal == "NEXT" or (signal is None and self.turns_in_current_stage >= 4):
-            # No marker means the model ignored the format; pace the stage like template mode does.
-            self.current_sub_phase = CoachingSubPhase.BRIDGE
+            return
+        stage = _labelled_stage(signal, self.current_state)
+        if signal == "NEXT" or (signal is None and self.current_sub_phase == CoachingSubPhase.BRIDGE):
+            # No marker on a reply that was asked to move on: take it that it did, as template mode would.
+            stage = CoachingState(min(self.current_state.value + 1, CoachingState.VALUE.value))
+        if stage != self.current_state:
+            # The reply has already opened the new stage, so the tracker moves now, not after the client's answer.
+            self.current_state = stage
+            self.current_sub_phase = CoachingSubPhase.DEEPEN
+            self.turns_in_current_stage = 0
 
     def _stage_decision_rules(self) -> str:
         states = list(CoachingState)
-        next_state = states[states.index(self.current_state) + 1]
+        here = _marker(self.current_state)
+        if self.current_state == CoachingState.VALUE:
+            move_on = "close the session with [[END]]"
+        else:
+            move_on = f"move on with {_marker(states[states.index(self.current_state) + 1])}: briefly sum up what they gained here, then ask one opening question for that stage"
+        nudge = ""
+        if self.current_sub_phase == CoachingSubPhase.BRIDGE:
+            nudge = f"\nThis stage has already taken {self.turns_in_current_stage} exchanges. Unless the client is in the middle of something important, now {move_on}."
         return f"""
 
-REQUIRED OUTPUT FORMAT: the very first characters of your output must be one stage marker, then your reply.
-[[STAY]] - keep exploring this stage: follow the DEEPEN guidance above.
-[[NEXT]] - the client has clearly answered this stage's goal, wants to move on, or the conversation has already moved on to later topics: briefly summarise what they gained here, then ask one opening question for the next stage ({next_state.name}: {STAGE_DESCRIPTIONS[next_state]}).
-[[END]] - the client clearly says they want to finish (goodbye, that's all for today), or they have a concrete commitment and confirm they have what they need: give a brief, warm closing summary that acknowledges their progress and commitments, with no question. A thank-you on its own is not a request to finish.
-Example output: [[STAY]] It sounds like mornings are when you feel strongest. What makes them work for you?
+REQUIRED OUTPUT FORMAT: the very first characters of your output must be one marker, then your reply.
+The marker names the stage your reply works on:
+{STAGE_MARKER_GUIDE}
+[[END]] - close the session: a brief, warm summary that acknowledges their progress and commitments, with no question. Use it when the client clearly says they want to finish (goodbye, that's all for today), or once they have a concrete commitment and confirm they have what they need. Before [[COMMITMENT]], use it only if the client asks to finish. A thank-you on its own is not a request to finish.
+The conversation has reached {here}. Stay with {here} while this stage still needs work. Once it has done its job, {move_on}. If the client has already moved on to a later stage, follow them and use that stage's marker. Never use the marker of an earlier stage.{nudge}
+Example output: [[REALITY]] So the goal is two calm evenings a week. What is happening on your evenings at the moment?
 Never mention the marker or stage names in the reply itself."""
 
     def _end_only_rules(self) -> str:
@@ -371,7 +387,7 @@ Instead of a fresh entry point, warmly ask how it went with that next step. Ask 
                 )
 
             system_prompt = f"""You are a professional solution-focused coach guiding a five-stage coaching conversation (contract, reality, possibilities, commitment, closing).
-Current stage: **{self.current_state.name}** ({stage_desc})
+Current stage: {self.current_state.value} of 5 ({stage_desc})
 Sub-phase: {self.current_sub_phase.name}
 
 Guidelines:
@@ -389,7 +405,7 @@ Guidelines:
             messages = [{"role": "system", "content": system_prompt}]
             for msg in _conversation_window(self.context):
                 role = "user" if msg["role"] == "client" else "assistant"
-                messages.append({"role": role, "content": msg["content"]})
+                messages.append({"role": role, "content": _as_written(msg)})
 
             raw = ""
             for raw in _stream_text(client, model=_chat_model(), messages=messages, max_tokens=250, temperature=0.7):

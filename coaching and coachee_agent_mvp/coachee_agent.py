@@ -4,7 +4,7 @@ import logging
 import re
 import random
 import uuid
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _language_output_rule, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _as_written, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coachee_data import (
     COACHEE_ACKNOWLEDGMENTS,
     COACHEE_BRIDGES,
@@ -217,13 +217,17 @@ class EricksonCoacheeAgent:
             signal = None
             yield response
 
+        reply = {"role": self.assistant_role, "content": response}
         if decide_stage or signal == "END":
             self._apply_stage_signal(signal)
             if self.current_state == CoachingState.CLOSING:
                 response = self._build_final_review(api_key)
+                reply["content"] = response
                 yield response
+            else:
+                reply["stage"] = self.current_state.value
 
-        self.context.append({"role": self.assistant_role, "content": response})
+        self.context.append(reply)
 
         if self.current_state == CoachingState.CLOSING:
             self.session_complete = True
@@ -367,6 +371,8 @@ class EricksonCoacheeAgent:
             
         self.current_sub_phase = CoachingSubPhase.OPEN
         self.turns_in_current_stage = 0
+        # The coach may already be asking about a later stage.
+        return self.mode == "llm" and bool(api_key) and not self.session_complete
 
     def _template_stage_ready(self) -> bool:
         facts = self.metrics.facts_shared[self.current_state]
@@ -393,6 +399,15 @@ class EricksonCoacheeAgent:
         }
         payload = stage_map[self.current_state]
         return {key: values[self.language] for key, values in payload.items()}
+
+    def _case_notes(self) -> str:
+        """The whole case, stage by stage, so the coachee can answer whichever stage the coach asks about."""
+        payloads = (self.scenario.contract, self.scenario.experience, self.scenario.action, self.scenario.value)
+        lines = []
+        for state, payload in zip(COACHEE_STAGE_ORDER, payloads):
+            lines.append(f"Stage {state.value}:")
+            lines += [f"- {key}: {' | '.join(values[self.language])}" for key, values in payload.items()]
+        return "\n".join(lines)
 
     def _pick_stage_fact(self, preferred_key: str | None = None) -> tuple[str, str]:
         payload = self._stage_payload()
@@ -445,11 +460,20 @@ class EricksonCoacheeAgent:
         return f"{ack} {detail}"
 
     def _apply_stage_signal(self, signal: str | None):
+        stage = _labelled_stage(signal, self.current_state)
         if signal == "END":
             self.current_state = CoachingState.CLOSING
             self.session_complete = True
             self.current_sub_phase = CoachingSubPhase.OPEN
             self.turns_in_current_stage = 0
+        elif stage != self.current_state:
+            # The coach's question belongs to a later stage: follow the coach, and count the question there.
+            if self.metrics.stage_questions[self.current_state]:
+                self.metrics.stage_questions[self.current_state] -= 1
+            self.metrics.stage_questions[stage] += 1
+            self.current_state = stage
+            self.current_sub_phase = CoachingSubPhase.DEEPEN
+            self.turns_in_current_stage = 1
         elif signal == "NEXT" or (signal is None and self._template_stage_ready() and self.turns_in_current_stage >= 4):
             # No marker means the model ignored the format; only advance if the template logic is confident.
             self.current_sub_phase = CoachingSubPhase.BRIDGE
@@ -457,15 +481,16 @@ class EricksonCoacheeAgent:
             self.current_sub_phase = CoachingSubPhase.DEEPEN
 
     def _stage_decision_rules(self) -> str:
+        here = _marker(self.current_state)
         return (
-            "\n\nREQUIRED OUTPUT FORMAT: the very first characters of your output must be one stage marker, then your coachee reply.\n"
-            "[[STAY]] - this stage still needs exploring.\n"
-            "[[NEXT]] - the coach has covered this stage, or has clearly moved on to later questions "
-            "(goal, then current reality, then options, then commitment), and more coaching is still needed.\n"
-            "[[END]] - the session is over: the coach says goodbye, good luck or that's all (ZH: 下次见, 谢谢, 结束了, 由衷感谢), "
+            "\n\nREQUIRED OUTPUT FORMAT: the very first characters of your output must be one marker, then your coachee reply.\n"
+            "The marker names the stage the coach's latest message works on, judged by what it asks about:\n"
+            f"{STAGE_MARKER_GUIDE}\n"
+            "[[END]] - the session is over: the coach says goodbye, good luck or that's all (ZH: 再见, 下次见, 谢谢, 结束了, 今天就到这里, 由衷感谢), "
             "you have a clear plan and nothing left to explore, either side wants to stop, or the conversation has gone in circles "
             "for more than 4 turns with no new insight.\n"
-            "Example output: [[STAY]] Honestly, I keep putting it off because I'm afraid it won't be good enough.\n"
+            f"The conversation has reached {here}; never use the marker of an earlier stage.\n"
+            f"Example output: {here} Honestly, I keep putting it off because I'm afraid it won't be good enough.\n"
             "Never mention the marker in your reply."
         )
 
@@ -487,11 +512,6 @@ class EricksonCoacheeAgent:
         try:
             client = _build_client(api_key, on_usage=self.on_usage)
             self._ensure_llm_scenario(api_key)
-            stage_payload = self._stage_payload()
-            guide_lines = []
-            for key, values in stage_payload.items():
-                guide_lines.append(f"- {key}: {' | '.join(values)}")
-
             lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
             messages = [
                 {
@@ -499,20 +519,21 @@ class EricksonCoacheeAgent:
                     "content": (
                         "You are role-playing a coachee in a coach-training simulation. "
                         "The human user is the coach. Stay in first person as the coachee. "
-                        f"Current stage: {self.current_state.name} ({STAGE_DESCRIPTIONS[self.current_state]}). "
+                        f"Current stage: {self.current_state.value} of 5 ({STAGE_DESCRIPTIONS[self.current_state]}). "
                         f"Stage intent: {COACHEE_STAGE_HINTS[self.language][self.current_state]}. "
                         f"Respond only in {lang_instr}. {_language_output_rule(self.language)} "
                         "Do not coach the user. Do not ask multiple questions back. "
-                        "Offer 2-4 concise sentences that answer the coach's latest prompt, reveal only stage-relevant information, "
-                        "and show a realistic emotional response. Use the scenario notes below as your hidden ground truth:\n"
-                        + "\n".join(guide_lines)
+                        "Offer 2-4 concise sentences that answer the coach's latest prompt, reveal only what it asks about, "
+                        "and show a realistic emotional response. Your hidden ground truth is the case notes below; answer from "
+                        "the stage the coach is asking about, and don't bring up later stages before the coach does:\n"
+                        + self._case_notes()
                         + (self._stage_decision_rules() if decide_stage else self._end_only_rules())
                     ),
                 }
             ]
             for msg in _conversation_window(self.context):
                 role = "assistant" if msg["role"] == self.assistant_role else "user"
-                messages.append({"role": role, "content": msg["content"]})
+                messages.append({"role": role, "content": _as_written(msg)})
             raw = ""
             for raw in _stream_text(client, model=_chat_model(), messages=messages, max_tokens=220, temperature=0.7):
                 signal, visible = _split_stage_signal(raw)

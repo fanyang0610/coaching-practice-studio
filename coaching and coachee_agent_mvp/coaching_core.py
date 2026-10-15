@@ -193,8 +193,41 @@ def _stream_text(client, **create_kwargs):
         raise ValueError("Model returned no text content.")
 
 
-# Replies that also decide the stage flow start with one of these markers.
-_STAGE_SIGNAL_RE = re.compile(r"\[\[\s*(STAY|NEXT|END)\s*\]\]", re.IGNORECASE)
+# Replies that also place the conversation in a stage start with a marker naming the stage the talk is working on
+# ([[GOAL]] to [[COMMITMENT]]), or [[END]] to close the session. STAY, NEXT and numbers are older forms, still understood.
+STAGE_MARKERS = {1: "GOAL", 2: "REALITY", 3: "OPTIONS", 4: "COMMITMENT"}
+_STAGE_SIGNAL_RE = re.compile(r"\[\[\s*(STAY|NEXT|END|GOAL|REALITY|OPTIONS|COMMITMENT|[1-5])\s*\]\]", re.IGNORECASE)
+
+# Naming the stage the talk is in is something models do reliably; asked instead to decide when to move on, they
+# nearly always stayed, so the tracker sat on the first stage while the conversation had moved on. Words, with the
+# kinds of question each covers, worked better than stage numbers, which models tended to copy from turn to turn.
+STAGE_MARKER_GUIDE = """[[GOAL]] what they want from this session and how they will know they got it
+[[REALITY]] what is happening now, what they have tried, what already works, past successes, strengths and resources
+[[OPTIONS]] ideas for moving forward: what they could try, what else is possible
+[[COMMITMENT]] choosing what to do: which option, the first step, when, what support they need, what might get in the way"""
+
+
+def _marker(state: CoachingState) -> str:
+    return f"[[{STAGE_MARKERS.get(state.value, 'END')}]]"
+
+
+def _as_written(msg: dict) -> str:
+    """A past reply with its stage marker put back. Models copy their earlier replies: shown them without markers,
+    they stopped writing markers after two or three turns, and the stage stopped moving."""
+    stage = msg.get("stage")
+    if not stage:
+        return msg["content"]
+    return f"[[{STAGE_MARKERS.get(stage, 'END')}]] {msg['content']}"
+
+
+def _labelled_stage(signal: str | None, current: CoachingState) -> CoachingState:
+    """The stage a marker puts the conversation in. It never goes back, and only [[END]] reaches closing."""
+    numbers = {word: number for number, word in STAGE_MARKERS.items()}
+    if signal in numbers:
+        signal = str(numbers[signal])
+    if not signal or not signal.isdigit():
+        return current
+    return CoachingState(max(current.value, min(int(signal), CoachingState.VALUE.value)))
 
 
 def _split_stage_signal(raw: str) -> tuple[str | None, str]:
