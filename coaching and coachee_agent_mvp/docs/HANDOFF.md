@@ -150,7 +150,7 @@ Still open, in Fan's order:
 9. A progress page with score history over time (the Account page shows the last six).
 10. Mentor comments on sessions.
 
-**Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done (not deployed yet: ask Fan first):
+**Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done. **Both batches below were deployed to the Space on 2026-10-15 at 15:55 UTC** (with Fan's OK): build installed exactly Gradio 6.30.0, startup log clean, `/ping`, `/healthz`, `/login`, `/help` and `/privacy` checked live in both languages at phone and laptop widths. Not yet checked live: a signed-in session (needs Fan's account) and the Admin page's AI service card.
 1. ✅ **Gradio pinned.** The Space had silently installed Gradio 6.30 (no `sdk_version`), while this Mac ran 6.8. Now `sdk_version: 6.30.0` in the README front matter, `gradio==6.30.0` in `requirements.txt`, and 6.30.0 on this Mac's Python 3.14. `test_space_runs_the_gradio_version_tested_here` checks all three.
 2. ✅ **An old tab no longer overwrites newer turns.** Reproduced: a message sent from one tab vanished when an older tab sent its own. `coaching_sessions.updated_at` now keeps microseconds and doubles as a version. `save_session(expected_version=…)` refuses to overwrite a newer save, `_reload_if_changed` (web_app) reloads the stored conversation before acting (the person's message stays in the box), and `abandon_session` leaves a session finished elsewhere finished. Tested on SQLite and Postgres.
 3. ✅ **The Help page no longer promises "built-in questions"** after the daily allowance (both languages, README and `quota.py` notes too).
@@ -164,12 +164,12 @@ Still open, in Fan's order:
    - On 2026-10-15 the account had $5 added and $1.22 used. The key has **no spending limit**.
 7. ✅ WeChat: Fan tested the deployed app inside WeChat on 2026-10-15; it works.
 
-Second batch, also done the same day (Fan chose to do it in this session; not deployed yet):
+Second batch, also done the same day (Fan chose to do it in this session; deployed together with the first):
 8. ✅ **Group invite links.** The Admin and Mentor invite forms take "how many people" (1–200) and "valid for (days)" (1–60, default 14), stored in the existing `invites.max_uses` / `expires_at` columns. The invite list shows "3 of 30 used". A link locked to one email address is always one use (`account_pages.invite_limits`). Help now says links expire, not that each works once.
 9. ✅ **Per-email sign-in limit.** On top of email + IP (8 failures in 15 minutes), failures are counted per email alone (`EMAIL_MAX_FAILURES` = 20 in 15 minutes), because the IP comes from `X-Forwarded-For` (uvicorn `forwarded_allow_ips="*"` trusts the first entry). A successful sign-in resets only the email + IP count.
 10. ✅ **`/ping` for uptime monitors** answers without touching the database. `/healthz` still checks it. The Dockerfile health check uses `/ping`, and README step 6 now says to monitor `/ping`, e.g. every 10 minutes. That also keeps the free Space from sleeping after 48 idle hours. Check Neon's usage page after the first week.
 11. ✅ **Delete one conversation** from the Account page (owner only; confirmation dialog, CSRF, audit `session_deleted` without content). Its action card or score, rating and thumbs go too (foreign keys, tested on Postgres). Its token usage stays, so the daily token allowance still counts it; the session count no longer does.
-12. ✅ **Contact line on Help** from `ERICKSON_CONTACT` (e.g. "Fan, WeChat ID …"). Nothing shows when it's unset. **Fan to set this Space secret.**
+12. ✅ **Contact line on Help** from `ERICKSON_CONTACT` (e.g. "Fan, WeChat ID …"). Nothing shows when it's unset. **Not set on the Space yet: Fan will send the wording; add it as a Space variable (it isn't secret), and the Space restarts.**
 13. ✅ **Practice review prompt** describes the skills in plain words instead of a certification body's competency names. `test_no_certification_bodys_competency_names_in_what_the_ai_is_told` guards it. One real review on DeepSeek still gave the right format and caught advice-giving.
 
 Still open from the review:
