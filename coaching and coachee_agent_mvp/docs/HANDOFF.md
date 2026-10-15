@@ -1,6 +1,6 @@
 # Handoff: Coaching Practice Studio / 教练练习室
 
-Last updated 2026-10-14. Read this file fully before changing anything. Then read `AGENTS.md`, `README.md` and `DESIGN.md` in this folder.
+Last updated 2026-10-15. Read this file fully before changing anything. Then read `AGENTS.md`, `README.md` and `DESIGN.md` in this folder.
 
 ## Prompt to start the next session
 
@@ -75,14 +75,16 @@ The branch has 8 commits on top of `main`:
 ## 5. How to run and verify
 
 ```bash
-python3 tests.py                                   # 153 tests, about 3 s; tests blank the API key so they never call a real model
+python3 tests.py                                   # 218 tests, about 5 s; tests blank the API key so they never call a real model
 python3 scripts/check_project.py --browser --launcher   # tests, compile, HF dry-run, signed-in desktop and iPhone screenshots, launcher rebuild
 python3 scripts/load_test.py --users 50 --messages 3    # median about 3.6 s to first words under a 50-user burst
 python3 scripts/dev_server.py                       # UI review on http://127.0.0.1:8797 with seeded admin/mentor/member accounts
 uv run -q --python 3.10 --no-project --with-requirements requirements.txt python tests.py   # the HF Space runs Python 3.10
 ```
 
-Postgres check: run the `uv run …` command in the `scripts/pg_test.py` docstring (21 tests).
+Postgres check: run the `uv run …` command in the `scripts/pg_test.py` docstring (42 tests, including the app's stored-session handlers).
+
+`python3 scripts/dev_server.py --ai-down` makes every AI request fail with 402, as when the AI account is out of credit: use it to see the "AI isn't available" notice and the Admin page's AI service card.
 
 Screenshots from the browser check land in `/private/tmp/erickson-check/erickson-desktop.png` and `erickson-mobile.png`. For live UI review, run `scripts/dev_server.py` from Bash in the background, then open it in the built-in browser pane. The pane's own `preview_start` with a launch.json got stuck reading the Documents folder.
 
@@ -148,6 +150,33 @@ Still open, in Fan's order:
 9. A progress page with score history over time (the Account page shows the last six).
 10. Mentor comments on sessions.
 
+**Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done (not deployed yet: ask Fan first):
+1. ✅ **Gradio pinned.** The Space had silently installed Gradio 6.30 (no `sdk_version`), while this Mac ran 6.8. Now `sdk_version: 6.30.0` in the README front matter, `gradio==6.30.0` in `requirements.txt`, and 6.30.0 on this Mac's Python 3.14. `test_space_runs_the_gradio_version_tested_here` checks all three.
+2. ✅ **An old tab no longer overwrites newer turns.** Reproduced: a message sent from one tab vanished when an older tab sent its own. `coaching_sessions.updated_at` now keeps microseconds and doubles as a version. `save_session(expected_version=…)` refuses to overwrite a newer save, `_reload_if_changed` (web_app) reloads the stored conversation before acting (the person's message stays in the box), and `abandon_session` leaves a session finished elsewhere finished. Tested on SQLite and Postgres.
+3. ✅ **The Help page no longer promises "built-in questions"** after the daily allowance (both languages, README and `quota.py` notes too).
+4. ✅ **Crisis safety.** The fixed reply, Help, Privacy and the coach prompt now name mainland China's numbers: 12356 (national psychological help line, all provinces since May 2025), 120 and 110. More phrases are caught (活着没意思, 一了百了, 跳楼, 割腕, "take my own life"…). Everyday idioms no longer trigger it: 想死你了 / 可想死我了 (miss you), 你去死 (anger at someone else), 跳楼价 (price cut).
+5. ✅ **OpenRouter privacy.** `OPENROUTER_PRIVACY` (coaching_core) sends `provider.data_collection = deny` with every OpenRouter request. Tested with real calls: both hosts of `deepseek/deepseek-chat` qualify, DeepInfra (USA, fp4; the usual pick) and StreamLake (Kuaishou, China), so availability is unchanged. The stricter `{"provider": {"zdr": true}}` leaves DeepInfra only (no fallback). That is Fan's choice, set through `OPENAI_EXTRA_BODY` with no code change.
+6. ✅ **When the AI is down or out of credit:**
+   - A session whose opening fails shows "The AI isn't available right now…" (`ai_unavailable`). The session isn't stored, so the try doesn't count against the allowance.
+   - A practice no longer opens on a built-in case when the service refuses requests (`openai.APIError`). Unreadable case JSON still falls back to a built-in case.
+   - Failed requests reach `coaching_core.on_request_failure` and land in the audit log as `ai_error`, at most once a minute.
+   - The Admin page opens with an "AI service" card: the OpenRouter balance (`/api/v1/credits` works with a normal key, cached 5 minutes; warning under $2) and the latest failure.
+   - On 2026-10-15 the account had $5 added and $1.22 used. The key has **no spending limit**.
+7. ✅ WeChat: Fan tested the deployed app inside WeChat on 2026-10-15; it works.
+
+Still open from the review, in priority order:
+- Inviting 50 people means 50 one-use links. A group link with N uses and an expiry would help.
+- Password resets all go through Fan. Set the SMTP secrets; mail sent from Gmail can land in spam at QQ or 163 mailboxes.
+- **Neon free plan: 100 compute-hours a month.** The database sleeps after 5 idle minutes. `/healthz` queries the database, so an uptime monitor on it (README step 6) would keep Neon awake all month (~180 h), and Neon would stop the database mid-month. Before adding a monitor, give it a URL that doesn't touch the database, and check Neon's usage page after the first week.
+- The free Space sleeps after 48 h without visitors.
+- The login throttle keys on email + IP. The IP comes from `X-Forwarded-For` (uvicorn `forwarded_allow_ips="*"` trusts the first entry), so a caller can rotate it. Add a per-email limit.
+- In "Be coached", the AI writes "Areas for Challenge" about the person's life and steers the next session toward them; the analysis prompt even calls them "coaching strengths". Fan to decide: off, or neutral.
+- Members can't delete a single session, only their account.
+- No way to report a problem: add Fan's contact or a feedback box to Help.
+- The practice review prompt uses a certification body's competency names ("Creating Presence", "Powerful Questioning"…). Reword, given the branding caution.
+
+Suggested rollout: 5–10 people for a week (WeChat users in China, people abroad, one mentor), watching ratings, OpenRouter spend and Neon usage, before the wider invite.
+
 **Known limits (also in README "Known Limits"):**
 - One server process only (in-memory rate limits).
 - No schema migrations yet; Alembic is needed before changing existing columns after launch.
@@ -157,6 +186,12 @@ Still open, in Fan's order:
 - Gradio's page template still has Google Fonts preconnect hints and a Cloudflare script; these don't block the page.
 
 ## 8. Gotchas learned the hard way
+
+- **Gradio version drift (found 2026-10-15):** without `sdk_version` in the README front matter, HF installs the newest Gradio on every build (`gradio[oauth,mcp]==<latest>` plus `requirements.txt`), so the Space ran 6.30 while every local check used 6.8. Keep `sdk_version`, the `gradio==` pin and this Mac's install equal.
+- **pip through Fan's VPN proxy** (`localhost:7897`) can stall for minutes on large wheels. `uv pip install --python "$(which python3)" --system "<package>"` uses uv's cache and finishes in seconds.
+- **zsh `path`:** in zsh, a variable named `path` is the command search path. `for path in …` in a shell loop makes `curl` and `python3` "not found"; use another name.
+- **Session versions:** `updated_at` keeps microseconds on purpose (`db._version_stamp`). Other timestamps stay whole seconds (`utcnow`). Don't round `updated_at`, or the conflict check in `save_session` stops matching.
+- **OpenRouter credit endpoint:** `GET https://openrouter.ai/api/v1/credits` (`total_credits`, `total_usage`) works with an ordinary API key, and `GET /api/v1/key` gives that key's usage and limit. Both are free.
 
 - **Real model calls in tests:** `.env` loads the real key, so `tests.py` blanks `OPENAI_API_KEY` at the top, and so does the browser check in `scripts/check_project.py` (before 2026-10-14 it used up free-model requests on every run). Never open an `llm`-mode session in a test without patching. One test once did, which slowed the suite and spent free quota.
 - **Python 3.10 on HF:** don't use `datetime.UTC` (it's 3.11+); use `datetime.timezone.utc`. Run the 3.10 suite before deploying.

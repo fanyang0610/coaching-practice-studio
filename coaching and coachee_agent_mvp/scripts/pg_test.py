@@ -3,8 +3,10 @@
 
 Needs uv (https://docs.astral.sh/uv/). It downloads Python 3.12 and pgserver into a temporary environment:
 
-    uv run --python 3.12 --no-project --with pgserver --with "sqlalchemy>=2,<3" \\
-        --with "psycopg[binary]>=3.2,<4" --with "openai>=2.24,<3" --with python-dotenv python scripts/pg_test.py
+    uv run --python 3.12 --no-project --with pgserver --with-requirements requirements.txt python scripts/pg_test.py
+
+TestStoredSessions drives the app's own handlers, so the check that an old tab can't overwrite newer turns (which
+relies on updated_at keeping its microseconds) runs on Postgres too.
 """
 
 import itertools
@@ -40,7 +42,7 @@ db.Store.__init__ = postgres_store
 import tests  # noqa: E402
 
 suite = unittest.TestSuite()
-for case in (tests.TestStore, tests.TestAccounts, tests.TestQuota):
+for case in (tests.TestStore, tests.TestAccounts, tests.TestQuota, tests.TestStoredSessions):
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
 result = unittest.TextTestRunner(verbosity=1).run(suite)
 sys.exit(0 if result.wasSuccessful() else 1)

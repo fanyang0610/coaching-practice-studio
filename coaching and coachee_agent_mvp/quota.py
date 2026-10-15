@@ -1,7 +1,7 @@
 """Daily AI allowances per person and module, over a rolling 24 hours, plus a per-minute message limit.
 
 A session that is already running is never cut off: allowances are checked when an AI session starts.
-Over the limit, new sessions open in template mode instead.
+Over the limit, no new session starts in that module; the page says when one can.
 
 AI Coach (personal coaching) and Coachee Lab (practice) have separate session allowances, because
 practice drills shouldn't use up someone's own coaching. Tokens are one shared daily backstop.

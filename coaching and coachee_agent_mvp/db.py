@@ -166,6 +166,11 @@ def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None, microsecond=0)
 
 
+def _version_stamp() -> dt.datetime:
+    """A session's updated_at, to the microsecond: it doubles as the version a page last saw (see save_session)."""
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+
+
 def database_url(env: dict[str, str] | None = None) -> str:
     env = os.environ if env is None else env
     url = env.get("DATABASE_URL", "").strip()
@@ -319,20 +324,45 @@ class Store:
         return session_id
 
     def save_session(self, session_id: str, *, state: dict, status: str, stage: str, user_turns: int,
-                     language: str, mode: str) -> None:
-        now = utcnow()
+                     language: str, mode: str, expected_version: dt.datetime | None = None) -> dt.datetime | None:
+        """Store a conversation and return its new version (its updated_at).
+
+        With expected_version, the save happens only if nobody has saved the session since that version, e.g. from
+        another tab or device; otherwise nothing changes and None is returned, so an old page can't overwrite newer turns.
+        """
+        now = _version_stamp()
         values = dict(state=json.dumps(state, ensure_ascii=False), status=status, stage=stage, user_turns=user_turns,
                       language=language, mode=mode, updated_at=now)
+        if status == "completed":
+            values["completed_at"] = sa.func.coalesce(coaching_sessions.c.completed_at,
+                                                     sa.literal(now.replace(microsecond=0), sa.DateTime()))
         stmt = coaching_sessions.update().where(coaching_sessions.c.id == session_id)
+        if expected_version is not None:
+            stmt = stmt.where(coaching_sessions.c.updated_at == expected_version)
         with self.engine.begin() as conn:
-            if status == "completed":
-                conn.execute(stmt.where(coaching_sessions.c.completed_at.is_(None)).values(completed_at=now))
-            conn.execute(stmt.values(**values))
+            return now if conn.execute(stmt.values(**values)).rowcount == 1 else None
+
+    def delete_session(self, session_id: str) -> None:
+        """Remove a session that never got going (its opening failed), so it doesn't count as a started session."""
+        with self.engine.begin() as conn:
+            conn.execute(coaching_sessions.delete().where(coaching_sessions.c.id == session_id))
+
+    def session_version(self, session_id: str) -> dict | None:
+        """What a page needs to tell whether its copy of a session is still the latest: updated_at, status, module, language."""
+        c = coaching_sessions.c
+        return self._one(sa.select(c.updated_at, c.status, c.module, c.language).where(c.id == session_id))
 
     def set_session_status(self, session_id: str, status: str) -> None:
         with self.engine.begin() as conn:
             conn.execute(coaching_sessions.update().where(coaching_sessions.c.id == session_id).values(
-                status=status, updated_at=utcnow()))
+                status=status, updated_at=_version_stamp()))
+
+    def abandon_session(self, session_id: str) -> None:
+        """Set an unfinished session aside. A session finished meanwhile (e.g. on another device) stays finished."""
+        with self.engine.begin() as conn:
+            conn.execute(coaching_sessions.update().where(coaching_sessions.c.id == session_id,
+                                                          coaching_sessions.c.status == "active")
+                         .values(status="abandoned", updated_at=_version_stamp()))
 
     def set_session_shared(self, session_id: str, shared: bool) -> None:
         with self.engine.begin() as conn:
@@ -517,6 +547,11 @@ class Store:
 
     def audit_entries(self, limit: int = 100) -> list[dict]:
         return self._all(sa.select(audit_log).order_by(audit_log.c.id.desc()).limit(limit))
+
+    def audit_since(self, action: str, since: dt.datetime) -> list[dict]:
+        """Entries of one kind since a time, newest first."""
+        return self._all(sa.select(audit_log).where(audit_log.c.action == action, audit_log.c.created_at >= since)
+                         .order_by(audit_log.c.id.desc()))
 
     # Export ------------------------------------------------------------------
 

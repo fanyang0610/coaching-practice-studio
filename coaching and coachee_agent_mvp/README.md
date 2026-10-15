@@ -4,6 +4,7 @@ emoji: 🧭
 colorFrom: blue
 colorTo: indigo
 sdk: gradio
+sdk_version: 6.30.0
 python_version: "3.10"
 app_file: app.py
 pinned: false
@@ -28,7 +29,7 @@ Coaching Practice Studio is invite-only. Everyone signs in with an email and pas
 
 Both coaching modules are always one person talking with the AI: in AI Coach the AI coaches the person, and in Coachee Lab the person practises coaching an AI coachee. The roles below are about people and who may read whose transcripts.
 
-- **Admin** (管理员): manages people, invites, roles, mentors and daily allowances, sees when sessions happen and how long they are, and reads the audit log (`/admin`). Being an admin gives no access to what anyone said; an admin who is assigned as someone's mentor sees only what any mentor would.
+- **Admin** (管理员): manages people, invites, roles, mentors and daily allowances, sees when sessions happen and how long they are, and reads the audit log (`/admin`). The Admin page opens with an "AI service" card: the credit left on the OpenRouter account (with a warning under $2) and any failed AI requests in the last 24 hours, such as 402 when the credit has run out. Being an admin gives no access to what anyone said; an admin who is assigned as someone's mentor sees only what any mentor would.
 - **Mentor** (导师; role key `trainer`): a real person, such as a coaching instructor, who reviews the practice of the members assigned to them. That covers their Coachee Lab sessions, plus any AI Coach session a member chooses to share (`/mentor`). Mentors can also invite members, who are then assigned to them. If you don't run supervised training, simply create no mentors.
 - **Member** (成员; role key `user`): uses the coaching app, and manages their sessions, sharing, insights, password, data export and account deletion (`/account`).
 
@@ -44,6 +45,7 @@ AI Coach sessions are private by default, because people bring their real lives 
 - **AI Coach.** The coach always sees the start of the conversation (where the goal is agreed) as well as the latest messages. At the end, the person gets an **action card**: goal, next step, by when, and support. It appears in the chat and is kept on the Account page. A new AI Coach session opens by asking how the last plan went, using a card that is 8 hours to 60 days old.
 - **AI Coachee Lab.** The score from each practice review is saved. The Account page shows the latest scores with an average, and the member's mentor sees the scores in their session list.
 - The admin sees neither action cards nor scores, in keeping with "the admin can't read conversations".
+- **Phone and laptop.** A session continues wherever the person signs in. If a tab left open elsewhere is out of date, its next message first shows the newer turns (the message stays in the box), so one device never overwrites the other.
 
 ## Configuration
 
@@ -52,7 +54,7 @@ AI Coach sessions are private by default, because people bring their real lives 
 | `OPENAI_API_KEY` | yes | Server-side model key. Users never see it. |
 | `OPENAI_MODEL` | yes | Use a paid model, e.g. `openai/gpt-4o-mini` on OpenRouter (about a cent per full session). `openrouter/free` routes to random free models that often return nothing or hit rate limits. |
 | `OPENAI_BASE_URL` | for gateways | e.g. `https://openrouter.ai/api/v1`, or `https://api.deepseek.com` for DeepSeek. |
-| `OPENAI_EXTRA_BODY` | optional | Extra JSON fields sent with every model request, for provider-specific switches, e.g. `{"enable_thinking": false}` for Qwen. For DeepSeek, thinking is switched off automatically. |
+| `OPENAI_EXTRA_BODY` | optional | Extra JSON fields sent with every model request, for provider-specific switches, e.g. `{"enable_thinking": false}` for Qwen. They are added on top of the built-in defaults and win on any field they set: for DeepSeek, thinking is switched off; on OpenRouter, requests only go to hosts that don't collect the data (`{"provider": {"data_collection": "deny"}}`). |
 | `DATABASE_URL` | hosted | Postgres URL, e.g. from Neon or Supabase. Without it, data goes to a local `erickson.db` SQLite file, which a Space restart erases. |
 | `ERICKSON_SECRET_KEY` | hosted | Signs sign-in cookies. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`. Startup refuses to run publicly without it. |
 | `ERICKSON_ADMIN_EMAIL`, `ERICKSON_ADMIN_PASSWORD` | first deploy | Creates the first admin (password at least 10 characters). |
@@ -64,7 +66,7 @@ AI Coach sessions are private by default, because people bring their real lives 
 
 ## Daily Allowances and Limits
 
-Allowances use a rolling 24 hours and are checked when an AI session starts, so a session in progress is never cut off. Over the limit, new sessions open in template practice mode, with a notice saying roughly how many hours until AI is available again. AI Coach and Coachee Lab have separate session allowances, so practice drills don't use up someone's own coaching sessions; tokens are one shared daily backstop.
+Allowances use a rolling 24 hours and are checked when an AI session starts, so a session in progress is never cut off. Over the limit, no new session starts in that mode: the chat says roughly how many hours until one can, and whether the other mode still has sessions left. There are no canned stand-in replies. AI Coach and Coachee Lab have separate session allowances, so practice drills don't use up someone's own coaching sessions; tokens are one shared daily backstop.
 
 | Role | AI Coach sessions | Coachee Lab sessions | Tokens |
 |---|---|---|---|
@@ -81,7 +83,7 @@ Replies stream in. Each reply starts with a hidden marker naming the stage the c
 Any provider with an OpenAI-compatible API works through the three `OPENAI_*` settings; no code change is needed.
 
 - **DeepSeek** (good Chinese and English, low cost, reachable from mainland China): `OPENAI_BASE_URL=https://api.deepseek.com`, `OPENAI_MODEL=deepseek-flash`, and a DeepSeek API key with some credit. DeepSeek turns "thinking" on by default, which would use up the short reply budgets and return empty replies, so the app switches it off automatically for `deepseek.com` addresses. DeepSeek processes data in China; say so in `ERICKSON_DATA_LOCATIONS`.
-- **OpenRouter**: `OPENAI_BASE_URL=https://openrouter.ai/api/v1` with a paid model such as `openai/gpt-4o-mini`. Avoid `openrouter/free`: it routes each call to a random free model, and in testing only about 1 in 6 replies was usable.
+- **OpenRouter**: `OPENAI_BASE_URL=https://openrouter.ai/api/v1` with a paid model such as `deepseek/deepseek-chat`. Avoid `openrouter/free`: it routes each call to a random free model, and in testing only about 1 in 6 replies was usable. The app asks OpenRouter to use only hosts that don't collect what they're sent. In October 2026 both hosts of `deepseek/deepseek-chat` qualified: DeepInfra (USA) and StreamLake (China). For the stricter zero-retention routing, which only DeepInfra met and which leaves no fallback host, set `OPENAI_EXTRA_BODY={"provider": {"zdr": true}}` and say "USA" in `ERICKSON_DATA_LOCATIONS`.
 
 Whatever you choose, run one real session before inviting people, to see that replies arrive and the coaching stages move on.
 
@@ -110,7 +112,7 @@ The app and the account pages share one language setting. On a first visit it fo
 
 - The privacy notice at `/privacy` explains what is stored and who can read it. New people must accept it when they sign up.
 - Learners can download all their data as JSON or delete their account from the Account page.
-- Messages in the AI Coach module that suggest someone may harm themselves get a fixed reply pointing to emergency services and findahelpline.com instead of coaching, and an entry in the audit log (without the message text). The coach prompt also tells the model to stop and point to help.
+- Messages in the AI Coach module that suggest someone may harm themselves get a fixed reply pointing to emergency services (in mainland China: the 12356 psychological help line, 120 and 110) and findahelpline.com instead of coaching, and an entry in the audit log (without the message text). The coach prompt also tells the model to stop and point to help.
 - Gradio's usage analytics are turned off.
 
 ## Known Limits
@@ -149,6 +151,8 @@ python3 scripts/check_project.py
 # Include desktop/mobile screenshots and launcher rebuild:
 python3 scripts/check_project.py --browser --launcher
 ```
+
+**Gradio version.** The README front matter's `sdk_version` and the `gradio==` line in `requirements.txt` name the same exact version, and that is the version installed on this Mac (`python3 -m pip install -r requirements.txt`, or `uv pip install --system "gradio==<version>"` when pip is slow through a VPN). Unpinned, the Space installed the newest Gradio on every deploy, which this Mac had never run. A test checks all three match. To upgrade, change both lines, install it here, and run the browser check before deploying.
 
 For Hugging Face Spaces, keep the README front matter pointed at `app_file: app.py`, but deploy by uploading local `web_app.py` to the remote path `app.py`:
 

@@ -3,6 +3,7 @@
 
     python3 scripts/dev_server.py            # then open http://127.0.0.1:8797
     python3 scripts/dev_server.py --email    # also show "Forgot your password?" (mail goes nowhere)
+    python3 scripts/dev_server.py --ai-down  # every AI request fails, as when the AI account is out of credit
 
 Accounts (all share the printed throwaway password): admin@example.test, mentor@example.test and
 member@example.test (assigned to the mentor, with one finished practice session and one open coaching session).
@@ -10,12 +11,15 @@ Nothing here touches your real API key or database.
 """
 
 import argparse
+from http.server import BaseHTTPRequestHandler
+import json
 import os
 from pathlib import Path
 import runpy
 import secrets
 import sys
 import tempfile
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
@@ -31,6 +35,7 @@ import load_test  # noqa: E402
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--port", default="8797")
 parser.add_argument("--email", action="store_true", help="Pretend SMTP is configured.")
+parser.add_argument("--ai-down", action="store_true", help="Refuse every AI request with 402, like an account out of credit.")
 args = parser.parse_args()
 
 database_url = f"sqlite:///{tempfile.mkdtemp(prefix='studio-dev-')}/dev.db"
@@ -58,7 +63,27 @@ store.save_profile(member, "coachee", {"strengths": ["Asks open questions"], "gr
 store.record_usage(member, practice_id, "fake", 4200, 800)
 store.create_invite(admin, role="trainer", email="new.mentor@example.test")
 
-llm = load_test.start_fake_llm(0.8)
+def start_out_of_credit_llm():
+    """A stand-in AI service that refuses every request the way OpenRouter does when the account has no credit left."""
+    class Refuse(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = json.dumps({"error": {"message": "Insufficient credits", "code": 402}}).encode()
+            self.send_response(402)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = load_test.LocalHTTPServer(("127.0.0.1", 0), Refuse)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+llm = start_out_of_credit_llm() if args.ai_down else load_test.start_fake_llm(0.8)
 os.environ.update({
     "OPENAI_API_KEY": "fake", "OPENAI_BASE_URL": f"http://127.0.0.1:{llm.server_address[1]}/v1", "OPENAI_MODEL": "fake",
     "DATABASE_URL": database_url, "ERICKSON_SECRET_KEY": secrets.token_hex(32), "GRADIO_SERVER_PORT": args.port,

@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 import accounts
 import account_pages
 from coach_agent import ACTION_CARD_FIELDS, EricksonCoachingAgent
+import coaching_core
 from coaching_core import CoachingState
 from coachee_agent import EricksonCoacheeAgent
 import db
@@ -435,10 +436,11 @@ def _attach(session: dict, user: dict) -> dict:
 
 
 def _save(session: dict) -> None:
+    """Store the conversation, unless another tab or device saved it after this page last did: newer turns win."""
     if not session.get("id"):
         return
     agent = session["agent"]
-    get_store().save_session(
+    version = get_store().save_session(
         session["id"],
         state=agent.to_dict(),
         status="completed" if agent.is_session_ended() else "active",
@@ -446,7 +448,40 @@ def _save(session: dict) -> None:
         user_turns=_user_turns(agent),
         language=agent.language,
         mode=agent.mode,
+        expected_version=session.get("version"),
     )
+    if version is None:
+        # Both pages replied at the same moment. The other one saved first; this page reloads it on its next action.
+        logger.warning("Session %s changed elsewhere; this page's last turn was not saved", session["id"])
+        session["version"] = _STALE
+        gr.Warning(UI[agent.language]["reply_not_saved"])
+        return
+    session["version"] = version
+
+
+# A version no stored session has, so the next action reloads the conversation (see _save).
+_STALE = dt.datetime(1970, 1, 1)
+
+
+def _reload_if_changed(session: dict, user: dict, lang_code: str) -> dict:
+    """The stored conversation, when another tab or device has changed it since this page last saved or loaded it.
+
+    The same conversation, still in this module and language, is reloaded and flagged "changed_elsewhere", so the
+    action that found it shows the latest turns instead of acting on an old copy. Anything else (finished there and a
+    new one started, or another language) needs a fresh page.
+    """
+    store = get_store()
+    current = store.session_version(session["id"])
+    if current is not None and current["updated_at"] == session.get("version"):
+        return session
+    if (current is None or current["status"] == "abandoned" or current["module"] != session["module"]
+            or current["language"] != lang_code):
+        raise gr.Error(UI[lang_code]["session_moved"])
+    reloaded = _restore_session(store.get_session(session["id"]), user)
+    if reloaded is None:
+        raise gr.Error(UI[lang_code]["session_moved"])
+    reloaded["changed_elsewhere"] = True
+    return reloaded
 
 
 def _unavailable_notice(user: dict, module_code: str, lang_code: str) -> str | None:
@@ -491,7 +526,14 @@ def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str) 
         agent.last_card = get_store().latest_card(user["id"], since=now - FOLLOW_UP_WITHIN, until=now - FOLLOW_UP_AFTER)
     session_id = get_store().create_session(user["id"], module_code, lang_code, mode_code, agent.current_state.name, agent.to_dict())
     session = _attach({"module": module_code, "agent": agent, "id": session_id}, user)
-    _append_opening_prompt(agent)
+    try:
+        _append_opening_prompt(agent)
+    except Exception:
+        # E.g. the AI account is out of credit. No canned opening: say so plainly, and since nothing was said, the
+        # attempt doesn't count against today's allowance.
+        logger.exception("Opening a session failed")
+        get_store().delete_session(session_id)
+        return _unavailable_session(user, module_code, lang_code, UI[lang_code]["ai_unavailable"])
     _save(session)
     return session
 
@@ -505,12 +547,12 @@ def _restore_session(row: dict, user: dict) -> dict | None:
         logger.exception("Stored session %s could not be reopened", row["id"])
         get_store().set_session_status(row["id"], "abandoned")
         return None
-    return _attach({"module": row["module"], "agent": agent, "id": row["id"]}, user)
+    return _attach({"module": row["module"], "agent": agent, "id": row["id"], "version": row["updated_at"]}, user)
 
 
 def _leave_session(session: dict | None) -> None:
     if session and session.get("id") and not session["agent"].is_session_ended():
-        get_store().set_session_status(session["id"], "abandoned")
+        get_store().abandon_session(session["id"])
 
 
 def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel: str, lang_sel: str,
@@ -526,6 +568,8 @@ def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel:
     if not session or session.get("user_id") != user["id"] or not session.get("id"):
         row = get_store().latest_active_session(user["id"])
         session = _restore_session(row, user) if row else None
+    elif session.get("module") == module_code:
+        session = _reload_if_changed(session, user, session["agent"].language)
     if not session or session.get("module") != module_code:
         _leave_session(session)
         return _open_session(user, module_code, mode_code, lang_code)
@@ -538,17 +582,12 @@ def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel:
 
 
 def _append_opening_prompt(agent):
+    """The AI's next prompt (a session's opening, or the next stage after Skip Ahead). Raises if the AI can't answer."""
     api_key = _safe_key()
     if agent.mode == "llm" and not api_key:
         prompt = _llm_config_message(agent.language)
     else:
-        try:
-            prompt = agent.get_stage_prompt(api_key=api_key or None)
-        except Exception:
-            if agent.mode != "llm":
-                raise
-            logger.exception("Opening prompt failed")
-            prompt = UI[agent.language]["ai_opening_error"]
+        prompt = agent.get_stage_prompt(api_key=api_key or None)
     agent.context.append({"role": agent.assistant_role, "content": prompt})
     return prompt
 
@@ -734,6 +773,13 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
         yield _respond_outputs(gr.update(interactive=False), _chat_history_from_context(agent), agent, session)
         return
 
+    if session.pop("changed_elsewhere", False):
+        # Show what was said in the other tab or device first; the person's message stays in the box to send again.
+        gr.Info(s["session_changed_elsewhere"])
+        yield _respond_outputs(gr.update(interactive=not agent.is_session_ended()), _chat_history_from_context(agent),
+                               agent, session)
+        return
+
     if not user_msg:
         gr.Warning(s["empty_warning"])
         yield _respond_outputs(gr.update(), chat_history, agent, session)
@@ -839,6 +885,10 @@ def next_stage(chat_history, session, module_sel, mode_sel, lang_sel, request: g
     if session.get("unavailable"):
         gr.Info(session["unavailable"])
         return _next_stage_outputs(gr.update(interactive=False), _chat_history_from_context(agent), agent, session)
+    if session.pop("changed_elsewhere", False):
+        gr.Info(UI[agent.language]["session_changed_elsewhere"])
+        return _next_stage_outputs(gr.update(interactive=not agent.is_session_ended()), _chat_history_from_context(agent),
+                                   agent, session)
     lock = _agent_lock(agent)
     if not lock.acquire(blocking=False):
         gr.Warning(UI[agent.language]["busy_warning"])
@@ -928,6 +978,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
     # Keep the conversation in its old language until it has been translated; setting the new language first made
     # translate_history think there was nothing to do, so the opening question stayed in the old language.
     session = _ensure_session(session, user, module_sel, mode_sel, new_lang, set_language=False)
+    session.pop("changed_elsewhere", None)  # the latest turns are translated and shown below
     agent = session["agent"]
     with _agent_lock(agent):
         if agent.translate_history(new_lang=lc, api_key=_safe_key() or None):
@@ -1208,6 +1259,38 @@ with gr.Blocks(
 
 LOCAL_SECRET_FILE = ROOT / ".erickson_secret"
 
+# A failing AI service fails every request; one note a minute in the audit log is plenty for the Admin page.
+AI_FAILURE_LOG_EVERY = 60
+CREDIT_CHECK_EVERY = 300
+_failure_log_lock = threading.Lock()
+_last_failure_logged: float | None = None
+_credit_lock = threading.Lock()
+_credit_cache: dict = {"checked": None, "value": None}
+
+
+def _record_ai_failure(exc: Exception) -> None:
+    """Note a failed AI request (e.g. out of credit) in the audit log, so the Admin page can warn the owner."""
+    global _last_failure_logged
+    now = time.monotonic()
+    with _failure_log_lock:
+        if _last_failure_logged is not None and now - _last_failure_logged < AI_FAILURE_LOG_EVERY:
+            return
+        _last_failure_logged = now
+    try:
+        get_store().log(None, "ai_error", detail=coaching_core.failure_summary(exc))
+    except Exception:
+        logger.exception("Recording a failed AI request failed")
+
+
+def _ai_credit_left() -> float | None:
+    """Dollars left on the AI account (OpenRouter only), read at most every five minutes."""
+    with _credit_lock:
+        checked = _credit_cache["checked"]
+        if checked is None or time.monotonic() - checked >= CREDIT_CHECK_EVERY:
+            value = coaching_core.openrouter_credit_left(get_server_api_key(), get_server_base_url())
+            _credit_cache.update(checked=time.monotonic(), value=value)
+        return _credit_cache["value"]
+
 
 def _secret_key(env: dict[str, str] | None = None) -> str:
     """Signs sign-in cookies. Public deployments must set ERICKSON_SECRET_KEY; a local run keeps one in .erickson_secret."""
@@ -1258,7 +1341,9 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
         storage_warning=public and store.is_sqlite,
         mailer=mailer.smtp_sender(env),
         data_locations=env.get("ERICKSON_DATA_LOCATIONS", "").strip(),
+        ai_credit=_ai_credit_left,
     )
+    coaching_core.on_request_failure = _record_ai_failure
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(account_pages.build_router(get_store, settings))
 

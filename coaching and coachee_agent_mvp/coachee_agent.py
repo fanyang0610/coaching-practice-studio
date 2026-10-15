@@ -5,6 +5,9 @@ import re
 import random
 import threading
 import uuid
+
+import openai
+
 from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coachee_data import (
     COACHEE_ACKNOWLEDGMENTS,
@@ -312,8 +315,11 @@ class EricksonCoacheeAgent:
         try:
             payload = _json_completion(client, messages=[{"role": "system", "content": prompt}], max_tokens=1200, temperature=0.9)
             self.scenario = _scenario_bundle_from_single_language(payload)
+        except openai.APIError:
+            # The AI service itself is down or refusing (e.g. out of credit): a practice that can't go on shouldn't open.
+            raise
         except Exception:
-            # Keep the built-in case chosen at the start, so the practice session still opens.
+            # An unreadable case: keep the built-in case chosen at the start, so the practice session still opens.
             logger.warning("Generating a practice case failed; using a built-in one", exc_info=True)
         self._llm_scenario_ready = True
 

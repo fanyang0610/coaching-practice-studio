@@ -6,6 +6,7 @@ import os
 import re
 import time
 import types
+import urllib.request
 
 import openai
 
@@ -17,6 +18,10 @@ LLM_MAX_RETRIES = 1
 # The service sometimes answers "too busy" (429) or has a brief outage, and the OpenAI client's own retry comes within
 # half a second. Two more tries a few seconds apart, but never after a timeout, so nobody waits minutes.
 BUSY_RETRY_DELAYS = (1.5, 3.0)
+
+# Called with the exception when a model request has finally failed (after the retries), e.g. when the AI account has
+# run out of credit. The web app sets it, so the Admin page can say the AI is failing before anyone has to complain.
+on_request_failure = None
 
 
 class CoachingState(enum.Enum):
@@ -53,21 +58,28 @@ def _build_client(api_key: str, base_url: str | None = None, on_usage=None):
         resolved_base_url = "https://openrouter.ai/api/v1"
     client = _shared_client(api_key, resolved_base_url or None)
     extra_body = _provider_extra_body(resolved_base_url)
-    return _MeteredClient(client, on_usage, extra_body) if on_usage or extra_body else client
+    return _MeteredClient(client, on_usage, extra_body)
+
+
+# On OpenRouter, send requests only to hosts that don't collect what they're sent: people bring their real lives to the
+# AI Coach. Tested October 2026 with deepseek/deepseek-chat: both of its hosts (DeepInfra, USA, and StreamLake, China)
+# qualify, so this costs no availability. {"provider": {"zdr": true}} (zero retention) is stricter: only DeepInfra.
+OPENROUTER_PRIVACY = {"provider": {"data_collection": "deny"}}
 
 
 def _provider_extra_body(base_url: str | None) -> dict:
-    """Provider-specific request fields: OPENAI_EXTRA_BODY (JSON) if set, else known defaults.
+    """Provider-specific request fields: known defaults, with OPENAI_EXTRA_BODY (JSON) on top, winning on any field it sets.
 
     DeepSeek turns "thinking" on by default, which spends the short reply budgets on hidden
-    reasoning and returns empty replies, so it is switched off.
+    reasoning and returns empty replies, so it is switched off. OpenRouter gets OPENROUTER_PRIVACY.
     """
-    raw = os.environ.get("OPENAI_EXTRA_BODY", "").strip()
-    if raw:
-        return json.loads(raw)
+    defaults: dict = {}
     if "deepseek.com" in (base_url or ""):
-        return {"thinking": {"type": "disabled"}}
-    return {}
+        defaults = {"thinking": {"type": "disabled"}}
+    elif "openrouter.ai" in (base_url or ""):
+        defaults = json.loads(json.dumps(OPENROUTER_PRIVACY))
+    raw = os.environ.get("OPENAI_EXTRA_BODY", "").strip()
+    return {**defaults, **json.loads(raw)} if raw else defaults
 
 
 def _estimate_tokens(text: str) -> int:
@@ -89,9 +101,10 @@ def _report_usage(on_usage, create_kwargs: dict, usage, output_text: str) -> Non
 
 
 class _MeteredClient:
-    """Adds provider request fields to every completion and, when on_usage is given, reports token usage."""
+    """Adds provider request fields to every completion, reports failed requests and, with on_usage, token usage."""
 
     def __init__(self, client, on_usage=None, extra_body: dict | None = None):
+        self.client = client  # the shared OpenAI client underneath (see _shared_client)
         self.chat = types.SimpleNamespace(completions=_MeteredCompletions(client.chat.completions, on_usage, extra_body))
 
 
@@ -107,9 +120,48 @@ def _create_with_busy_retry(create, **create_kwargs):
             return create(**create_kwargs)
         except Exception as exc:
             if delay is None or not _is_brief_outage(exc):
+                _report_failure(exc)
                 raise
             logging.getLogger("erickson_coach").warning("AI service busy (%s); trying again in %.1f s", type(exc).__name__, delay)
             time.sleep(delay)
+
+
+def _report_failure(exc: Exception) -> None:
+    if on_request_failure is None:
+        return
+    try:
+        on_request_failure(exc)
+    except Exception:
+        logging.getLogger("erickson_coach").exception("Recording a failed AI request failed")
+
+
+def failure_summary(exc: Exception) -> str:
+    """A short description of a failed request for the admin, e.g. "402: Insufficient credits". Error messages come
+    from the provider and never contain the conversation."""
+    status = getattr(exc, "status_code", None)
+    body = getattr(exc, "body", None)
+    message = ""
+    if isinstance(body, dict):
+        error = body.get("error", body)
+        message = error.get("message", "") if isinstance(error, dict) else str(error)
+    message = message or getattr(exc, "message", "") or str(exc) or type(exc).__name__
+    return f"{status}: {message}" if status else f"{type(exc).__name__}: {message}"
+
+
+def openrouter_credit_left(api_key: str, base_url: str | None = None, timeout: float = 5) -> float | None:
+    """Dollars left on the OpenRouter account behind a key, or None when the model isn't on OpenRouter or the balance
+    can't be read right now."""
+    resolved = base_url or ("https://openrouter.ai/api/v1" if api_key.startswith("sk" + "-or-") else "")
+    if not api_key or "openrouter.ai" not in resolved:
+        return None
+    request = urllib.request.Request("https://openrouter.ai/api/v1/credits", headers={"Authorization": f"Bearer {api_key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.load(response).get("data", {})
+        return float(data["total_credits"]) - float(data["total_usage"])
+    except Exception:
+        logging.getLogger("erickson_coach").warning("Reading the OpenRouter balance failed", exc_info=True)
+        return None
 
 
 class _MeteredCompletions:

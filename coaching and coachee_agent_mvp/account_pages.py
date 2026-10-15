@@ -176,6 +176,12 @@ T = {
         "rating_pill": "Useful {rating}/5",
         "audit": "Audit log",
         "storage_warning": "Data is stored in a temporary SQLite file on this server and will be lost on restart. Set DATABASE_URL to a Postgres database before inviting people.",
+        "ai_service": "AI service",
+        "ai_credit_left": "Credit left on the AI account (OpenRouter): ${amount}.",
+        "ai_credit_low": "AI credit is running low: ${amount} left. When it runs out, nobody can start a session. Top up at openrouter.ai under Settings → Credits.",
+        "ai_errors": "AI requests failed in the last 24 hours ({count}, counted at most once a minute). Latest:",
+        "ai_errors_none": "No AI errors in the last 24 hours.",
+        "ai_errors_hint": "402 means the credit is used up, 401 that the API key is wrong, and 429 that the AI service was too busy.",
         "feedback_summary": "Feedback in the last 7 days: {up} helpful, {down} not helpful",
         "privacy_title": "Privacy and safety",
         "help": "Help",
@@ -204,7 +210,7 @@ T = {
             "Change the language or the reading voice under Settings.",
         ],
         "help_limits_title": "Daily allowance",
-        "help_limits": "Each day (a rolling 24 hours) you have {coach} AI Coach sessions and {coachee} AI Coachee Lab sessions with the AI. If you use them up, you can keep practising with built-in questions until the AI is available again. Your Account page shows what is left.",
+        "help_limits": "Each day (a rolling 24 hours) you have {coach} AI Coach sessions and {coachee} AI Coachee Lab sessions with the AI. When one runs out, the app tells you roughly when you can start again, and the other mode may still have sessions left. Your Account page shows what is left.",
         "help_unlimited": "no limit",
         "help_faq_title": "Questions",
         "help_faq": [
@@ -212,14 +218,14 @@ T = {
             ["Who can see my conversations?", "Only you. If you have a mentor, they can see your AI Coachee Lab practice, plus any AI Coach session you choose to share. The app admin can't open your conversations. The privacy page has the details."],
             ["The microphone doesn't work.", "Voice input depends on your browser. Safari works well. In some regions Chrome's voice service is blocked. You can always type instead."],
             ["The page won't load.", "The server may be waking up: wait a minute, then refresh. If it still won't open, your network may be blocking the server. Try another network or a VPN."],
-            ["Is this therapy?", "No. This is a coaching practice tool. If you are in crisis, contact your local emergency number, or find a free helpline at findahelpline.com."],
+            ["Is this therapy?", "No. This is a coaching practice tool. If you are in crisis, call your local emergency number. In mainland China, call 12356 (the national psychological help line), or 120 or 110 in an emergency. Elsewhere, findahelpline.com lists free helplines."],
         ],
         "help_forgot_email": "Use \"Forgot your password?\" on the sign-in page, or ask the person who invited you.",
         "help_cta": "Go to sign in",
         "data_locations": "Where your data is processed: {where}",
         "privacy_body": [
             "Coaching Practice Studio is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
-            "If you might harm yourself or are in danger, contact your local emergency number now. You can find a free, confidential helpline in your country at findahelpline.com.",
+            "If you might harm yourself or are in danger, contact your local emergency number now (in mainland China: 120 or 110). In mainland China you can also call 12356, the national psychological help line. Elsewhere, findahelpline.com lists free, confidential helplines in your country.",
             "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), the action cards and practice scores they produce, short AI-written insights about your coaching, your feedback on replies, how useful you rated each session, and how many AI tokens you used.",
             "Who can read your sessions: you, and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. The app admin manages accounts and daily allowances and can see when your sessions happen, how long they are and how useful you rated them, but can't open what was said. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
             "Storage and AI processing: your conversations are stored on the app's server, and your messages are sent to the configured AI model provider to generate replies. The app gives the admin no way to read them, but as with any online service, whoever runs the server and the AI provider handle this data.",
@@ -230,7 +236,7 @@ T = {
             "password_reset": "Password reset", "reset_link_created": "Reset link created", "reset_email_sent": "Reset email sent",
             "invite_created": "Invite created", "invite_revoked": "Invite revoked", "user_updated": "Person updated",
             "session_viewed": "Session viewed", "session_shared": "Session shared", "session_unshared": "Session unshared",
-            "safety_flag": "Safety message shown", "limits_updated": "Allowances changed",
+            "safety_flag": "Safety message shown", "limits_updated": "Allowances changed", "ai_error": "AI request failed",
         },
     },
     "zh": {
@@ -374,6 +380,12 @@ T = {
         "rating_pill": "帮助 {rating}/5",
         "audit": "审计日志",
         "storage_warning": "数据目前存放在服务器上的临时 SQLite 文件中，重启后会丢失。邀请用户前请将 DATABASE_URL 设置为 Postgres 数据库。",
+        "ai_service": "AI 服务",
+        "ai_credit_left": "AI 账户（OpenRouter）剩余额度：${amount}。",
+        "ai_credit_low": "AI 额度快用完了：还剩 ${amount}。用完后谁都无法开始新会话。请到 openrouter.ai 的 Settings → Credits 充值。",
+        "ai_errors": "过去 24 小时有 AI 请求失败（{count} 次，每分钟最多记一次）。最近一次：",
+        "ai_errors_none": "过去 24 小时没有 AI 错误。",
+        "ai_errors_hint": "402 表示额度已用完，401 表示 API 密钥有误，429 表示 AI 服务太忙。",
         "feedback_summary": "最近 7 天的反馈：{up} 有帮助，{down} 没帮助",
         "privacy_title": "隐私与安全",
         "help": "帮助",
@@ -402,7 +414,7 @@ T = {
             "在“设置”里可以切换语言和朗读声音。",
         ],
         "help_limits_title": "每日额度",
-        "help_limits": "每天（滚动 24 小时）你可以与 AI 进行 AI教练 会话 {coach} 次、AI学员陪练 会话 {coachee} 次。用完后仍可以用内置问题继续练习，直到 AI 恢复可用。账户页面会显示剩余次数。",
+        "help_limits": "每天（滚动 24 小时）你可以与 AI 进行 AI教练 会话 {coach} 次、AI学员陪练 会话 {coachee} 次。某一项用完后，页面会告诉你大约多久之后可以再开始；另一项如果还有剩余，仍然可以使用。账户页面会显示剩余次数。",
         "help_unlimited": "不限",
         "help_faq_title": "常见问题",
         "help_faq": [
@@ -410,14 +422,14 @@ T = {
             ["谁能看到我的对话？", "只有你本人。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。应用管理员无法打开你的对话。详情见隐私页面。"],
             ["麦克风用不了。", "语音输入取决于你的浏览器。Safari 效果很好；在部分地区，Chrome 的语音服务无法使用。你随时可以改为打字。"],
             ["页面打不开。", "服务器可能正在唤醒：请等一分钟后刷新。如果仍然打不开，可能是你的网络无法访问服务器，请换一个网络或使用 VPN。"],
-            ["这是心理治疗吗？", "不是。这是一个教练练习工具。如果你正处于危机中，请拨打当地紧急电话，或在 findahelpline.com 找到免费求助热线。"],
+            ["这是心理治疗吗？", "不是。这是一个教练练习工具。如果你正处于危机中，请拨打当地紧急电话。在中国大陆，可拨打全国统一心理援助热线 12356，紧急情况请拨打 120 或 110。其他国家和地区可在 findahelpline.com 找到免费求助热线。"],
         ],
         "help_forgot_email": "可以在登录页点击“忘记密码？”，或联系邀请你的人。",
         "help_cta": "前往登录",
         "data_locations": "你的数据处理地点：{where}",
         "privacy_body": [
             "教练练习室是教练练习工具，不是心理治疗、医疗建议或危机援助。",
-            "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话。你可以在 findahelpline.com 找到你所在国家的免费保密求助热线。",
+            "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话（中国大陆：120 或 110）。在中国大陆，你也可以拨打全国统一心理援助热线 12356。其他国家和地区可在 findahelpline.com 找到当地免费、保密的求助热线。",
             "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、会话产生的行动卡和练习得分、AI 生成的简短洞察、你对回复的反馈、你对每次会话的帮助程度评分，以及你使用的 AI token 数。",
             "谁能看到你的会话：你本人，以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。应用管理员负责管理账户和每日额度，能看到你的会话时间、长度和你给出的帮助程度评分，但无法打开对话内容。除你之外的任何人打开你的会话都会记录在审计日志中。",
             "存储与 AI 处理：你的对话保存在应用的服务器上，你的消息会发送给配置的 AI 模型服务商以生成回复。应用不为管理员提供任何查看对话内容的途径；但和所有在线服务一样，服务器的运营者和 AI 服务商会经手这些数据。",
@@ -428,7 +440,7 @@ T = {
             "password_reset": "重置密码", "reset_link_created": "生成重置链接", "reset_email_sent": "发送重置邮件",
             "invite_created": "创建邀请", "invite_revoked": "撤销邀请", "user_updated": "更新成员信息",
             "session_viewed": "查看会话", "session_shared": "分享会话", "session_unshared": "取消分享会话",
-            "safety_flag": "显示安全提示", "limits_updated": "修改每日额度",
+            "safety_flag": "显示安全提示", "limits_updated": "修改每日额度", "ai_error": "AI 请求失败",
         },
     },
 }
@@ -531,6 +543,12 @@ class PageSettings:
     mailer: Callable[[str, str, str], None] | None = None
     # Plain-language note on where the server and AI provider process data, shown on the privacy page.
     data_locations: str = ""
+    # Dollars left on the AI account, or None when unknown; shown on the Admin page.
+    ai_credit: Callable[[], float | None] | None = None
+
+
+# Below this balance the Admin page warns that the AI credit is running low (a busy day costs about a dollar).
+LOW_CREDIT_DOLLARS = 2.0
 
 
 def preferred_language(cookies, headers, fallback: str | None = "en") -> str | None:
@@ -1178,6 +1196,23 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 
     # Admin --------------------------------------------------------------------------
 
+    def ai_service_card(lang: str, now: dt.datetime) -> str:
+        """Whether the AI is working: the credit left and any failed requests, so the owner hears before members do."""
+        lines = []
+        credit = settings.ai_credit() if settings.ai_credit else None
+        if credit is not None and credit < LOW_CREDIT_DOLLARS:
+            lines.append(f'<div class="flash error">{_e(text(lang, "ai_credit_low", amount=f"{credit:.2f}"))}</div>')
+        elif credit is not None:
+            lines.append(f'<p>{_e(text(lang, "ai_credit_left", amount=f"{credit:.2f}"))}</p>')
+        failures = get_store().audit_since("ai_error", now - dt.timedelta(hours=24))
+        if failures:
+            latest = failures[0]
+            lines.append(f'<div class="flash error">{_e(text(lang, "ai_errors", count=len(failures)))} {_time(latest["created_at"])} · '
+                         f'{_e(latest["detail"])}<br>{_e(T[lang]["ai_errors_hint"])}</div>')
+        else:
+            lines.append(f'<p class="muted">{_e(T[lang]["ai_errors_none"])}</p>')
+        return f'<div class="card"><h2>{_e(T[lang]["ai_service"])}</h2>{"".join(lines)}</div>'
+
     def admin_page(request: Request, user: dict, extra: str = "") -> HTMLResponse:
         lang = page_lang(request)
         store = get_store()
@@ -1252,7 +1287,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
                  average=f"{average:.1f}", count=count)
             for module, (count, average) in sorted(ratings.items())) or T[lang]["ratings_none"]
         warning = f'<div class="flash error">{_e(T[lang]["storage_warning"])}</div>' if settings.storage_warning else ""
-        body = f"""{warning}{extra}<div class="grid2"><div class="card"><h2>{_e(T[lang]['invite_someone'])}</h2>
+        body = f"""{warning}{extra}{ai_service_card(lang, now)}<div class="grid2"><div class="card"><h2>{_e(T[lang]['invite_someone'])}</h2>
 {invite_form(request, lang, '/admin/invites', roles=accounts.ROLES, trainers=trainers)}</div>
 <div class="card"><h2>{_e(T[lang]['invites'])}</h2><div class="list">{''.join(invite_rows) or '<p class="muted">—</p>'}</div></div></div>
 <div class="card"><h2>{_e(T[lang]['allowances'])}</h2><p class="hint">{_e(T[lang]['allowances_hint'])}</p><div class="list">{allowance_forms}</div></div>

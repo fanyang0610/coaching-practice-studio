@@ -58,6 +58,20 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
         ):
             self.assertIn(pattern, ignore_text)
 
+    def test_space_runs_the_gradio_version_tested_here(self):
+        # Unpinned, the Space installed whatever Gradio was newest (6.30 while this Mac had 6.8), so the hosted app ran
+        # a version never checked here; the China loading fix and the layout rules depend on Gradio's internals.
+        import gradio
+
+        root = Path(__file__).resolve().parent
+        sdk = re.search(r"^sdk_version:\s*(\S+)\s*$", (root / "README.md").read_text(encoding="utf-8"), re.M)
+        pin = re.search(r"^gradio==(\S+)\s*$", (root / "requirements.txt").read_text(encoding="utf-8"), re.M)
+
+        self.assertIsNotNone(sdk, "README front matter needs sdk_version")
+        self.assertIsNotNone(pin, "requirements.txt needs an exact gradio==version")
+        self.assertEqual(sdk.group(1), pin.group(1))
+        self.assertEqual(gradio.__version__, pin.group(1), "install the pinned Gradio here: pip install -r requirements.txt")
+
     def test_hf_deploy_helper_stages_web_app_as_remote_app(self):
         root = Path(__file__).resolve().parent
         helper_path = root / "scripts" / "deploy_hf_space.py"
@@ -670,23 +684,39 @@ class TestWebAppServerConfig(unittest.TestCase):
         self.assertEqual(agent.mode, "llm")
         self.assertEqual(agent.context[-1]["content"], prompt)
 
-    def test_ai_opening_reports_model_error_without_template_fallback(self):
-        import web_app
+    def test_ai_opening_failure_shows_a_plain_notice_and_stores_nothing(self):
+        # No canned opening when the AI can't answer (e.g. the account is out of credit). The member sees why, can
+        # try again with New Session, and the failed try doesn't count against today's allowance.
+        web_app, store, user, _ = _signed_in()
 
-        session = web_app._new_session(module="coach", mode="llm", language="zh")
-        agent = session["agent"]
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+                patch.object(EricksonCoachingAgent, "_get_llm_opening_response",
+                             side_effect=ValueError("Model returned no text content.")), \
+                patch.object(web_app.logger, "exception"):
+            session = web_app._open_session(user, "coach", "llm", "zh")
 
-        with patch.object(web_app, "_load_dotenv", return_value=None):
-            with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}, clear=True):
-                with patch.object(agent, "_get_llm_opening_response", side_effect=ValueError("Model returned no text content.")):
-                    with patch.object(web_app.logger, "exception"):
-                        prompt = web_app._append_opening_prompt(agent)
+        self.assertEqual(session["unavailable"], web_app.UI["zh"]["ai_unavailable"])
+        self.assertEqual(session["agent"].context, [{"role": "coach", "content": web_app.UI["zh"]["ai_unavailable"]}])
+        self.assertNotIn("id", session)
+        self.assertEqual(store.list_sessions(user["id"]), [])
+        self.assertFalse(web_app._session_start_outputs(session)["msg"]["interactive"])
 
-        self.assertIn("AI", prompt)
-        self.assertIn("没有返回有效开场", prompt)
-        self.assertNotIn("你现在最关注的话题是什么？", prompt)
-        self.assertEqual(agent.mode, "llm")
-        self.assertEqual(agent.context[-1]["content"], prompt)
+    def test_practice_does_not_open_when_the_ai_service_is_down(self):
+        # An unreadable practice case falls back to a built-in one, but a service that refuses every request (no credit,
+        # wrong key) must not open a practice that can't continue.
+        import httpx
+        import openai
+
+        web_app, store, user, _ = _signed_in()
+        refused = openai.APIStatusError("Insufficient credits", response=httpx.Response(
+            402, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")), body=None)
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+                patch("coachee_agent._json_completion", side_effect=refused), patch.object(web_app.logger, "exception"):
+            session = web_app._open_session(user, "coachee", "llm", "en")
+
+        self.assertEqual(session["unavailable"], web_app.UI["en"]["ai_unavailable"])
+        self.assertEqual(store.list_sessions(user["id"]), [])
 
     def test_one_page_ui_contract_is_present(self):
         root = Path(__file__).parent
@@ -1176,9 +1206,9 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         first = coaching_core._build_client("server-key", "http://127.0.0.1:9/v1")
         second = coaching_core._build_client("server-key", "http://127.0.0.1:9/v1")
 
-        self.assertIs(first, second)
-        self.assertEqual(first.timeout, coaching_core.LLM_TIMEOUT_SECONDS)
-        self.assertEqual(first.max_retries, coaching_core.LLM_MAX_RETRIES)
+        self.assertIs(first.client, second.client)
+        self.assertEqual(first.client.timeout, coaching_core.LLM_TIMEOUT_SECONDS)
+        self.assertEqual(first.client.max_retries, coaching_core.LLM_MAX_RETRIES)
 
 
 def _signed_in(role="user", **fields):
@@ -1390,6 +1420,71 @@ class TestStoredSessions(unittest.TestCase):
         self.assertNotEqual(outputs[-1][-1]["id"], amy_session["id"])
         self.assertEqual(len(amy_session["agent"].context), 1)
 
+    def test_an_old_tab_shows_the_latest_turns_instead_of_overwriting_them(self):
+        # Seen in the app: a message sent from a phone vanished when a laptop tab opened earlier sent its own.
+        web_app, store, user, request = _signed_in()
+        laptop = web_app._open_session(user, "coach", "template", "en")
+        phone = web_app._restore_session(store.get_session(laptop["id"]), user)
+        list(web_app.respond("PHONE: I want to sleep earlier.", [], phone, "coach", "Template", "English", request))
+
+        with patch.object(web_app.gr, "Info") as info:
+            outputs = list(web_app.respond("LAPTOP: I keep scrolling.", [], laptop, "coach", "Template", "English", request))
+
+        info.assert_called_with(web_app.UI["en"]["session_changed_elsewhere"])
+        shown = [message["content"] for message in outputs[-1][1]]
+        self.assertIn("PHONE: I want to sleep earlier.", shown)
+        self.assertNotIn("LAPTOP: I keep scrolling.", shown)
+        self.assertNotIn("value", outputs[-1][0])  # the laptop's message stays in the box
+        self.assertTrue(outputs[-1][0]["interactive"])
+
+        list(web_app.respond("LAPTOP: I keep scrolling.", [], outputs[-1][-1], "coach", "Template", "English", request))
+        saved = [message["content"] for message in json.loads(store.get_session(laptop["id"])["state"])["context"]]
+        self.assertIn("PHONE: I want to sleep earlier.", saved)
+        self.assertIn("LAPTOP: I keep scrolling.", saved)
+
+    def test_a_turn_saved_elsewhere_first_is_never_overwritten(self):
+        # Two pages replying at the same moment: the first save wins, and the other page reloads it next time.
+        web_app, store, user, _ = _signed_in()
+        laptop = web_app._open_session(user, "coach", "template", "en")
+        phone = web_app._restore_session(store.get_session(laptop["id"]), user)
+        phone["agent"].context.append({"role": "client", "content": "PHONE"})
+        web_app._save(phone)
+        laptop["agent"].context.append({"role": "client", "content": "LAPTOP"})
+
+        with patch.object(web_app.gr, "Warning") as warning:
+            web_app._save(laptop)
+
+        warning.assert_called_with(web_app.UI["en"]["reply_not_saved"])
+        self.assertEqual(json.loads(store.get_session(laptop["id"])["state"])["context"][-1]["content"], "PHONE")
+        reloaded = web_app._ensure_session(laptop, user, "coach", "Template", "English")
+        self.assertTrue(reloaded.pop("changed_elsewhere"))
+        self.assertEqual(reloaded["agent"].context[-1]["content"], "PHONE")
+
+    def test_an_old_tab_asks_for_a_refresh_once_its_session_was_set_aside_elsewhere(self):
+        import gradio as gr
+
+        web_app, store, user, request = _signed_in()
+        laptop = web_app._open_session(user, "coach", "template", "en")
+        phone = web_app._restore_session(store.get_session(laptop["id"]), user)
+        practice = web_app.select_module("coachee", "English", "Template", phone, request)[-1]
+
+        with self.assertRaises(gr.Error) as raised:
+            list(web_app.respond("hello", [], laptop, "coach", "Template", "English", request))
+
+        self.assertEqual(raised.exception.message, web_app.UI["en"]["session_moved"])
+        self.assertEqual(store.get_session(practice["id"])["status"], "active")  # the phone's new practice carries on
+
+    def test_new_session_in_an_old_tab_leaves_a_session_finished_elsewhere_finished(self):
+        web_app, store, user, request = _signed_in()
+        laptop = web_app._open_session(user, "coach", "template", "en")
+        phone = web_app._restore_session(store.get_session(laptop["id"]), user)
+        phone["agent"].session_complete = True
+        web_app._save(phone)
+
+        web_app.reset_session("English", "coach", "Template", laptop, request)
+
+        self.assertEqual(store.get_session(laptop["id"])["status"], "completed")
+
     def test_turns_are_saved_after_each_reply(self):
         web_app, store, user, request = _signed_in()
         session = web_app._open_session(user, "coach", "template", "en")
@@ -1442,6 +1537,26 @@ class TestStoredSessions(unittest.TestCase):
         self.assertIn("safety_flag", [entry["action"] for entry in store.audit_entries()])
         self.assertFalse(safety.looks_like_crisis("I want to kill this procrastination habit"))
         self.assertTrue(safety.looks_like_crisis("我真的不想活了"))
+
+    def test_crisis_check_catches_common_phrasings_and_skips_everyday_idioms(self):
+        import safety
+
+        for text in ("活着没意思", "有时候想一了百了", "我想死", "我都想死了", "我想去死", "想过跳楼", "我割腕过",
+                     "I don't want to wake up tomorrow", "I've thought about how to take my own life",
+                     "I don't want to be here anymore"):
+            self.assertTrue(safety.looks_like_crisis(text), text)
+        # "I miss you so much", anger at someone else, and shop talk for a price cut aren't about the person's safety.
+        for text in ("想死你了", "可想死我了", "大家想死你们了", "你去死吧", "让他去死", "跳楼价清仓", "跳楼大甩卖",
+                     "I'm dying to try this", "I want to be here more often"):
+            self.assertFalse(safety.looks_like_crisis(text), text)
+
+    def test_crisis_reply_names_help_in_mainland_china(self):
+        # Many members are in mainland China, where findahelpline.com alone is little help.
+        import safety
+
+        for lang in ("en", "zh"):
+            for number in ("12356", "120", "110", "findahelpline.com"):
+                self.assertIn(number, safety.CRISIS_REPLY[lang])
 
     def test_feedback_is_saved_per_message(self):
         import gradio as gr
@@ -1501,6 +1616,23 @@ class TestStore(unittest.TestCase):
     def setUp(self):
         self.store = db.Store("sqlite://")
         self.uid = self.store.create_user("Amy@Example.com ", "Amy", accounts.hash_password("a-long-password"))
+
+    def test_a_save_based_on_an_old_version_changes_nothing(self):
+        # Keeps an old tab or device from overwriting newer turns (see web_app._save). Also run on Postgres (pg_test.py).
+        session_id = self.store.create_session(self.uid, "coach", "en", "llm", "CONTRACT", {"context": []})
+        save = dict(stage="CONTRACT", user_turns=1, language="en", mode="llm")
+        first = self.store.save_session(session_id, state={"context": ["first"]}, status="active", **save)
+        second = self.store.save_session(session_id, state={"context": ["second"]}, status="active", expected_version=first, **save)
+        stale = self.store.save_session(session_id, state={"context": ["stale"]}, status="active", expected_version=first, **save)
+
+        self.assertIsNotNone(second)
+        self.assertIsNone(stale)
+        self.assertEqual(json.loads(self.store.get_session(session_id)["state"])["context"], ["second"])
+        self.assertEqual(self.store.session_version(session_id)["updated_at"], second)
+        self.assertIsNotNone(self.store.save_session(session_id, state={"context": []}, status="completed",
+                                                     expected_version=second, **save))
+        self.store.abandon_session(session_id)  # an old tab's New Session leaves a finished session finished
+        self.assertEqual(self.store.get_session(session_id)["status"], "completed")
 
     def test_session_ratings_average_per_module_and_go_with_the_account(self):
         coaching = self.store.create_session(self.uid, "coach", "en", "llm", "CLOSING", {"context": []})
@@ -2641,6 +2773,58 @@ class TestSelfServiceAndAdminControls(unittest.TestCase):
         self.assertNotIn(">limits_updated<", page.text)
         self.assertIn("<time datetime=", page.text)
 
+    def test_admin_page_shows_failed_ai_requests(self):
+        # When the AI account runs out of credit every request fails; the owner should hear it from the Admin page.
+        import datetime as dt
+        import coaching_core
+        import httpx
+        import openai
+        import web_app
+
+        self._person("owner@example.com", role="admin")
+        self.client.post("/login", data={"email": "owner@example.com", "password": "a-long-password"})
+        self.assertIn("No AI errors in the last 24 hours.", self.client.get("/admin?lang=en").text)
+
+        web_app.set_store(self.store)
+        web_app._last_failure_logged = None
+        refused = openai.APIStatusError("Error code: 402", response=httpx.Response(
+            402, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")),
+            body={"error": {"message": "Insufficient credits", "code": 402}})
+
+        def create(**kwargs):
+            raise refused
+
+        for _ in range(3):  # a failing service fails every request; one note a minute is enough
+            with self.assertRaises(openai.APIStatusError):
+                coaching_core._create_with_busy_retry(create, model="m", messages=[])
+
+        failures = self.store.audit_since("ai_error", db.utcnow() - dt.timedelta(hours=1))
+        self.assertEqual([entry["detail"] for entry in failures], ["402: Insufficient credits"])
+        page = self.client.get("/admin?lang=zh").text
+        self.assertIn("过去 24 小时有 AI 请求失败（1 次", page)
+        self.assertIn("402: Insufficient credits", page)
+        self.assertIn("AI 请求失败", page)  # the audit log names it too
+
+    def test_admin_page_shows_the_ai_credit_and_warns_when_it_runs_low(self):
+        from fastapi.testclient import TestClient
+        import web_app
+
+        self._person("owner@example.com", role="admin")
+        for credit, expected in ((3.78, "Credit left on the AI account (OpenRouter): $3.78."),
+                                 (1.25, "AI credit is running low: $1.25 left.")):
+            with patch.object(web_app, "_ai_credit_left", return_value=credit):
+                client = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": self.secret}))
+            client.post("/login", data={"email": "owner@example.com", "password": "a-long-password"})
+            self.assertIn(expected, client.get("/admin?lang=en").text)
+
+    def test_credit_is_read_only_for_openrouter(self):
+        import coaching_core
+
+        with patch("urllib.request.urlopen") as urlopen:
+            self.assertIsNone(coaching_core.openrouter_credit_left("sk-deepseek", "https://api.deepseek.com"))
+            self.assertIsNone(coaching_core.openrouter_credit_left("", "https://openrouter.ai/api/v1"))
+        urlopen.assert_not_called()
+
     def test_account_page_shows_each_modules_allowance(self):
         self._person("amy@example.com")
         self.client.post("/login", data={"email": "amy@example.com", "password": "a-long-password"})
@@ -2687,7 +2871,24 @@ class TestProviderAndRegionSupport(unittest.TestCase):
             self.assertEqual(coaching_core._provider_extra_body("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
                              {"enable_thinking": False})
         with patch.dict(os.environ, {"OPENAI_EXTRA_BODY": ""}):
-            self.assertEqual(coaching_core._provider_extra_body("https://openrouter.ai/api/v1"), {})
+            self.assertEqual(coaching_core._provider_extra_body("https://api.example.com/v1"), {})
+
+    def test_openrouter_only_uses_hosts_that_dont_collect_the_conversation(self):
+        # People bring their real lives to the AI Coach; OpenRouter may otherwise route to a host that keeps prompts.
+        import coaching_core
+
+        with patch.dict(os.environ, {"OPENAI_EXTRA_BODY": ""}):
+            self.assertEqual(coaching_core._provider_extra_body("https://openrouter.ai/api/v1"),
+                             {"provider": {"data_collection": "deny"}})
+            calls = []
+            raw = type("Raw", (), {"chat": type("Chat", (), {"completions": type("C", (), {
+                "create": lambda self, **kwargs: calls.append(kwargs) or "done"})()})()})()
+            with patch.object(coaching_core, "_shared_client", return_value=raw):
+                coaching_core._build_client("sk-or-v1-test").chat.completions.create(model="m", messages=[])
+            self.assertEqual(calls[0]["extra_body"], {"provider": {"data_collection": "deny"}})
+        # The owner can choose the stricter zero-retention routing without a code change.
+        with patch.dict(os.environ, {"OPENAI_EXTRA_BODY": '{"provider": {"zdr": true}}'}):
+            self.assertEqual(coaching_core._provider_extra_body("https://openrouter.ai/api/v1"), {"provider": {"zdr": True}})
 
     def test_no_fonts_are_downloaded_from_google(self):
         import gradio as gr
@@ -2783,6 +2984,16 @@ class TestHelpPage(unittest.TestCase):
         page = self.client.get("/help?lang=en").text
 
         self.assertIn("you have 4 AI Coach sessions and 6 AI Coachee Lab sessions", page)
+
+    def test_help_promises_no_canned_replies_after_the_allowance(self):
+        # Over the allowance no session starts (there are no built-in stand-in questions any more).
+        english = self.client.get("/help?lang=en").text
+        chinese = self.client.get("/help?lang=zh").text
+
+        self.assertNotIn("built-in questions", english)
+        self.assertNotIn("内置问题", chinese)
+        self.assertIn("tells you roughly when you can start again", english)
+        self.assertIn("大约多久之后可以再开始", chinese)
 
     def test_every_page_links_to_help(self):
         self.assertIn('href="/help"', self.client.get("/privacy").text)
