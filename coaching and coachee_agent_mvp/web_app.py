@@ -13,7 +13,7 @@ import webbrowser
 import weakref
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 # Coaching conversations are private; don't send Gradio usage analytics to third parties.
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
@@ -41,6 +41,7 @@ from web_assets import (
     head,
     remember_lang_js,
     scroll_js,
+    space_status_js,
     tts_js,
     welcome_js,
 )
@@ -1190,9 +1191,18 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
 
     @app.middleware("http")
     async def send_visitors_to_sign_in(request, call_next):
-        if request.method == "GET" and request.url.path == "/" and await run_in_threadpool(signed_in_user_id, request) is None:
+        if request.method != "GET" or request.url.path != "/":
+            return await call_next(request)
+        if await run_in_threadpool(signed_in_user_id, request) is None:
             return RedirectResponse("/login", status_code=303)
-        return await call_next(request)
+        response = await call_next(request)
+        if not response.headers.get("content-type", "").startswith("text/html"):
+            return response
+        # Gradio's own scripts must find the Space-status answer already in place (see space_status_js).
+        page = b"".join([chunk async for chunk in response.body_iterator])
+        page = page.replace(b"<head>", b"<head><script>" + space_status_js.encode() + b"</script>", 1)
+        headers = {name: value for name, value in response.headers.items() if name != "content-length"}
+        return Response(page, status_code=response.status_code, headers=headers)
 
     return gr.mount_gradio_app(
         app,

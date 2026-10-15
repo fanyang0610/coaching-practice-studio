@@ -2498,6 +2498,22 @@ div:has(> .tracker-shell) {
 """
 
 
+# On a *.hf.space address, Gradio asks huggingface.co whether the Space is running before it shows the app. huggingface.co
+# is blocked in mainland China, so the page sat on "loading" until that request gave up (30 s or more). This page only
+# reaches the browser when the app is running, so the answer is given here. web_app puts it first in Gradio's <head>.
+space_status_js = """(() => {
+    const realFetch = window.fetch;
+    window.fetch = function (input, init) {
+        const url = typeof input === "string" ? input : (input && (input.href || input.url)) || "";
+        if (url.startsWith("https://huggingface.co/api/spaces/by-subdomain/")) {
+            return Promise.resolve(new Response('{"runtime": {"stage": "RUNNING"}}',
+                {status: 200, headers: {"Content-Type": "application/json"}}));
+        }
+        return realFetch.call(window, input, init);
+    };
+})();"""
+
+
 # Remember the chosen language for the account pages and the next visit (read by account_pages.preferred_language).
 remember_lang_js = """(lang) => {
     const code = lang === "中文" ? "zh" : "en";

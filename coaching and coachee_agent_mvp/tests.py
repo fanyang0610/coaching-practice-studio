@@ -1724,6 +1724,24 @@ class TestAccountPages(unittest.TestCase):
         response = self.client.post("/login", data={"email": "amy@example.com", "password": "a-long-password"})
         self.assertEqual(response.status_code, 429)
 
+    def test_app_page_answers_gradios_space_status_check_without_huggingface_co(self):
+        # huggingface.co is blocked in mainland China; waiting on it kept the app on "loading" there.
+        import gradio
+        import web_assets
+
+        self._person("amy@example.com")
+        page = self._sign_in("amy@example.com").get("/")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("<head><script>" + web_assets.space_status_js + "</script>", page.text)
+        self.assertLess(page.text.index("by-subdomain"), page.text.index('<script type="module"'))
+        self.assertEqual(int(page.headers["content-length"]), len(page.content))
+        self.assertEqual(self.client.get("/", follow_redirects=False).headers["location"], "/login")
+        # The address Gradio asks must still be the one the answer covers.
+        frontend = Path(gradio.__file__).parent / "templates" / "frontend" / "assets"
+        self.assertTrue(any("https://huggingface.co/api/spaces/by-subdomain/" in path.read_text(encoding="utf-8")
+                            for path in frontend.glob("index-*.js")))
+
     def test_transcripts_follow_the_visibility_rules_and_are_audited(self):
         admin = self._person("owner@example.com", role="admin")
         trainer = self._person("trainer@example.com", role="trainer")
@@ -2431,6 +2449,7 @@ class TestProviderAndRegionSupport(unittest.TestCase):
             scripts = {name: "(" + getattr(web_assets, name) + ")" for name in ("force_light_js", "tts_js", "scroll_js", "remember_lang_js")}
             # An HTML block's js_on_load is a function body that receives the block as `element`.
             scripts["welcome_js"] = "(function (element) {" + web_assets.welcome_js + "})"
+            scripts["space_status_js"] = web_assets.space_status_js  # a whole <script>, not an expression
             for name, source in scripts.items():
                 script = Path(folder) / f"{name}.js"
                 script.write_text(source, encoding="utf-8")
