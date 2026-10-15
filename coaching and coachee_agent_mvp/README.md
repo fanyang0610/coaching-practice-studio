@@ -74,7 +74,7 @@ Allowances use a rolling 24 hours and are checked when an AI session starts, so 
 
 Started sessions (including ones left early, which still cost an opening call) are capped at twice the finished allowance. Admins change the role defaults in the "Daily AI allowances" panel on the Admin page, with no code change, and can override any one person's limits. A full session uses about 30,000–60,000 tokens; at gpt-4o-mini prices, even 50 members using every allowance every day would cost a few dollars a day, and typical use is far less. The defaults live in `quota.py`. Every model call's token usage is recorded per person and session. Other limits live in `web_app.py`: 2,000 characters per message, 40 messages per session, 10 messages per minute per person, and 24 model calls running at once, shared by all events.
 
-Replies stream in. In one reply call the model also decides whether the coaching stage moves on (the `[[STAY]]`/`[[NEXT]]`/`[[END]]` markers), so a turn costs one model call.
+Replies stream in. Each reply starts with a hidden marker naming the stage the conversation is in (`[[GOAL]]`, `[[REALITY]]`, `[[OPTIONS]]`, `[[COMMITMENT]]`, or `[[END]]` to close), so the stage tracker follows the conversation and a turn still costs one model call. When a session ends, the person is asked once how useful it was (1–5); the Admin page shows the 30-day average per module and each session's rating.
 
 ## Choosing the AI Model
 

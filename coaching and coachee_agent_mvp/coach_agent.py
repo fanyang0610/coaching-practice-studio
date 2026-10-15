@@ -210,7 +210,8 @@ class EricksonCoachingAgent:
             max_tokens=300,
             temperature=0.7,
         )
-        return _clean_response_language(_response_text(resp), self.language)
+        # A stray stage marker would show in the chat: models see markers in the other replies of this conversation.
+        return _clean_response_language(_split_stage_signal(_response_text(resp))[1], self.language)
 
     def translate_history(self, new_lang: str, api_key: str | None = None) -> bool:
         """Translate the coach's messages into new_lang. Returns False, changing nothing, if the AI couldn't translate."""

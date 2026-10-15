@@ -127,6 +127,18 @@ session_results = sa.Table(
     sa.Index("ix_results_user_module", "user_id", "module", "created_at"),
 )
 
+# How useful the person found a finished session, 1 (not useful) to 5 (very useful), asked once at its end.
+session_ratings = sa.Table(
+    "session_ratings",
+    metadata,
+    sa.Column("session_id", sa.String(36), sa.ForeignKey("coaching_sessions.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("module", sa.String(16), nullable=False),
+    sa.Column("rating", sa.Integer, nullable=False),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+    sa.Index("ix_ratings_created", "created_at"),
+)
+
 settings = sa.Table(
     "settings",
     metadata,
@@ -388,8 +400,9 @@ class Store:
         return json.loads(row["card"]) if row else None
 
     def recent_sessions(self, limit: int = 200) -> list[dict]:
-        stmt = (sa.select(*_session_summary_columns(), users.c.display_name.label("owner_name"))
-                .join(users, users.c.id == coaching_sessions.c.user_id)
+        stmt = (sa.select(*_session_summary_columns(), users.c.display_name.label("owner_name"), session_ratings.c.rating)
+                .select_from(coaching_sessions.join(users, users.c.id == coaching_sessions.c.user_id)
+                             .outerjoin(session_ratings, session_ratings.c.session_id == coaching_sessions.c.id))
                 .order_by(coaching_sessions.c.created_at.desc()).limit(limit))
         return self._all(stmt)
 
@@ -464,6 +477,23 @@ class Store:
         with self.engine.connect() as conn:
             return {row[0]: row[1] for row in conn.execute(stmt)}
 
+    def rate_session(self, session_id: str, user_id: int, module: str, rating: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(session_ratings.delete().where(session_ratings.c.session_id == session_id))
+            conn.execute(session_ratings.insert().values(session_id=session_id, user_id=user_id, module=module,
+                                                         rating=rating, created_at=utcnow()))
+
+    def session_rating(self, session_id: str) -> int | None:
+        row = self._one(sa.select(session_ratings.c.rating).where(session_ratings.c.session_id == session_id))
+        return row["rating"] if row else None
+
+    def ratings_since(self, since: dt.datetime) -> dict[str, tuple[int, float]]:
+        """{module: (number of ratings, average)} for sessions rated since a time."""
+        stmt = (sa.select(session_ratings.c.module, sa.func.count(), sa.func.avg(session_ratings.c.rating))
+                .where(session_ratings.c.created_at >= since).group_by(session_ratings.c.module))
+        with self.engine.connect() as conn:
+            return {row[0]: (row[1], float(row[2])) for row in conn.execute(stmt)}
+
     # Settings ----------------------------------------------------------------
 
     def get_setting(self, key: str) -> dict | None:
@@ -503,6 +533,7 @@ class Store:
                                                "created_at", "completed_at")},
                  "transcript": json.loads(row["state"]).get("context", []),
                  "feedback": self.feedback_for_session(row["id"]),
+                 "usefulness_rating": self.session_rating(row["id"]),
                  "score": results.get(row["id"], {}).get("score"),
                  "action_card": results.get(row["id"], {}).get("card")}
                 for row in sessions

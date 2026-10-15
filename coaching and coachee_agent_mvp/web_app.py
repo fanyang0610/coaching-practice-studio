@@ -97,8 +97,8 @@ def _launch_inbrowser(env: dict[str, str] | None = None) -> bool:
 default_mode = "llm"
 default_lang = "zh"
 default_module = "coach"
-RESPOND_OUTPUT_COUNT = 10
-NEXT_STAGE_OUTPUT_COUNT = 10
+RESPOND_OUTPUT_COUNT = 13
+NEXT_STAGE_OUTPUT_COUNT = 13
 
 # Every event that can call the model shares one pool of worker slots. Calls mostly wait on
 # the network, so 24 at once is comfortable for a 2-vCPU host and stays under Gradio's 40 threads.
@@ -353,6 +353,31 @@ def _tracker_html(agent, module_code: str) -> str:
     """
 
 
+def _rating_updates(session: dict):
+    """The end-of-session question (card, its text, the 1-5 buttons): hidden until the session ends, then asked once."""
+    agent = session["agent"]
+    s = UI[agent.language]
+    if not session.get("id") or not agent.is_session_ended():
+        return gr.update(visible=False), gr.update(), gr.update()
+    if session.get("rating"):
+        return gr.update(visible=True), gr.update(value=f'<p class="rating-question">{s["rating_thanks"]}</p>'), gr.update(visible=False)
+    text = f'<p class="rating-question">{s["rating_question"]}</p><p class="rating-scale">{s["rating_scale"]}</p>'
+    return gr.update(visible=True), gr.update(value=text), gr.update(visible=True)
+
+
+def rate_session(choice: str, session, request: gr.Request = None):
+    """One tap on the end-of-session question; tapping again changes the rating."""
+    user = _current_user(request)
+    rating = int(choice) if str(choice).isdigit() else 0
+    if (user and session and session.get("user_id") == user["id"] and session.get("id")
+            and session["agent"].is_session_ended() and 1 <= rating <= 5):
+        get_store().rate_session(session["id"], user["id"], session["module"], rating)
+        session["rating"] = rating
+    if not session:
+        return gr.update(visible=False), gr.update(), gr.update(), session
+    return (*_rating_updates(session), session)
+
+
 def _settings_button_label(session: dict) -> str:
     agent = session["agent"]
     s = UI[agent.language]
@@ -527,6 +552,7 @@ def _session_start_outputs(session: dict):
         lang=gr.update(value=_lang_selector(lc)),
         # The hidden mode setting stays on the default; the daily allowance alone decides when a session uses templates.
         mode=gr.update(choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
+        rating=_rating_updates(session),
     )
 
 
@@ -555,7 +581,7 @@ def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, r
     return (
         out["chat"], out["tracker"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
         out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"],
-        _memory_title(agent.language), welcome, session,
+        _memory_title(agent.language), welcome, *out["rating"], session,
     )
 
 
@@ -599,6 +625,7 @@ def _respond_outputs(message_update, chat_history, agent, session, tts_update=No
         memory_updates[0],
         memory_updates[1],
         memory_updates[2],
+        *_rating_updates(session),
         session,
     )
 
@@ -853,7 +880,7 @@ def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Requ
     out = _session_start_outputs(session)
     return (
         out["chat"], out["tracker"], out["tts"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
-        out["msg"], *out["memory"], out["module"], out["mode"], session,
+        out["msg"], *out["memory"], out["module"], out["mode"], *out["rating"], session,
     )
 
 
@@ -898,6 +925,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
         m_s, m_g, m_f,
         _memory_title(lc),
         gr.update(value=session["module"]),
+        *_rating_updates(session),
         session,
     )
 
@@ -1015,6 +1043,11 @@ with gr.Blocks(
             chatbot = gr.Chatbot(show_label=False, elem_classes="chatbot", buttons=[], feedback_options=("Like", "Dislike"),
                                  group_consecutive_messages=False, min_width=0)
 
+            with gr.Column(elem_id="rating-card", visible=False, min_width=0) as rating_card:
+                rating_prompt = gr.HTML("", elem_classes="rating-prompt")
+                with gr.Row(elem_classes="rating-row", visible=False) as rating_row:
+                    rating_buttons = [gr.Button(str(n), elem_classes="rating-btn", min_width=0) for n in range(1, 6)]
+
             with gr.Column(elem_id="composer-shell"):
                 with gr.Row(elem_classes="composer-grid"):
                     with gr.Column(elem_id="input-panel", scale=1, min_width=0):
@@ -1044,10 +1077,12 @@ with gr.Blocks(
 
         welcome_html = gr.HTML("", elem_id="welcome-host", js_on_load=welcome_js)
 
+    rating_outputs = [rating_card, rating_prompt, rating_row]
+
     demo.load(
         initial_load,
         [session_state, module_state, mode_radio, lang_radio],
-        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, session_state],
+        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, *rating_outputs, session_state],
         js=force_light_js,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js)
@@ -1055,28 +1090,28 @@ with gr.Blocks(
     send_btn.click(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, session_state],
+        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     msg.submit(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, session_state],
+        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     next_btn.click(
         next_stage,
         [chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, session_state],
+        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     reset_btn.click(
         reset_session,
         [lang_radio, module_state, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, session_state],
+        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
@@ -1105,6 +1140,7 @@ with gr.Blocks(
             memory_footer_md,
             memory_title_md,
             module_state,
+            *rating_outputs,
             session_state,
         ],
         **LLM_EVENT,
@@ -1113,18 +1149,20 @@ with gr.Blocks(
     coach_module_btn.click(
         select_module,
         [coach_module_value, lang_radio, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, session_state],
+        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     coachee_module_btn.click(
         select_module,
         [coachee_module_value, lang_radio, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, session_state],
+        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     chatbot.like(record_feedback, [session_state], None, api_visibility="private")
+    for button in rating_buttons:
+        button.click(rate_session, [button, session_state], [*rating_outputs, session_state], api_visibility="private")
 
     demo.queue(max_size=100)
 

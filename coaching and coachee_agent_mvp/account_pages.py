@@ -169,7 +169,11 @@ T = {
         "reset_created": "Password reset link for {name} (valid 48 hours, one use):",
         "tokens_24h": "{n} tokens in 24h",
         "recent_sessions": "Recent sessions",
-        "recent_sessions_hint": "To protect privacy, the admin sees when sessions happen and how long they are, not what was said.",
+        "recent_sessions_hint": "To protect privacy, the admin sees when sessions happen, how long they are and how useful people rated them, not what was said.",
+        "ratings_summary": "How useful people found their sessions in the last 30 days: {parts}",
+        "ratings_part": "{module} {average}/5 ({count} rated)",
+        "ratings_none": "no ratings yet",
+        "rating_pill": "Useful {rating}/5",
         "audit": "Audit log",
         "storage_warning": "Data is stored in a temporary SQLite file on this server and will be lost on restart. Set DATABASE_URL to a Postgres database before inviting people.",
         "feedback_summary": "Feedback in the last 7 days: {up} helpful, {down} not helpful",
@@ -216,8 +220,8 @@ T = {
         "privacy_body": [
             "Coaching Practice Studio is a coaching practice tool. It is not therapy, medical advice, or crisis support.",
             "If you might harm yourself or are in danger, contact your local emergency number now. You can find a free, confidential helpline in your country at findahelpline.com.",
-            "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), the action cards and practice scores they produce, short AI-written insights about your coaching, your feedback on replies, and how many AI tokens you used.",
-            "Who can read your sessions: you, and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. The app admin manages accounts and daily allowances and can see when your sessions happen and how long they are, but can't open what was said. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
+            "What we store: your name, email, a hashed password, your coaching sessions (the full conversation), the action cards and practice scores they produce, short AI-written insights about your coaching, your feedback on replies, how useful you rated each session, and how many AI tokens you used.",
+            "Who can read your sessions: you, and your assigned mentor (a person, such as a coaching instructor), who can review your Coachee Lab practice sessions and any AI Coach session you choose to share. The app admin manages accounts and daily allowances and can see when your sessions happen, how long they are and how useful you rated them, but can't open what was said. Every time someone other than you opens one of your sessions, it is recorded in an audit log.",
             "Storage and AI processing: your conversations are stored on the app's server, and your messages are sent to the configured AI model provider to generate replies. The app gives the admin no way to read them, but as with any online service, whoever runs the server and the AI provider handle this data.",
             "Your choices: you can download all your data or delete your account at any time from the Account page. Deleting removes your sessions and insights permanently.",
         ],
@@ -363,7 +367,11 @@ T = {
         "reset_created": "{name} 的密码重置链接（48 小时内有效，仅限一次）：",
         "tokens_24h": "24 小时内 {n} tokens",
         "recent_sessions": "最近的会话",
-        "recent_sessions_hint": "为保护隐私，管理员只能看到会话的时间和长度，看不到对话内容。",
+        "recent_sessions_hint": "为保护隐私，管理员只能看到会话的时间、长度和用户给出的帮助程度评分，看不到对话内容。",
+        "ratings_summary": "最近 30 天用户对会话帮助程度的评分：{parts}",
+        "ratings_part": "{module} {average}/5（{count} 个评分）",
+        "ratings_none": "还没有评分",
+        "rating_pill": "帮助 {rating}/5",
         "audit": "审计日志",
         "storage_warning": "数据目前存放在服务器上的临时 SQLite 文件中，重启后会丢失。邀请用户前请将 DATABASE_URL 设置为 Postgres 数据库。",
         "feedback_summary": "最近 7 天的反馈：{up} 有帮助，{down} 没帮助",
@@ -410,8 +418,8 @@ T = {
         "privacy_body": [
             "教练练习室是教练练习工具，不是心理治疗、医疗建议或危机援助。",
             "如果你可能伤害自己或正处于危险中，请立即拨打当地紧急电话。你可以在 findahelpline.com 找到你所在国家的免费保密求助热线。",
-            "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、会话产生的行动卡和练习得分、AI 生成的简短洞察、你对回复的反馈，以及你使用的 AI token 数。",
-            "谁能看到你的会话：你本人，以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。应用管理员负责管理账户和每日额度，能看到你的会话时间和长度，但无法打开对话内容。除你之外的任何人打开你的会话都会记录在审计日志中。",
+            "我们保存的内容：你的名字、邮箱、加密后的密码、你的教练会话（完整对话）、会话产生的行动卡和练习得分、AI 生成的简短洞察、你对回复的反馈、你对每次会话的帮助程度评分，以及你使用的 AI token 数。",
+            "谁能看到你的会话：你本人，以及你的导师（真实的人，例如教练课程讲师）——导师可以查看你的 AI学员陪练 会话，以及你主动分享的 AI教练 会话。应用管理员负责管理账户和每日额度，能看到你的会话时间、长度和你给出的帮助程度评分，但无法打开对话内容。除你之外的任何人打开你的会话都会记录在审计日志中。",
             "存储与 AI 处理：你的对话保存在应用的服务器上，你的消息会发送给配置的 AI 模型服务商以生成回复。应用不为管理员提供任何查看对话内容的途径；但和所有在线服务一样，服务器的运营者和 AI 服务商会经手这些数据。",
             "你的选择：你可以随时在账户页面下载全部数据或删除账户。删除后，会话和洞察将被永久移除。",
         ],
@@ -923,12 +931,14 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         shared = ""
         if row["module"] == "coach":
             shared = f'<span class="pill{" gold" if row["shared_with_trainer"] else ""}">{_e(T[lang]["shared" if row["shared_with_trainer"] else "private"])}</span>'
-        score, next_step = "", ""
+        score, next_step, rating = "", "", ""
+        if row.get("rating"):  # only the admin's list carries ratings
+            rating = f' <span class="pill">{_e(text(lang, "rating_pill", rating=row["rating"]))}</span>'
         if results and row.get("score") is not None:
             score = f' <span class="pill gold">{_e(text(lang, "score", n=row["score"]))}</span>'
         if results and (row.get("card") or {}).get("next_step"):
             next_step = f'<div class="meta">{_e(T[lang]["card_next_step"])}: {_e(_clip(row["card"]["next_step"], 120))}</div>'
-        return f"""<div class="row"><div class="main"><div class="title">{title} <span class="pill">{_e(status)}</span> {shared}{score}</div>
+        return f"""<div class="row"><div class="main"><div class="title">{title} <span class="pill">{_e(status)}</span> {shared}{score}{rating}</div>
 <div class="meta">{_e(stage)} · {_time(row["created_at"])} · {_e(' · '.join(bits))}</div>{next_step}</div>
 <div class="actions">{share_form}{f'<a class="button secondary" href="/sessions/{_e(row["id"])}">{_e(T[lang]["view"])}</a>' if link else ''}</div></div>"""
 
@@ -1236,13 +1246,18 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <div><label>{_e(T[lang]['tokens_per_day'])}</label><input type="number" min="0" step="1000" name="tokens" placeholder="{_e(T[lang]['unlimited'])}" value="{_e('' if limits[role]['tokens'] is None else limits[role]['tokens'])}"></div>
 </div></div><div class="actions"><button class="quiet" type="submit">{_e(T[lang]['update'])}</button></div></form>""" for role in ("user", "trainer"))
         votes = store.feedback_totals_since(now - dt.timedelta(days=7))
+        ratings = store.ratings_since(now - dt.timedelta(days=30))
+        rating_parts = "; ".join(
+            text(lang, "ratings_part", module=T[lang]["module_coachee" if module == "coachee" else "module_coach"],
+                 average=f"{average:.1f}", count=count)
+            for module, (count, average) in sorted(ratings.items())) or T[lang]["ratings_none"]
         warning = f'<div class="flash error">{_e(T[lang]["storage_warning"])}</div>' if settings.storage_warning else ""
         body = f"""{warning}{extra}<div class="grid2"><div class="card"><h2>{_e(T[lang]['invite_someone'])}</h2>
 {invite_form(request, lang, '/admin/invites', roles=accounts.ROLES, trainers=trainers)}</div>
 <div class="card"><h2>{_e(T[lang]['invites'])}</h2><div class="list">{''.join(invite_rows) or '<p class="muted">—</p>'}</div></div></div>
 <div class="card"><h2>{_e(T[lang]['allowances'])}</h2><p class="hint">{_e(T[lang]['allowances_hint'])}</p><div class="list">{allowance_forms}</div></div>
 <div class="card"><h2>{_e(T[lang]['users'])}</h2><p class="muted">{_e(text(lang, 'feedback_summary', up=votes.get('like', 0), down=votes.get('dislike', 0)))}</p><div class="list">{''.join(user_rows)}</div></div>
-<div class="card"><h2>{_e(T[lang]['recent_sessions'])}</h2><p class="hint">{_e(T[lang]['recent_sessions_hint'])}</p><div class="list">{''.join(session_row(lang, row, owner_name=row['owner_name'], link=False) for row in store.recent_sessions(60)) or '<p class="muted">—</p>'}</div></div>
+<div class="card"><h2>{_e(T[lang]['recent_sessions'])}</h2><p class="hint">{_e(T[lang]['recent_sessions_hint'])}</p><p class="muted">{_e(text(lang, 'ratings_summary', parts=rating_parts))}</p><div class="list">{''.join(session_row(lang, row, owner_name=row['owner_name'], link=False) for row in store.recent_sessions(60)) or '<p class="muted">—</p>'}</div></div>
 <div class="card"><h2>{_e(T[lang]['audit'])}</h2><div class="list">{audit_rows or '<p class="muted">—</p>'}</div></div>"""
         return render(request, lang, T[lang]["admin"], body, user=user, current="admin")
 

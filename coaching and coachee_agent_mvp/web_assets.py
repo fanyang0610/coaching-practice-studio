@@ -91,6 +91,9 @@ UI = {
         "card_support": "Support",
         "card_saved": "Saved on your Account page.",
         "translate_failed": "This conversation couldn't be translated right now, so it stays in {language}. Try switching the language again in a moment.",
+        "rating_question": "How useful was this session?",
+        "rating_scale": "1 = not useful · 5 = very useful",
+        "rating_thanks": "Thank you, your rating is saved.",
         "lang_en": "English",
         "lang_zh": "Chinese",
     },
@@ -166,6 +169,9 @@ UI = {
         "card_support": "支持",
         "card_saved": "已保存在你的账户页面。",
         "translate_failed": "暂时无法翻译这段对话，所以继续使用{language}。请稍后再切换语言试试。",
+        "rating_question": "这次会话对你有多大帮助？",
+        "rating_scale": "1 = 没有帮助 · 5 = 非常有帮助",
+        "rating_thanks": "谢谢，你的评分已保存。",
         "lang_en": "英文",
         "lang_zh": "中文",
     },
@@ -2494,6 +2500,92 @@ div:has(> .tracker-shell) {
         line-height: 1.3 !important;
     }
 
+}
+
+/* End-of-session question: a slim band above the message box once a session has finished */
+/* No display rule here: Gradio hides the card with a class while a session is running. */
+#app-shell #rating-card {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    align-self: stretch !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px 16px !important;
+    margin: 0 14px !important;
+    padding: 10px 14px !important;
+    background: #f8fbff !important;
+    border: 1px solid #d8e5f2 !important;
+    border-radius: 14px !important;
+    box-sizing: border-box !important;
+}
+
+#app-shell .rating-prompt,
+#app-shell .rating-prompt .html-container {
+    flex: 1 1 200px !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+}
+
+#app-shell .rating-question {
+    margin: 0 !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    line-height: 1.35 !important;
+    color: #18364a !important;
+}
+
+#app-shell .rating-scale {
+    margin: 2px 0 0 !important;
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+    color: #62809a !important;
+}
+
+#app-shell .rating-row {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+}
+
+#app-shell .rating-btn {
+    flex: 0 0 44px !important;
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    padding: 0 !important;
+    border-radius: 12px !important;
+    border: 1px solid #d8e5f2 !important;
+    background: #ffffff !important;
+    color: #155e95 !important;
+    font-size: 16px !important;
+    font-weight: 800 !important;
+}
+
+#app-shell .rating-btn:hover {
+    background: #eef5fb !important;
+    border-color: #1979ba !important;
+}
+
+@media (max-width: 767px) {
+    #app-shell #rating-card {
+        margin: 0 8px !important;
+        padding: 8px 10px !important;
+        gap: 6px !important;
+    }
+
+    #app-shell .rating-row {
+        flex: 1 1 100% !important;
+    }
+
+    #app-shell .rating-btn {
+        flex: 1 1 0 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        height: 40px !important;
+    }
 }
 """
 

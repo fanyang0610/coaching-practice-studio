@@ -1138,7 +1138,7 @@ class TestHostedAccessAndLimits(unittest.TestCase):
         import web_app
 
         backend_fns = [fn for fn in web_app.demo.fns.values() if fn.fn is not None]
-        model_fns = [fn for fn in backend_fns if fn.name != "record_feedback"]
+        model_fns = [fn for fn in backend_fns if fn.name not in ("record_feedback", "rate_session")]
 
         self.assertGreaterEqual(len(model_fns), 8)
         for fn in model_fns:
@@ -1372,6 +1372,22 @@ class TestStore(unittest.TestCase):
     def setUp(self):
         self.store = db.Store("sqlite://")
         self.uid = self.store.create_user("Amy@Example.com ", "Amy", accounts.hash_password("a-long-password"))
+
+    def test_session_ratings_average_per_module_and_go_with_the_account(self):
+        coaching = self.store.create_session(self.uid, "coach", "en", "llm", "CLOSING", {"context": []})
+        other = self.store.create_session(self.uid, "coach", "en", "llm", "CLOSING", {"context": []})
+        practice = self.store.create_session(self.uid, "coachee", "zh", "llm", "CLOSING", {"context": []})
+        self.store.rate_session(coaching, self.uid, "coach", 2)
+        self.store.rate_session(coaching, self.uid, "coach", 4)  # changed, not added
+        self.store.rate_session(other, self.uid, "coach", 5)
+        self.store.rate_session(practice, self.uid, "coachee", 3)
+
+        summary = self.store.ratings_since(db.utcnow().replace(year=2000))
+        self.assertEqual(summary, {"coach": (2, 4.5), "coachee": (1, 3.0)})
+        self.assertEqual({row["id"]: row["rating"] for row in self.store.recent_sessions()},
+                         {coaching: 4, other: 5, practice: 3})
+        self.store.delete_user(self.uid)
+        self.assertEqual(self.store.ratings_since(db.utcnow().replace(year=2000)), {})
 
     def test_session_results_join_lists_export_and_go_with_the_account(self):
         import datetime as dt
@@ -2203,11 +2219,63 @@ class TestSessionTakeaways(unittest.TestCase):
         first = web_app.initial_load(None, "coach", "Template", "English", request)
         again = web_app.initial_load(None, "coach", "Template", "English", request)
 
-        self.assertIn("AI Insights", first[-3])
-        self.assertIn("welcome-layer", first[-2])
-        self.assertIn("data-welcome-close", first[-2])
-        self.assertIn('href="/help"', first[-2])
-        self.assertEqual(again[-2], "")
+        self.assertIn("AI Insights", first[14])
+        self.assertIn("welcome-layer", first[15])
+        self.assertIn("data-welcome-close", first[15])
+        self.assertIn('href="/help"', first[15])
+        self.assertEqual(again[15], "")
+
+
+class TestSessionRating(unittest.TestCase):
+    def test_a_finished_session_asks_how_useful_it_was_and_keeps_the_answer(self):
+        web_app, store, user, request = _signed_in()
+        session = web_app._open_session(user, "coachee", "template", "en")
+        self.assertFalse(web_app._rating_updates(session)[0]["visible"])
+        session["agent"].session_complete = True
+
+        card, prompt, buttons = web_app._rating_updates(session)
+        self.assertTrue(card["visible"] and buttons["visible"])
+        self.assertIn("How useful was this session?", prompt["value"])
+        *updates, session = web_app.rate_session("4", session, request)
+        *_, session = web_app.rate_session("5", session, request)  # a second tap changes it
+
+        self.assertEqual(store.session_rating(session["id"]), 5)
+        self.assertIn("your rating is saved", updates[1]["value"])
+        self.assertFalse(updates[2]["visible"])
+        self.assertEqual(store.ratings_since(db.utcnow().replace(year=2000)), {"coachee": (1, 5.0)})
+        self.assertEqual(store.export_user(user["id"])["sessions"][0]["usefulness_rating"], 5)
+
+    def test_admin_page_shows_ratings_without_opening_sessions(self):
+        from fastapi.testclient import TestClient
+        import web_app
+
+        app = web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "test-secret"})
+        store = web_app.get_store()
+        admin = store.create_user("owner@example.com", "Owner", accounts.hash_password("a-long-password"), role="admin")
+        session_id = store.create_session(admin, "coach", "en", "llm", "CLOSING", {"context": []})
+        store.rate_session(session_id, admin, "coach", 4)
+        client = TestClient(app)
+        client.post("/login", data={"email": "owner@example.com", "password": "a-long-password"})
+
+        page = client.get("/admin?lang=en").text
+
+        self.assertIn("How useful people found their sessions in the last 30 days: AI Coach 4.0/5 (1 rated)", page)
+        self.assertIn("Useful 4/5", page)
+
+    def test_only_the_owner_rates_and_only_once_the_session_has_ended(self):
+        import gradio as gr
+
+        web_app, store, user, request = _signed_in()
+        session = web_app._open_session(user, "coach", "template", "zh")
+        web_app.rate_session("5", session, request)
+        self.assertIsNone(store.session_rating(session["id"]))
+
+        session["agent"].current_state = CoachingState.CLOSING
+        self.assertIn("这次会话对你有多大帮助", web_app._rating_updates(session)[1]["value"])
+        other = store.create_user("bo@example.com", "Bo", accounts.hash_password("a-long-password"))
+        web_app.rate_session("5", session, gr.Request(username=str(other)))
+        web_app.rate_session("9", session, request)
+        self.assertIsNone(store.session_rating(session["id"]))
 
 
 class TestStructuredReplies(unittest.TestCase):
