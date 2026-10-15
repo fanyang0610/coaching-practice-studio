@@ -25,13 +25,13 @@ Internal names nobody sees, such as code class names, `ERICKSON_*` settings, coo
 
 ## Accounts and Roles
 
-Coaching Practice Studio is invite-only. Everyone signs in with an email and password, and new people join through one-use invite links.
+Coaching Practice Studio is invite-only. Everyone signs in with an email and password, and new people join through invite links. A link is for one person by default. For a group, such as a WeChat group, the admin or a mentor sets how many people can use it (up to 200) and for how many days (up to 60, default 14); the invite list shows how many places are used, and any open link can be revoked. A link locked to one email address is always for one person.
 
 Both coaching modules are always one person talking with the AI: in AI Coach the AI coaches the person, and in Coachee Lab the person practises coaching an AI coachee. The roles below are about people and who may read whose transcripts.
 
 - **Admin** (管理员): manages people, invites, roles, mentors and daily allowances, sees when sessions happen and how long they are, and reads the audit log (`/admin`). The Admin page opens with an "AI service" card: the credit left on the OpenRouter account (with a warning under $2) and any failed AI requests in the last 24 hours, such as 402 when the credit has run out. Being an admin gives no access to what anyone said; an admin who is assigned as someone's mentor sees only what any mentor would.
 - **Mentor** (导师; role key `trainer`): a real person, such as a coaching instructor, who reviews the practice of the members assigned to them. That covers their Coachee Lab sessions, plus any AI Coach session a member chooses to share (`/mentor`). Mentors can also invite members, who are then assigned to them. If you don't run supervised training, simply create no mentors.
-- **Member** (成员; role key `user`): uses the coaching app, and manages their sessions, sharing, insights, password, data export and account deletion (`/account`).
+- **Member** (成员; role key `user`): uses the coaching app, and manages their sessions (sharing, or deleting a single conversation), insights, password, data export and account deletion (`/account`).
 
 AI Coach sessions are private by default, because people bring their real lives there; Coachee Lab sessions are visible to the member's mentor, because reviewing practice is the point of mentoring. Nobody else, including the admin, can open a conversation in the app. When an admin changes someone's mentor, that person's shared AI Coach sessions become private again, so a share meant for one mentor never passes to the next. Every time someone other than the owner opens a transcript, it is recorded in the audit log. The privacy page also says plainly that whoever runs the server and the AI provider handle the conversation data, as with any online service. Passwords are stored with scrypt, and sign-in cookies expire after 14 days and stop working when the password changes.
 
@@ -61,6 +61,7 @@ AI Coach sessions are private by default, because people bring their real lives 
 | `ERICKSON_PUBLIC_URL` | optional | Base URL for invite and reset links if the server can't infer it. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | optional | Enables self-service password reset emails (port 587 uses STARTTLS, 465 uses SSL). |
 | `ERICKSON_DATA_LOCATIONS` | recommended | One line for the privacy page saying where data is processed, e.g. `Server: Hugging Face (US) · AI: DeepSeek (China)`. |
+| `ERICKSON_CONTACT` | recommended | Who to tell about a problem or an idea, shown on the Help page, e.g. `Fan, WeChat ID fan-coach`. Without it, the Help page has no contact line. |
 | `SENTRY_DSN` | optional | Crash reports. Request bodies and local variables are never sent, so transcripts stay on the server. |
 | `GRADIO_SERVER_NAME`, `GRADIO_SERVER_PORT` / `PORT` | hosting | Bind address and port. Hugging Face and Render set these. |
 
@@ -94,9 +95,9 @@ Whatever you choose, run one real session before inviting people, to see that re
 3. Set `ERICKSON_SECRET_KEY`, `ERICKSON_ADMIN_EMAIL` and `ERICKSON_ADMIN_PASSWORD`.
 4. Deploy:
    - **Hugging Face Space:** add the variables above as Space secrets and run `python3 scripts/deploy_hf_space.py`. Share the direct `https://fanyang0610-coaching-practice-studio.hf.space` URL; browsers block sign-in cookies inside the huggingface.co page frame.
-   - **Always-on host (Render, Fly.io, Railway, Cloud Run):** build the included `Dockerfile` and set the same variables. It serves on `$PORT` (default 7860) and exposes `/healthz` for health checks.
+   - **Always-on host (Render, Fly.io, Railway, Cloud Run):** build the included `Dockerfile` and set the same variables. It serves on `$PORT` (default 7860), and its health check uses `/ping`.
 5. Sign in as the admin, create trainer invites on the Admin page, and let trainers invite their trainees.
-6. Point an uptime monitor at `/healthz`. Backups come from the managed Postgres provider.
+6. Point an uptime monitor at `/ping`, e.g. every 10 minutes: it keeps the free Space from going to sleep after 48 idle hours and answers without touching the database. Don't monitor `/healthz`, which also checks the database: polled every few minutes, it would keep Neon's free database awake around the clock, use up its 100 compute-hours a month, and Neon would then stop the database until the next month. Check Neon's usage page after the first week. Backups come from the managed Postgres provider.
 
 To check concurrency before inviting people, simulate signed-in users against a fake model (nothing is billed):
 

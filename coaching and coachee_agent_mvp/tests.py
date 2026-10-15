@@ -1634,6 +1634,23 @@ class TestStore(unittest.TestCase):
         self.store.abandon_session(session_id)  # an old tab's New Session leaves a finished session finished
         self.assertEqual(self.store.get_session(session_id)["status"], "completed")
 
+    def test_deleting_a_session_takes_its_result_rating_and_feedback_with_it(self):
+        # A member deleting one conversation from the Account page (also run on Postgres by pg_test.py).
+        gone = self.store.create_session(self.uid, "coachee", "en", "llm", "CLOSING", {"context": []})
+        keep = self.store.create_session(self.uid, "coachee", "en", "llm", "CLOSING", {"context": []})
+        for session_id in (gone, keep):
+            self.store.save_session_result(session_id, self.uid, "coachee", score=60)
+            self.store.rate_session(session_id, self.uid, "coachee", 4)
+            self.store.set_feedback(self.uid, session_id, 1, "like")
+
+        self.store.delete_session(gone)
+
+        self.assertIsNone(self.store.get_session(gone))
+        self.assertIsNone(self.store.session_rating(gone))
+        self.assertEqual(self.store.feedback_for_session(gone), {})
+        self.assertEqual([row["session_id"] for row in self.store.session_results(self.uid, "coachee")], [keep])
+        self.assertEqual(self.store.session_rating(keep), 4)
+
     def test_session_ratings_average_per_module_and_go_with_the_account(self):
         coaching = self.store.create_session(self.uid, "coach", "en", "llm", "CLOSING", {"context": []})
         other = self.store.create_session(self.uid, "coach", "en", "llm", "CLOSING", {"context": []})
@@ -2054,6 +2071,21 @@ class TestAccountPages(unittest.TestCase):
         self.assertIsNotNone(person["consented_at"])
         self.assertEqual(self.client.get(f"/invite/{code}").status_code, 410)
 
+    def test_guessing_from_ever_changing_addresses_still_hits_a_limit(self):
+        # The address comes from X-Forwarded-For, which a caller controls, so the email address is counted on its own too.
+        from fastapi.testclient import TestClient
+        import account_pages
+
+        self._person("target@example.com")
+        wrong = {"email": "target@example.com", "password": "wrong-password"}
+        for n in range(account_pages.EMAIL_MAX_FAILURES):
+            client = TestClient(self.app, client=(f"10.0.0.{n}", 5000))
+            self.assertEqual(client.post("/login", data=wrong).status_code, 401)
+
+        fresh = TestClient(self.app, client=("10.0.1.1", 5000))
+        right = fresh.post("/login", data={**wrong, "password": "a-long-password"}, follow_redirects=False)
+        self.assertEqual(right.status_code, 429)
+
     def test_wrong_password_is_rejected_then_throttled(self):
         self._person("amy@example.com")
         for _ in range(8):
@@ -2239,6 +2271,44 @@ class TestAccountPages(unittest.TestCase):
         self.assertEqual(self.store.get_invite(code)["trainer_id"], trainer)
         self.assertEqual(self.store.get_invite(code)["role"], "user")
 
+    def test_a_group_invite_lets_in_as_many_people_as_set_then_closes(self):
+        # Inviting a WeChat group shouldn't take one link per person.
+        import datetime as dt
+
+        self._person("owner@example.com", role="admin")
+        client = self._sign_in("owner@example.com")
+        page = client.post("/admin/invites?lang=en", data={"csrf": self._csrf(client), "email": "", "role": "user",
+                                                           "uses": "2", "days": "7"})
+        code = page.text.split("/invite/")[1].split("<")[0]
+        invite = self.store.get_invite(code)
+
+        self.assertIn("Group invite link (valid 7 days, for up to 2 people)", page.text)
+        self.assertEqual(invite["max_uses"], 2)
+        self.assertAlmostEqual((invite["expires_at"] - invite["created_at"]).days, 7)
+        for n in (1, 2):
+            form = {"name": f"P{n}", "email": f"p{n}@example.com", "password": "a-long-password",
+                    "confirm": "a-long-password", "consent": "yes"}
+            self.assertEqual(self.client.post(f"/invite/{code}", data=form, follow_redirects=False).status_code, 303)
+            self.client.cookies.clear()
+        self.assertEqual(self.client.get(f"/invite/{code}").status_code, 410)
+        self.assertIn("2 of 2 used", client.get("/admin?lang=en").text)
+
+    def test_invite_size_and_length_stay_within_bounds(self):
+        import account_pages
+
+        self.assertEqual(account_pages.invite_limits("", ""), (1, 14))
+        self.assertEqual(account_pages.invite_limits("0", "0"), (1, 1))
+        self.assertEqual(account_pages.invite_limits("5000", "999"), (account_pages.MAX_INVITE_USES, account_pages.MAX_INVITE_DAYS))
+        self.assertEqual(account_pages.invite_limits("-3", "abc"), (1, 14))
+        self.assertEqual(account_pages.invite_limits("30", "7", locked=True), (1, 7))  # one address, one person
+
+        trainer = self._person("trainer@example.com", role="trainer")
+        client = self._sign_in("trainer@example.com")
+        page = client.post("/mentor/invites?lang=zh", data={"csrf": self._csrf(client), "email": "", "uses": "12", "days": "30"})
+        code = page.text.split("/invite/")[1].split("<")[0]
+        self.assertIn("群组邀请链接（30 天内有效，最多 12 人使用）", page.text)
+        self.assertEqual((self.store.get_invite(code)["max_uses"], self.store.get_invite(code)["trainer_id"]), (12, trainer))
+
     def test_export_and_delete_my_account(self):
         learner = self._person("learner@example.com")
         self.store.create_session(learner, "coach", "en", "llm", "CONTRACT", {"context": [{"role": "coach", "content": "Hi"}]})
@@ -2251,11 +2321,44 @@ class TestAccountPages(unittest.TestCase):
         self.assertIsNone(self.store.get_user(learner))
         self.assertEqual(self.store.list_sessions(learner), [])
 
+    def test_a_member_can_delete_one_session_and_nobody_else_can(self):
+        learner = self._person("learner@example.com")
+        self._person("mentor@example.com", role="trainer")
+        self.store.update_user(learner, trainer_id=self.store.get_user_by_email("mentor@example.com")["id"])
+        keep = self.store.create_session(learner, "coach", "en", "llm", "CLOSING", {"context": [{"role": "coach", "content": "Hi"}]})
+        gone = self.store.create_session(learner, "coachee", "en", "llm", "CLOSING", {"context": [{"role": "coachee", "content": "Hi"}]})
+        self.store.save_session_result(gone, learner, "coachee", score=70)
+        self.store.rate_session(gone, learner, "coachee", 4)
+        client = self._sign_in("learner@example.com")
+
+        page = client.get("/account?lang=en").text
+        self.assertIn(f'action="/account/sessions/{gone}/delete"', page)
+        self.assertIn('data-confirm="Delete this conversation for good?', page)
+
+        mentor = self._sign_in("mentor@example.com")  # can read practice sessions, but they aren't theirs to delete
+        self.assertEqual(mentor.post(f"/account/sessions/{gone}/delete", data={"csrf": self._csrf(mentor)}).status_code, 403)
+        client.post(f"/account/sessions/{gone}/delete", data={"csrf": "not-the-token"})
+        self.assertIsNotNone(self.store.get_session(gone))
+
+        page = client.post(f"/account/sessions/{gone}/delete", data={"csrf": self._csrf(client)})
+        self.assertIn("The conversation was deleted.", page.text)
+        self.assertIsNone(self.store.get_session(gone))
+        self.assertEqual(self.store.session_results(learner, "coachee"), [])
+        self.assertIsNone(self.store.session_rating(gone))
+        self.assertIsNotNone(self.store.get_session(keep))
+        self.assertIn("session_deleted", [entry["action"] for entry in self.store.audit_entries()])
+
     def test_public_icons_and_manifest_need_no_sign_in(self):
         self.assertEqual(self.client.get("/icons/studio-icon-180.png").status_code, 200)
         self.assertEqual(self.client.get("/site.webmanifest").status_code, 200)
         self.assertEqual(self.client.get("/privacy").status_code, 200)
         self.assertEqual(self.client.get("/healthz").json(), {"ok": True})
+
+    def test_ping_answers_without_waking_the_database(self):
+        # An uptime monitor on a database-checking URL keeps Neon's free database awake and uses up its monthly hours.
+        with patch.object(self.store, "has_users", side_effect=AssertionError("the database was queried")), \
+                patch.object(self.store.engine, "connect", side_effect=AssertionError("the database was queried")):
+            self.assertEqual(self.client.get("/ping").json(), {"ok": True})
 
 
 class TestSessionTakeaways(unittest.TestCase):
@@ -2950,6 +3053,15 @@ class TestIndependentBranding(unittest.TestCase):
             for term in ("erickson", "埃里克森", "arrow model"):
                 self.assertNotIn(term, text.lower(), f"{term!r} in {path}")
 
+    def test_no_certification_bodys_competency_names_in_what_the_ai_is_told(self):
+        # The practice review once listed a certification body's competencies by name; the skills are described in
+        # plain words instead.
+        for path in ("coach_agent.py", "coachee_agent.py", "coaching_core.py", "web_assets.py", "account_pages.py"):
+            text = self._visible_text(path).lower()
+            for term in ("creating presence", "powerful questioning", "designing actions", "establishing the contract",
+                         "core competenc"):
+                self.assertNotIn(term, text, f"{term!r} in {path}")
+
     def test_app_name_and_independence_note(self):
         import account_pages
         from web_assets import UI
@@ -2994,6 +3106,16 @@ class TestHelpPage(unittest.TestCase):
         self.assertNotIn("内置问题", chinese)
         self.assertIn("tells you roughly when you can start again", english)
         self.assertIn("大约多久之后可以再开始", chinese)
+
+    def test_help_says_whom_to_contact_when_the_owner_sets_it(self):
+        from fastapi.testclient import TestClient
+        import web_app
+
+        self.assertNotIn("Get in touch", self.client.get("/help?lang=en").text)
+        client = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret",
+                                                                       "ERICKSON_CONTACT": "Fan, WeChat ID fan-coach"}))
+        self.assertIn("Get in touch: Fan, WeChat ID fan-coach.", client.get("/help?lang=en").text)
+        self.assertIn("请联系：Fan, WeChat ID fan-coach。", client.get("/help?lang=zh").text)
 
     def test_every_page_links_to_help(self):
         self.assertIn('href="/help"', self.client.get("/privacy").text)

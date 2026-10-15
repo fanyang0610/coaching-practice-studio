@@ -85,6 +85,9 @@ T = {
         "view": "View",
         "share": "Share with mentor",
         "unshare": "Stop sharing",
+        "delete_session": "Delete",
+        "delete_session_confirm": "Delete this conversation for good? Its action card or practice score goes with it.",
+        "session_deleted": "The conversation was deleted.",
         "shared": "Shared",
         "private": "Private",
         "trainer_sees_practice": "Your mentor can review your Coachee Lab practice sessions. AI Coach sessions stay private unless you share them.",
@@ -142,7 +145,12 @@ T = {
         "assign_trainer": "Mentor",
         "none": "None",
         "create_invite": "Create invite link",
-        "invite_created": "Invite link (valid 14 days, one use). Send it to the person directly:",
+        "invite_created": "Invite link (valid {days} days, one use). Send it to the person directly:",
+        "invite_created_group": "Group invite link (valid {days} days, for up to {uses} people). Share it only with that group:",
+        "invite_uses": "How many people can use it",
+        "invite_days": "Valid for (days)",
+        "invite_group_hint": "For a group, such as a WeChat group, raise the number of people. Anyone with the link can join until it is used up or expires, so share it only with that group.",
+        "invite_uses_left": "{used} of {max} used",
         "invites": "Invites",
         "revoke": "Revoke",
         "used": "used",
@@ -190,7 +198,7 @@ T = {
         "help_intro": "A free place to be coached by AI, or to practise coaching an AI client. Here is everything you need for your first session.",
         "help_join_title": "Joining",
         "help_steps": [
-            "Open the invite link you were sent. Each link works once and lasts 14 days.",
+            "Open the invite link you were sent. Invite links expire, usually after 14 days, so use yours soon.",
             "Enter your name, your email and a password of at least 10 characters. Tick the box, then tap Create account.",
             "You're in. Next time, sign in with your email and password at {address}",
             "Choose at the top of the screen: Be coached (AI Coach), or Practise coaching (AI Coachee Lab).",
@@ -221,6 +229,8 @@ T = {
             ["Is this therapy?", "No. This is a coaching practice tool. If you are in crisis, call your local emergency number. In mainland China, call 12356 (the national psychological help line), or 120 or 110 in an emergency. Elsewhere, findahelpline.com lists free helplines."],
         ],
         "help_forgot_email": "Use \"Forgot your password?\" on the sign-in page, or ask the person who invited you.",
+        "help_contact_q": "Something isn't working, or I have an idea.",
+        "help_contact_a": "Get in touch: {contact}. A screenshot and the time it happened help a lot.",
         "help_cta": "Go to sign in",
         "data_locations": "Where your data is processed: {where}",
         "privacy_body": [
@@ -235,7 +245,7 @@ T = {
             "account_created": "Account created", "account_deleted": "Account deleted", "password_changed": "Password changed",
             "password_reset": "Password reset", "reset_link_created": "Reset link created", "reset_email_sent": "Reset email sent",
             "invite_created": "Invite created", "invite_revoked": "Invite revoked", "user_updated": "Person updated",
-            "session_viewed": "Session viewed", "session_shared": "Session shared", "session_unshared": "Session unshared",
+            "session_viewed": "Session viewed", "session_shared": "Session shared", "session_unshared": "Session unshared", "session_deleted": "Session deleted",
             "safety_flag": "Safety message shown", "limits_updated": "Allowances changed", "ai_error": "AI request failed",
         },
     },
@@ -289,6 +299,9 @@ T = {
         "view": "查看",
         "share": "分享给导师",
         "unshare": "取消分享",
+        "delete_session": "删除",
+        "delete_session_confirm": "要永久删除这段对话吗？它的行动卡或练习得分也会一起删除。",
+        "session_deleted": "这段对话已删除。",
         "shared": "已分享",
         "private": "私密",
         "trainer_sees_practice": "你的导师可以查看你的 AI学员陪练 会话。AI教练 会话默认私密，除非你主动分享。",
@@ -346,7 +359,12 @@ T = {
         "assign_trainer": "导师",
         "none": "无",
         "create_invite": "生成邀请链接",
-        "invite_created": "邀请链接（14 天内有效，仅限一次）。请直接发给对方：",
+        "invite_created": "邀请链接（{days} 天内有效，仅限一次）。请直接发给对方：",
+        "invite_created_group": "群组邀请链接（{days} 天内有效，最多 {uses} 人使用）。请只发给这个群：",
+        "invite_uses": "可使用人数",
+        "invite_days": "有效天数",
+        "invite_group_hint": "如果要发到群里（例如微信群），请调高可使用人数。任何拿到链接的人都能加入，直到人数用完或链接过期，所以请只发给这个群。",
+        "invite_uses_left": "已使用 {used}/{max}",
         "invites": "邀请",
         "revoke": "撤销",
         "used": "已使用",
@@ -394,7 +412,7 @@ T = {
         "help_intro": "一个免费的地方：可以让 AI 为你做教练，也可以练习给 AI 学员做教练。下面是第一次使用需要知道的全部内容。",
         "help_join_title": "加入",
         "help_steps": [
-            "打开你收到的邀请链接。每个链接只能使用一次，14 天内有效。",
+            "打开你收到的邀请链接。邀请链接有有效期（通常 14 天），请尽快使用。",
             "填写名字、邮箱和至少 10 位的密码，勾选同意，然后点击“创建账户”。",
             "完成！以后请在这里用邮箱和密码登录：{address}",
             "在页面顶部选择：被教练（AI教练），或练习做教练（AI学员陪练）。",
@@ -418,13 +436,15 @@ T = {
         "help_unlimited": "不限",
         "help_faq_title": "常见问题",
         "help_faq": [
-            ["忘记密码怎么办？", "请联系邀请你的人，让他给你发送重置链接。"],
+            ["忘记密码怎么办？", "请联系邀请你的人，让对方给你发送重置链接。"],
             ["谁能看到我的对话？", "只有你本人。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。应用管理员无法打开你的对话。详情见隐私页面。"],
             ["麦克风用不了。", "语音输入取决于你的浏览器。Safari 效果很好；在部分地区，Chrome 的语音服务无法使用。你随时可以改为打字。"],
             ["页面打不开。", "服务器可能正在唤醒：请等一分钟后刷新。如果仍然打不开，可能是你的网络无法访问服务器，请换一个网络或使用 VPN。"],
             ["这是心理治疗吗？", "不是。这是一个教练练习工具。如果你正处于危机中，请拨打当地紧急电话。在中国大陆，可拨打全国统一心理援助热线 12356，紧急情况请拨打 120 或 110。其他国家和地区可在 findahelpline.com 找到免费求助热线。"],
         ],
         "help_forgot_email": "可以在登录页点击“忘记密码？”，或联系邀请你的人。",
+        "help_contact_q": "遇到问题，或者有建议？",
+        "help_contact_a": "请联系：{contact}。附上截图和发生的时间会很有帮助。",
         "help_cta": "前往登录",
         "data_locations": "你的数据处理地点：{where}",
         "privacy_body": [
@@ -439,7 +459,7 @@ T = {
             "account_created": "创建账户", "account_deleted": "删除账户", "password_changed": "修改密码",
             "password_reset": "重置密码", "reset_link_created": "生成重置链接", "reset_email_sent": "发送重置邮件",
             "invite_created": "创建邀请", "invite_revoked": "撤销邀请", "user_updated": "更新成员信息",
-            "session_viewed": "查看会话", "session_shared": "分享会话", "session_unshared": "取消分享会话",
+            "session_viewed": "查看会话", "session_shared": "分享会话", "session_unshared": "取消分享会话", "session_deleted": "删除会话",
             "safety_flag": "显示安全提示", "limits_updated": "修改每日额度", "ai_error": "AI 请求失败",
         },
     },
@@ -485,6 +505,7 @@ button, .button { display:inline-flex; align-items:center; justify-content:cente
 button:hover, .button:hover { background:var(--blue-hover); }
 button.secondary, .button.secondary { background:var(--mist); color:var(--deep); border:1px solid var(--border); }
 button.quiet { min-height:36px; padding:6px 12px; font-size:14px; background:var(--mist); color:var(--deep); border:1px solid var(--border); }
+button.quiet.danger { background:var(--paper); color:var(--warn); border-color:#e8c9bf; }
 button.danger { background:var(--paper); color:var(--warn); border:1px solid #e8c9bf; }
 .full { width:100%; margin-top:18px; }
 .flash { padding:12px 16px; border-radius:14px; margin-bottom:16px; font-weight:600; font-size:15px; }
@@ -507,6 +528,7 @@ form.inline { display:inline; margin:0; }
 .fields { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:8px 12px; width:100%; }
 .fields label { margin:0 0 4px; font-size:12px; color:var(--muted); }
 .fields.three { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+.pair { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 12px; }
 code.link { display:block; word-break:break-all; background:var(--mist); border:1px solid var(--border); padding:10px 12px; border-radius:12px; font-size:13px; }
 ul.tight { margin:6px 0 0; padding-left:1.2em; }
 .steps { margin:0; padding-left:1.4em; }
@@ -545,6 +567,26 @@ class PageSettings:
     data_locations: str = ""
     # Dollars left on the AI account, or None when unknown; shown on the Admin page.
     ai_credit: Callable[[], float | None] | None = None
+    # Who to tell about a problem or an idea, e.g. "Fan, WeChat ID fan-coach" (ERICKSON_CONTACT); shown on the Help page.
+    contact: str = ""
+
+
+# Failed sign-ins allowed per email address in 15 minutes, from all addresses together (see build_router).
+EMAIL_MAX_FAILURES = 20
+
+# Invite links: one person by default; a group link (e.g. for a WeChat group) can let in up to MAX_INVITE_USES people.
+DEFAULT_INVITE_DAYS = 14
+MAX_INVITE_DAYS = 60
+MAX_INVITE_USES = 200
+
+
+def invite_limits(uses: str, days: str, locked: bool = False) -> tuple[int, int]:
+    """(people, days) for a new invite from the form, within bounds. A link locked to one email address is for one use."""
+    def number(value: str, default: int, top: int) -> int:
+        value = (value or "").strip()
+        return min(max(int(value), 1), top) if value.isdigit() else default
+
+    return (1 if locked else number(uses, 1, MAX_INVITE_USES)), number(days, DEFAULT_INVITE_DAYS, MAX_INVITE_DAYS)
 
 
 # Below this balance the Admin page warns that the AI credit is running low (a busy day costs about a dollar).
@@ -608,6 +650,9 @@ def _safe_next(target: str | None) -> str:
 def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> APIRouter:
     router = APIRouter()
     throttle = accounts.LoginThrottle()
+    # The address in the first throttle comes from X-Forwarded-For, which a caller can change on every try, so failed
+    # sign-ins are also counted per email address alone. Generous, so a forgetful person isn't locked out.
+    email_throttle = accounts.LoginThrottle(max_failures=EMAIL_MAX_FAILURES, window_seconds=900)
 
     def text(lang: str, key: str, **values) -> str:
         values.setdefault("n", accounts.MIN_PASSWORD_LENGTH)
@@ -684,7 +729,15 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 
     @router.get("/healthz")
     def healthz():
+        """The app and its database are up. Not for an uptime monitor: see /ping."""
         get_store().has_users()
+        return {"ok": True}
+
+    @router.get("/ping")
+    def ping():
+        """The app is up, without touching the database. For uptime monitors and container health checks: checking
+        /healthz every few minutes would keep a free Neon database awake around the clock and use up its 100
+        compute-hours a month, and Neon then stops the database until the next month."""
         return {"ok": True}
 
     # Sign in and out ------------------------------------------------------------
@@ -715,13 +768,16 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
     def login_submit(request: Request, email: str = Form(""), password: str = Form("")):
         lang = page_lang(request)
         store = get_store()
-        key = f"{email.strip().lower()}|{request.client.host if request.client else ''}"
-        if throttle.blocked(key):
+        email_key = email.strip().lower()
+        key = f"{email_key}|{request.client.host if request.client else ''}"
+        if throttle.blocked(key) or email_throttle.blocked(email_key):
             return login_form(request, lang, email, ("error", T[lang]["throttled"]), 429)
         user = store.get_user_by_email(email)
         if not user or user["status"] != "active" or not accounts.verify_password(password, user["password_hash"]):
             throttle.failed(key)
+            email_throttle.failed(email_key)
             return login_form(request, lang, email, ("error", T[lang]["bad_login"]), 401)
+        # Only the per-address count resets: a guesser elsewhere shouldn't get a fresh start when the owner signs in.
         throttle.succeeded(key)
         return set_login(RedirectResponse(_safe_next(request.query_params.get("next")), status_code=303), user)
 
@@ -910,6 +966,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         faq_items = [list(item) for item in T[lang]["help_faq"]]
         if settings.mailer:
             faq_items[0][1] = T[lang]["help_forgot_email"]
+        if settings.contact:
+            faq_items.append([T[lang]["help_contact_q"], text(lang, "help_contact_a", contact=settings.contact)])
         faq = "".join(f'<div class="faq"><b>{_e(question)}</b><p>{_e(answer)}</p></div>' for question, answer in faq_items)
         body = f"""<div class="card"><div class="eyebrow">{_e(T[lang]['help_eyebrow'])}</div><h1>{_e(T[lang]['help_title'])}</h1>
 <p class="hint">{_e(T[lang]['help_intro'])}</p><p class="hint">{_e(T[lang]['independent'])}</p></div>
@@ -1015,6 +1073,10 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
                 share_form = (f'<form method="post" action="/account/sessions/{_e(row["id"])}/share" class="inline">{csrf_field(request)}'
                               f'<input type="hidden" name="shared" value="{"no" if row["shared_with_trainer"] else "yes"}">'
                               f'<button class="quiet" type="submit">{_e(label)}</button></form>')
+            # Someone who said more than they meant to can remove one conversation without closing their account.
+            share_form += (f'<form method="post" action="/account/sessions/{_e(row["id"])}/delete" class="inline" '
+                           f'data-confirm="{_e(T[lang]["delete_session_confirm"])}">{csrf_field(request)}'
+                           f'<button class="quiet danger" type="submit">{_e(T[lang]["delete_session"])}</button></form>')
             rows.append(session_row(lang, row, share_form=share_form, results=True))
         sessions_html = "".join(rows) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'
         body = f"""<div class="card"><div class="eyebrow">{_e(ROLE_LABELS[lang][user['role']])}</div><h1>{_e(user['display_name'])}</h1>
@@ -1034,7 +1096,10 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <div class="card"><h2>{_e(T[lang]['your_data'])}</h2><p><a class="button secondary" href="/account/export">{_e(T[lang]['export'])}</a></p>
 <form method="post" action="/account/delete">{csrf_field(request)}<p class="hint">{_e(T[lang]['delete_hint'])}</p>
 <input name="confirm" type="text" autocomplete="off" aria-label="DELETE">
-<button class="danger full" type="submit">{_e(T[lang]['delete_account'])}</button></form></div></div>"""
+<button class="danger full" type="submit">{_e(T[lang]['delete_account'])}</button></form></div></div>
+<script>document.querySelectorAll('form[data-confirm]').forEach(function (form) {{
+  form.addEventListener('submit', function (event) {{ if (!window.confirm(form.dataset.confirm)) event.preventDefault(); }});
+}});</script>"""
         return render(request, lang, T[lang]["account"], body, user=user, flash=flash, current="account")
 
     @router.get("/account")
@@ -1043,7 +1108,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         if not user:
             return login_redirect(request)
         flash_key = request.query_params.get("done")
-        flash = ("ok", T[page_lang(request)][flash_key]) if flash_key in ("password_changed", "insights_cleared") else None
+        flash = ("ok", T[page_lang(request)][flash_key]) if flash_key in ("password_changed", "insights_cleared", "session_deleted") else None
         return account_page(request, user, flash)
 
     @router.post("/account/password")
@@ -1083,6 +1148,22 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         store.set_session_shared(session_id, shared == "yes")
         store.log(user["id"], "session_shared" if shared == "yes" else "session_unshared", target_session_id=session_id)
         return RedirectResponse("/account", status_code=303)
+
+    @router.post("/account/sessions/{session_id}/delete")
+    def delete_session(request: Request, session_id: str, csrf: str = Form("")):
+        user = checked_user(request, csrf)
+        if not user:
+            return login_redirect(request)
+        store = get_store()
+        row = store.get_session(session_id)
+        lang = page_lang(request)
+        if not row or row["user_id"] != user["id"]:
+            return forbidden(request, lang, user)
+        # Its action card or score and its rating go too (foreign keys). Its token usage stays, so the daily token
+        # allowance still counts it (the session count no longer does); the audit entry keeps no content.
+        store.delete_session(session_id)
+        store.log(user["id"], "session_deleted", target_user_id=user["id"], target_session_id=session_id)
+        return RedirectResponse("/account?done=session_deleted", status_code=303)
 
     @router.get("/account/export")
     def export(request: Request):
@@ -1156,10 +1237,26 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
                        if len(roles) > 1 else f'<input type="hidden" name="role" value="{roles[0]}">')
         return f"""<form method="post" action="{action}">{csrf_field(request)}
 <label for="invite_email">{_e(T[lang]['invite_email_optional'])}</label><input id="invite_email" name="email" type="email">
+<div class="pair"><div><label for="invite_uses">{_e(T[lang]['invite_uses'])}</label><input id="invite_uses" name="uses" type="number" inputmode="numeric" min="1" max="{MAX_INVITE_USES}" value="1"></div>
+<div><label for="invite_days">{_e(T[lang]['invite_days'])}</label><input id="invite_days" name="days" type="number" inputmode="numeric" min="1" max="{MAX_INVITE_DAYS}" value="{DEFAULT_INVITE_DAYS}"></div></div>
+<p class="hint">{_e(T[lang]['invite_group_hint'])}</p>
 {role_select}{trainer_select}<button class="full" type="submit">{_e(T[lang]['create_invite'])}</button></form>"""
 
     def created_link(lang: str, key: str, link: str, **values) -> str:
         return f'<div class="flash ok">{_e(text(lang, key, **values))}<code class="link">{_e(link)}</code></div>'
+
+    def new_invite(request: Request, user: dict, *, role: str, trainer_id: int | None, email: str, uses: str,
+                   days: str) -> str:
+        """Create an invite from the form and return the message with its link. A link locked to one email address is
+        for that one person; otherwise it can be shared with a group (up to MAX_INVITE_USES people)."""
+        uses_n, days_n = invite_limits(uses, days, locked=bool(email.strip()))
+        store = get_store()
+        code = store.create_invite(user["id"], role=role, trainer_id=trainer_id, email=email or None, days_valid=days_n,
+                                   max_uses=uses_n)
+        store.log(user["id"], "invite_created", detail=f"{role} invite {code[:6]}… for {uses_n}, {days_n} days")
+        lang = page_lang(request)
+        key = "invite_created_group" if uses_n > 1 else "invite_created"
+        return created_link(lang, key, f"{base_url(request)}/invite/{code}", uses=uses_n, days=days_n)
 
     def trainer_page(request: Request, user: dict, extra: str = "") -> HTMLResponse:
         lang = page_lang(request)
@@ -1184,15 +1281,13 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         return trainer_page(request, user) if user else login_redirect(request)
 
     @router.post("/mentor/invites")
-    def trainer_invite(request: Request, csrf: str = Form(""), email: str = Form("")):
+    def trainer_invite(request: Request, csrf: str = Form(""), email: str = Form(""), uses: str = Form("1"),
+                       days: str = Form("")):
         user = checked_user(request, csrf, roles=("trainer", "admin"))
         if not user:
             return login_redirect(request)
-        store = get_store()
-        code = store.create_invite(user["id"], role="user", trainer_id=user["id"], email=email or None)
-        store.log(user["id"], "invite_created", detail=f"user invite {code[:6]}…")
-        lang = page_lang(request)
-        return trainer_page(request, user, created_link(lang, "invite_created", f"{base_url(request)}/invite/{code}"))
+        return trainer_page(request, user, new_invite(request, user, role="user", trainer_id=user["id"], email=email,
+                                                      uses=uses, days=days))
 
     # Admin --------------------------------------------------------------------------
 
@@ -1263,7 +1358,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
                 revoke = (f'<form method="post" action="/admin/invites/{_e(invite["code"])}/revoke" class="inline">{csrf}'
                           f'<button class="quiet" type="submit">{_e(T[lang]["revoke"])}</button></form>')
             invite_rows.append(f"""<div class="row"><div class="main"><div class="title">{_e(invite['email'] or '—')} <span class="pill">{_e(ROLE_LABELS[lang][invite['role']])}</span> <span class="pill">{_e(state)}</span></div>
-<div class="meta">{_e(invite['code'][:6])}… · {_time(invite['created_at'])}{(' · ' + _e(T[lang]['assign_trainer']) + ': ' + _e(names.get(invite['trainer_id'], '?'))) if invite['trainer_id'] else ''}</div></div>
+<div class="meta">{_e(invite['code'][:6])}… · {_time(invite['created_at'])}{(' · ' + _e(text(lang, 'invite_uses_left', used=invite['uses'], max=invite['max_uses']))) if invite['max_uses'] > 1 else ''}{(' · ' + _e(T[lang]['assign_trainer']) + ': ' + _e(names.get(invite['trainer_id'], '?'))) if invite['trainer_id'] else ''}</div></div>
 <div class="actions">{revoke}</div></div>""")
 
         audit_rows = "".join(
@@ -1302,16 +1397,14 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         return admin_page(request, user) if user else login_redirect(request)
 
     @router.post("/admin/invites")
-    def admin_invite(request: Request, csrf: str = Form(""), email: str = Form(""), role: str = Form("user"), trainer_id: str = Form("")):
+    def admin_invite(request: Request, csrf: str = Form(""), email: str = Form(""), role: str = Form("user"), trainer_id: str = Form(""),
+                     uses: str = Form("1"), days: str = Form("")):
         user = checked_user(request, csrf, roles=("admin",))
         if not user:
             return login_redirect(request)
         role = role if role in accounts.ROLES else "user"
-        store = get_store()
-        code = store.create_invite(user["id"], role=role, trainer_id=int(trainer_id) if trainer_id.isdigit() else None, email=email or None)
-        store.log(user["id"], "invite_created", detail=f"{role} invite {code[:6]}…")
-        lang = page_lang(request)
-        return admin_page(request, user, created_link(lang, "invite_created", f"{base_url(request)}/invite/{code}"))
+        return admin_page(request, user, new_invite(request, user, role=role, email=email, uses=uses, days=days,
+                                                    trainer_id=int(trainer_id) if trainer_id.isdigit() else None))
 
     @router.post("/admin/allowances")
     def admin_allowances(request: Request, csrf: str = Form(""), role: str = Form(""), coach: str = Form(""),

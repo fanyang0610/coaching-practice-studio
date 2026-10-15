@@ -1342,6 +1342,7 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
         mailer=mailer.smtp_sender(env),
         data_locations=env.get("ERICKSON_DATA_LOCATIONS", "").strip(),
         ai_credit=_ai_credit_left,
+        contact=env.get("ERICKSON_CONTACT", "").strip(),
     )
     coaching_core.on_request_failure = _record_ai_failure
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)

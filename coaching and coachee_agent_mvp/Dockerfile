@@ -17,5 +17,5 @@ RUN useradd --create-home coach && chown -R coach /app
 USER coach
 
 EXPOSE 7860
-HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"7860\")}/healthz', timeout=4)"
+HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"7860\")}/ping', timeout=4)"
 CMD ["python", "web_app.py"]

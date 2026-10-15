@@ -59,7 +59,7 @@ The branch has 8 commits on top of `main`:
 | File | Role |
 |---|---|
 | `web_app.py` | Gradio UI and callbacks. `create_app()` mounts Gradio in FastAPI behind sign-in (`auth_dependency`), and `launch_demo()` runs uvicorn. Handlers take `request: gr.Request`, and `request.username` is the signed-in user id. Handles session open/restore/save, quotas, rate limits, the crisis check, feedback, and background profile learning. |
-| `account_pages.py` | Server-rendered pages: `/login`, `/setup` (first admin, local only), `/invite/{code}`, `/reset/{token}`, `/forgot` (only with SMTP), `/account`, `/sessions/{id}`, `/mentor`, `/admin`, `/privacy`, `/help` (public), `/icons/*`, `/healthz`. All strings are in `T["en"]` / `T["zh"]`. |
+| `account_pages.py` | Server-rendered pages: `/login`, `/setup` (first admin, local only), `/invite/{code}`, `/reset/{token}`, `/forgot` (only with SMTP), `/account` (incl. deleting one session), `/sessions/{id}`, `/mentor`, `/admin`, `/privacy`, `/help` (public), `/icons/*`, `/healthz` (checks the database), `/ping` (doesn't; for uptime monitors). All strings are in `T["en"]` / `T["zh"]`. |
 | `db.py` | SQLAlchemy Core storage: users, invites, password_resets, coaching_sessions (state JSON), session_results (action card or practice score per finished session), session_ratings (the 1–5 "how useful" answer), profiles, usage_events, feedback, settings, audit_log. New tables are created at startup; existing ones are never altered (no migrations yet). SQLite by default; Postgres via `DATABASE_URL`. |
 | `accounts.py` | scrypt passwords, signed cookies (invalid after a password change), CSRF, login throttle, `can_view_session`. |
 | `quota.py` | Allowances, role defaults with admin overrides (settings key `role_limits`), per-minute message limiter. |
@@ -75,14 +75,14 @@ The branch has 8 commits on top of `main`:
 ## 5. How to run and verify
 
 ```bash
-python3 tests.py                                   # 218 tests, about 5 s; tests blank the API key so they never call a real model
+python3 tests.py                                   # 226 tests, about 6 s; tests blank the API key so they never call a real model
 python3 scripts/check_project.py --browser --launcher   # tests, compile, HF dry-run, signed-in desktop and iPhone screenshots, launcher rebuild
 python3 scripts/load_test.py --users 50 --messages 3    # median about 3.6 s to first words under a 50-user burst
 python3 scripts/dev_server.py                       # UI review on http://127.0.0.1:8797 with seeded admin/mentor/member accounts
 uv run -q --python 3.10 --no-project --with-requirements requirements.txt python tests.py   # the HF Space runs Python 3.10
 ```
 
-Postgres check: run the `uv run …` command in the `scripts/pg_test.py` docstring (42 tests, including the app's stored-session handlers).
+Postgres check: run the `uv run …` command in the `scripts/pg_test.py` docstring (43 tests, including the app's stored-session handlers).
 
 `python3 scripts/dev_server.py --ai-down` makes every AI request fail with 402, as when the AI account is out of credit: use it to see the "AI isn't available" notice and the Admin page's AI service card.
 
@@ -164,16 +164,18 @@ Still open, in Fan's order:
    - On 2026-10-15 the account had $5 added and $1.22 used. The key has **no spending limit**.
 7. ✅ WeChat: Fan tested the deployed app inside WeChat on 2026-10-15; it works.
 
-Still open from the review, in priority order:
-- Inviting 50 people means 50 one-use links. A group link with N uses and an expiry would help.
+Second batch, also done the same day (Fan chose to do it in this session; not deployed yet):
+8. ✅ **Group invite links.** The Admin and Mentor invite forms take "how many people" (1–200) and "valid for (days)" (1–60, default 14), stored in the existing `invites.max_uses` / `expires_at` columns. The invite list shows "3 of 30 used". A link locked to one email address is always one use (`account_pages.invite_limits`). Help now says links expire, not that each works once.
+9. ✅ **Per-email sign-in limit.** On top of email + IP (8 failures in 15 minutes), failures are counted per email alone (`EMAIL_MAX_FAILURES` = 20 in 15 minutes), because the IP comes from `X-Forwarded-For` (uvicorn `forwarded_allow_ips="*"` trusts the first entry). A successful sign-in resets only the email + IP count.
+10. ✅ **`/ping` for uptime monitors** answers without touching the database. `/healthz` still checks it. The Dockerfile health check uses `/ping`, and README step 6 now says to monitor `/ping`, e.g. every 10 minutes. That also keeps the free Space from sleeping after 48 idle hours. Check Neon's usage page after the first week.
+11. ✅ **Delete one conversation** from the Account page (owner only; confirmation dialog, CSRF, audit `session_deleted` without content). Its action card or score, rating and thumbs go too (foreign keys, tested on Postgres). Its token usage stays, so the daily token allowance still counts it; the session count no longer does.
+12. ✅ **Contact line on Help** from `ERICKSON_CONTACT` (e.g. "Fan, WeChat ID …"). Nothing shows when it's unset. **Fan to set this Space secret.**
+13. ✅ **Practice review prompt** describes the skills in plain words instead of a certification body's competency names. `test_no_certification_bodys_competency_names_in_what_the_ai_is_told` guards it. One real review on DeepSeek still gave the right format and caught advice-giving.
+
+Still open from the review:
 - Password resets all go through Fan. Set the SMTP secrets; mail sent from Gmail can land in spam at QQ or 163 mailboxes.
-- **Neon free plan: 100 compute-hours a month.** The database sleeps after 5 idle minutes. `/healthz` queries the database, so an uptime monitor on it (README step 6) would keep Neon awake all month (~180 h), and Neon would stop the database mid-month. Before adding a monitor, give it a URL that doesn't touch the database, and check Neon's usage page after the first week.
-- The free Space sleeps after 48 h without visitors.
-- The login throttle keys on email + IP. The IP comes from `X-Forwarded-For` (uvicorn `forwarded_allow_ips="*"` trusts the first entry), so a caller can rotate it. Add a per-email limit.
 - In "Be coached", the AI writes "Areas for Challenge" about the person's life and steers the next session toward them; the analysis prompt even calls them "coaching strengths". Fan to decide: off, or neutral.
-- Members can't delete a single session, only their account.
-- No way to report a problem: add Fan's contact or a feedback box to Help.
-- The practice review prompt uses a certification body's competency names ("Creating Presence", "Powerful Questioning"…). Reword, given the branding caution.
+- Set up the uptime monitor on `/ping` (needs an account at a monitoring service; Fan's call).
 
 Suggested rollout: 5–10 people for a week (WeChat users in China, people abroad, one mentor), watching ratings, OpenRouter spend and Neon usage, before the wider invite.
 
