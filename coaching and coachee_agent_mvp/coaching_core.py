@@ -194,9 +194,9 @@ def _stream_text(client, **create_kwargs):
 
 
 # Replies that also place the conversation in a stage start with a marker naming the stage the talk is working on
-# ([[GOAL]] to [[COMMITMENT]]), or [[END]] to close the session. STAY, NEXT and numbers are older forms, still understood.
-STAGE_MARKERS = {1: "GOAL", 2: "REALITY", 3: "OPTIONS", 4: "COMMITMENT"}
-_STAGE_SIGNAL_RE = re.compile(r"\[\[\s*(STAY|NEXT|END|GOAL|REALITY|OPTIONS|COMMITMENT|[1-5])\s*\]\]", re.IGNORECASE)
+# ([[GOAL]] to [[CLOSING]]), or [[END]] once the session is over. STAY, NEXT and numbers are older forms, still understood.
+STAGE_MARKERS = {1: "GOAL", 2: "REALITY", 3: "OPTIONS", 4: "COMMITMENT", 5: "CLOSING"}
+_STAGE_SIGNAL_RE = re.compile(r"\[\[\s*(STAY|NEXT|END|GOAL|REALITY|OPTIONS|COMMITMENT|CLOSING|[1-5])\s*\]\]", re.IGNORECASE)
 
 # Naming the stage the talk is in is something models do reliably; asked instead to decide when to move on, they
 # nearly always stayed, so the tracker sat on the first stage while the conversation had moved on. Words, with the
@@ -204,7 +204,8 @@ _STAGE_SIGNAL_RE = re.compile(r"\[\[\s*(STAY|NEXT|END|GOAL|REALITY|OPTIONS|COMMI
 STAGE_MARKER_GUIDE = """[[GOAL]] what they want from this session and how they will know they got it
 [[REALITY]] what is happening now, what they have tried, what already works, past successes, strengths and resources
 [[OPTIONS]] ideas for moving forward: what they could try, what else is possible
-[[COMMITMENT]] choosing what to do: which option, the first step, when, what support they need, what might get in the way"""
+[[COMMITMENT]] choosing what to do: which option, the first step, when, what support they need, what might get in the way
+[[CLOSING]] wrapping up: what they are taking away, how they feel now compared with the start, acknowledging their progress"""
 
 
 def _marker(state: CoachingState) -> str:
@@ -221,13 +222,13 @@ def _as_written(msg: dict) -> str:
 
 
 def _labelled_stage(signal: str | None, current: CoachingState) -> CoachingState:
-    """The stage a marker puts the conversation in. It never goes back, and only [[END]] reaches closing."""
+    """The stage a marker puts the conversation in. It never goes back; [[END]] is handled by the agents."""
     numbers = {word: number for number, word in STAGE_MARKERS.items()}
     if signal in numbers:
         signal = str(numbers[signal])
     if not signal or not signal.isdigit():
         return current
-    return CoachingState(max(current.value, min(int(signal), CoachingState.VALUE.value)))
+    return CoachingState(max(current.value, min(int(signal), CoachingState.CLOSING.value)))
 
 
 def _split_stage_signal(raw: str) -> tuple[str | None, str]:

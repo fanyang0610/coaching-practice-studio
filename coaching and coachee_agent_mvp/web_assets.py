@@ -50,9 +50,10 @@ UI = {
         "busy_warning": "Still working on the last reply. One moment, please.",
         "rate_limited": "You're sending messages quickly. Please wait a moment before the next one.",
         "signed_out": "Your sign-in has expired. Please reload the page and sign in again.",
-        "quota_sessions": "You've used today's AI sessions in this module. This session runs in template practice mode; AI is available again in about {hours} h.",
-        "quota_starts": "You've started many AI sessions in this module today. This one runs in template practice mode; AI is available again in about {hours} h.",
-        "quota_tokens": "You've reached today's AI usage limit. This session runs in template practice mode; AI is available again in about {hours} h.",
+        "quota_sessions": "You've had today's sessions in this mode. You can start a new one in about {hours} h.",
+        "quota_starts": "You've started a lot of sessions in this mode today. You can start a new one in about {hours} h.",
+        "quota_tokens": "You've reached today's usage limit. You can start a new session in about {hours} h.",
+        "quota_other_mode": "“{mode}” still has sessions left today.",
         "quota_pill": "{left} of {limit} left today",
         "quota_pill_unlimited": "{used} used today",
         "account_link": "Account",
@@ -91,6 +92,7 @@ UI = {
         "card_support": "Support",
         "card_saved": "Saved on your Account page.",
         "translate_failed": "This conversation couldn't be translated right now, so it stays in {language}. Try switching the language again in a moment.",
+        "stage_skipped": "skipped",
         "rating_question": "How useful was this session?",
         "rating_scale": "1 = not useful · 5 = very useful",
         "rating_thanks": "Thank you, your rating is saved.",
@@ -128,9 +130,10 @@ UI = {
         "busy_warning": "上一条回复还在生成中，请稍候。",
         "rate_limited": "消息发送得有点快，请稍等片刻再发下一条。",
         "signed_out": "登录已过期，请刷新页面并重新登录。",
-        "quota_sessions": "你今天在此模块的 AI 会话已用完。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
-        "quota_starts": "你今天在此模块开启了较多 AI 会话。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
-        "quota_tokens": "你已达到今天的 AI 用量上限。本次会话使用模板练习模式，约 {hours} 小时后可再次使用 AI。",
+        "quota_sessions": "你今天在这个模式下的会话次数已用完，约 {hours} 小时后可以开始新的会话。",
+        "quota_starts": "你今天在这个模式下开启的会话较多，约 {hours} 小时后可以开始新的会话。",
+        "quota_tokens": "你已达到今天的用量上限，约 {hours} 小时后可以开始新的会话。",
+        "quota_other_mode": "今天“{mode}”还有剩余次数。",
         "quota_pill": "今日剩余 {left}/{limit} 次",
         "quota_pill_unlimited": "今日已用 {used} 次",
         "account_link": "账户",
@@ -169,6 +172,7 @@ UI = {
         "card_support": "支持",
         "card_saved": "已保存在你的账户页面。",
         "translate_failed": "暂时无法翻译这段对话，所以继续使用{language}。请稍后再切换语言试试。",
+        "stage_skipped": "已跳过",
         "rating_question": "这次会话对你有多大帮助？",
         "rating_scale": "1 = 没有帮助 · 5 = 非常有帮助",
         "rating_thanks": "谢谢，你的评分已保存。",
@@ -2500,6 +2504,18 @@ div:has(> .tracker-shell) {
         line-height: 1.3 !important;
     }
 
+}
+
+/* A stage the conversation jumped over: an outline instead of the filled "done" dot */
+#app-shell .tracker-dot.skipped {
+    background: #ffffff !important;
+    border: 2px dashed #9fb7cc !important;
+    box-shadow: none !important;
+}
+
+#app-shell .tracker-dot.skipped span {
+    color: #62809a !important;
+    -webkit-text-fill-color: #62809a !important;
 }
 
 /* End-of-session question: a slim band above the message box once a session has finished */

@@ -3,8 +3,9 @@ import json
 import logging
 import re
 import random
+import threading
 import uuid
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _as_written, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coachee_data import (
     COACHEE_ACKNOWLEDGMENTS,
     COACHEE_BRIDGES,
@@ -20,6 +21,13 @@ from coachee_data import (
 
 
 logger = logging.getLogger("erickson_coach")
+
+# When the AI can't write the review: honest, and with no score, so nothing misleading is saved.
+REVIEW_UNAVAILABLE = {
+    "en": "Your practice session is complete, but the AI couldn't write your review just now. Your conversation is "
+          "saved on the Account page.",
+    "zh": "本次练习已结束，但 AI 暂时没能写出点评。你的对话已保存在账户页面。",
+}
 
 
 class EricksonCoacheeAgent:
@@ -42,6 +50,8 @@ class EricksonCoacheeAgent:
         # Called with (model, prompt_tokens, completion_tokens) after each model call; set by the web app.
         self.on_usage = None
         self.scenario_variation_seed = uuid.uuid4().hex[:8]
+        # Stages the coach jumped over, shown as skipped rather than done.
+        self.skipped_stages: set[int] = set()
 
     def set_mode(self, mode: str) -> bool:
         if mode in ("template", "llm"):
@@ -83,6 +93,7 @@ class EricksonCoacheeAgent:
             "llm_scenario_ready": self._llm_scenario_ready,
             "stage_fact_cursor": {state.name: sorted(values) for state, values in self._stage_fact_cursor.items()},
             "seed": self.scenario_variation_seed,
+            "skipped": sorted(self.skipped_stages),
         }
 
     @classmethod
@@ -108,6 +119,7 @@ class EricksonCoacheeAgent:
         agent._llm_scenario_ready = data["llm_scenario_ready"]
         agent._stage_fact_cursor = {CoachingState[name]: set(values) for name, values in data["stage_fact_cursor"].items()}
         agent.scenario_variation_seed = data["seed"]
+        agent.skipped_stages = set(data.get("skipped", []))
         return agent
 
     def translate_history(self, new_lang: str, api_key: str | None = None) -> bool:
@@ -129,7 +141,7 @@ class EricksonCoacheeAgent:
 
     def _stream_stage_prompt(self, api_key: str | None = None, decide_stage: bool = False):
         """Yield (text so far, stage signal) pairs; the last pair holds the final prompt."""
-        if self.current_state == CoachingState.CLOSING:
+        if self.session_complete:
             yield self._build_final_review(api_key), None
             return
 
@@ -160,20 +172,17 @@ class EricksonCoacheeAgent:
         return "Ask at least one coaching question in the current stage before manually advancing."
 
     def force_next_state(self) -> bool:
-        if self.current_state == CoachingState.CLOSING:
+        """Skip Ahead moves the tracker one stage on, and the coach asks the next question. From closing (or from
+        commitment in template mode, which has no closing conversation) it ends the practice with the review."""
+        if self.session_complete:
             return False
-
-        if self.current_sub_phase != CoachingSubPhase.BRIDGE:
-            self.current_sub_phase = CoachingSubPhase.BRIDGE
-            return True
-
-        states = list(CoachingState)
-        idx = states.index(self.current_state)
-        self.current_state = states[idx + 1]
+        if self.current_state == CoachingState.CLOSING or (self.current_state == CoachingState.VALUE and self.mode != "llm"):
+            self.current_state = CoachingState.CLOSING
+            self.session_complete = True
+        else:
+            self.current_state = CoachingState(self.current_state.value + 1)
         self.current_sub_phase = CoachingSubPhase.OPEN
         self.turns_in_current_stage = 0
-        if self.current_state == CoachingState.CLOSING:
-            self.session_complete = True
         return True
 
     def generate_response(self, user_input: str, api_key: str | None = None) -> str:
@@ -190,6 +199,7 @@ class EricksonCoacheeAgent:
         if self.session_complete:
             raise ValueError("Session complete. Start a new session to continue.")
 
+        before = json.loads(json.dumps(self.to_dict()))  # a copy: to_dict shares the live context list
         decide_stage = False
         if user_input and user_input.strip():
             coach_message = user_input.strip()
@@ -198,39 +208,52 @@ class EricksonCoacheeAgent:
             self._track_coach_input(coach_message)
             decide_stage = self._evaluate_state_transition(api_key)
 
+        # Reaching the end here (template mode) means the reply below is already the review.
+        ended_before_reply = self.session_complete
+        # In AI mode a short separate request labels the coach's message while the client's reply is written.
+        label: dict = {}
+        labeller = None
+        if decide_stage and self.mode == "llm":
+            labeller = threading.Thread(target=self._label_coach_message, args=(api_key, label), daemon=True)
+            labeller.start()
         try:
-            response, signal = "", None
-            for response, signal in self._stream_stage_prompt(api_key, decide_stage):
-                if signal == "END":
+            for attempt in range(2):
+                try:
+                    response, signal = "", None
+                    for response, signal in self._stream_stage_prompt(api_key, decide_stage):
+                        if labeller is not None and labeller.is_alive():
+                            continue  # hold the reply back until we know the coach isn't saying goodbye
+                        if signal == "END" or label.get("signal") == "END":
+                            break
+                        if response:
+                            yield response
                     break
-                if response:
-                    yield response
-        except Exception as exc:
-            if not (self.mode == "llm" and "Model returned no text content" in str(exc)):
-                raise
-            original_mode = self.mode
-            self.mode = "template"
-            try:
-                response = self.get_stage_prompt()
-            finally:
-                self.mode = original_mode
-            signal = None
-            yield response
+                except Exception as exc:
+                    # An empty reply gets one more try; there is no canned stand-in.
+                    if attempt or "Model returned no text content" not in str(exc):
+                        raise
+            if labeller is not None:
+                labeller.join()
+                signal = label.get("signal")
+        except Exception:
+            # Undo the turn, so the coach can send the same message again without it being counted twice.
+            self._restore(before)
+            raise
 
         reply = {"role": self.assistant_role, "content": response}
         if decide_stage or signal == "END":
             self._apply_stage_signal(signal)
-            if self.current_state == CoachingState.CLOSING:
-                response = self._build_final_review(api_key)
-                reply["content"] = response
-                yield response
-            else:
-                reply["stage"] = self.current_state.value
+        if self.session_complete and not ended_before_reply:
+            response = self._build_final_review(api_key)
+            reply["content"] = response
+        yield response  # the whole reply, also when it was held back while the coach's message was labelled
 
         self.context.append(reply)
 
-        if self.current_state == CoachingState.CLOSING:
-            self.session_complete = True
+    def _restore(self, saved: dict) -> None:
+        restored = type(self).from_dict(saved, user_profile=self.user_profile)
+        restored.on_usage = self.on_usage
+        self.__dict__.update(restored.__dict__)
 
     def _translate_assistant_history(self, new_lang: str, api_key: str) -> bool:
         indexes = [idx for idx, msg in enumerate(self.context) if msg["role"] == self.assistant_role]
@@ -343,7 +366,7 @@ class EricksonCoacheeAgent:
 
     def _evaluate_state_transition(self, api_key: str | None = None) -> bool:
         """Advance the stage flow for a new coach turn. Returns True when the LLM reply should decide it."""
-        if self.current_state == CoachingState.CLOSING:
+        if self.session_complete:
             return False
 
         if self.current_sub_phase in (CoachingSubPhase.OPEN, CoachingSubPhase.DEEPEN):
@@ -362,8 +385,8 @@ class EricksonCoacheeAgent:
         states = list(CoachingState)
         idx = states.index(self.current_state)
         
-        # Move to next stage, or end if last
-        if idx >= len(states) - 2: # VALUE is index 3, CLOSING is index 4
+        # Move to the next stage. Template mode ends on reaching closing; in AI mode, closing is a conversation too.
+        if self.current_state == CoachingState.CLOSING or (self.current_state == CoachingState.VALUE and self.mode != "llm"):
             self.current_state = CoachingState.CLOSING
             self.session_complete = True
         else:
@@ -402,9 +425,10 @@ class EricksonCoacheeAgent:
 
     def _case_notes(self) -> str:
         """The whole case, stage by stage, so the coachee can answer whichever stage the coach asks about."""
-        payloads = (self.scenario.contract, self.scenario.experience, self.scenario.action, self.scenario.value)
+        payloads = (self.scenario.contract, self.scenario.experience, self.scenario.action, self.scenario.value,
+                    self.scenario.closing)
         lines = []
-        for state, payload in zip(COACHEE_STAGE_ORDER, payloads):
+        for state, payload in zip(list(CoachingState), payloads):
             lines.append(f"Stage {state.value}:")
             lines += [f"- {key}: {' | '.join(values[self.language])}" for key, values in payload.items()]
         return "\n".join(lines)
@@ -459,10 +483,15 @@ class EricksonCoacheeAgent:
         ack = random.choice(COACHEE_ACKNOWLEDGMENTS[self.language])
         return f"{ack} {detail}"
 
+    def _move_to(self, stage: CoachingState):
+        """Go forward to a stage; any stage the coach jumped over is remembered as skipped."""
+        self.skipped_stages.update(range(self.current_state.value + 1, stage.value))
+        self.current_state = stage
+
     def _apply_stage_signal(self, signal: str | None):
         stage = _labelled_stage(signal, self.current_state)
         if signal == "END":
-            self.current_state = CoachingState.CLOSING
+            self._move_to(CoachingState.CLOSING)
             self.session_complete = True
             self.current_sub_phase = CoachingSubPhase.OPEN
             self.turns_in_current_stage = 0
@@ -471,7 +500,7 @@ class EricksonCoacheeAgent:
             if self.metrics.stage_questions[self.current_state]:
                 self.metrics.stage_questions[self.current_state] -= 1
             self.metrics.stage_questions[stage] += 1
-            self.current_state = stage
+            self._move_to(stage)
             self.current_sub_phase = CoachingSubPhase.DEEPEN
             self.turns_in_current_stage = 1
         elif signal == "NEXT" or (signal is None and self._template_stage_ready() and self.turns_in_current_stage >= 4):
@@ -480,35 +509,41 @@ class EricksonCoacheeAgent:
         elif self.current_sub_phase == CoachingSubPhase.OPEN:
             self.current_sub_phase = CoachingSubPhase.DEEPEN
 
-    def _stage_decision_rules(self) -> str:
-        here = _marker(self.current_state)
-        return (
-            "\n\nREQUIRED OUTPUT FORMAT: the very first characters of your output must be one marker, then your coachee reply.\n"
-            "The marker names the stage the coach's latest message works on, judged by what it asks about:\n"
-            f"{STAGE_MARKER_GUIDE}\n"
-            "[[END]] - the session is over: the coach says goodbye, good luck or that's all (ZH: 再见, 下次见, 谢谢, 结束了, 今天就到这里, 由衷感谢), "
-            "you have a clear plan and nothing left to explore, either side wants to stop, or the conversation has gone in circles "
-            "for more than 4 turns with no new insight.\n"
-            f"The conversation has reached {here}; never use the marker of an earlier stage.\n"
-            f"Example output: {here} Honestly, I keep putting it off because I'm afraid it won't be good enough.\n"
-            "Never mention the marker in your reply."
-        )
-
-    def _end_only_rules(self) -> str:
-        """Between stage decisions the coach can still close, so their goodbye always ends the practice."""
-        return (
-            "\n\nREQUIRED OUTPUT FORMAT: the very first characters of your output must be one marker, then your coachee reply.\n"
-            "[[STAY]] - continue as the coachee. Use this almost always.\n"
-            "[[END]] - only if the coach is clearly closing the session now: they say goodbye, good luck or that's all "
-            "(ZH: 下次见, 结束了, 今天就到这里).\n"
-            "Never mention the marker in your reply."
-        )
+    def _label_coach_message(self, api_key: str, result: dict) -> None:
+        """Which stage the coach's latest message works on, from a short request of its own. Asked to label the coach
+        while playing the client, the model mostly repeated its own previous label and lagged behind the coach."""
+        try:
+            client = _build_client(api_key, on_usage=self.on_usage)
+            recent = "\n".join(f"{'Coach' if msg['role'] == self.user_role else 'Client'}: {msg['content']}"
+                               for msg in self.context[-4:])
+            prompt = (
+                "You label one message in a coaching practice chat: the coach's LAST message below. The stages are:\n"
+                f"{STAGE_MARKER_GUIDE}\n"
+                "[[END]] the coach is ending the session now: they say goodbye, good luck or that's all "
+                "(ZH: 再见, 下次见, 今天就到这里, 结束了). A question is never [[END]].\n"
+                "How to tell them apart: [[GOAL]] only when the coach asks what the client wants from this conversation "
+                "or how they will know it helped. Questions about the situation, its causes, why, feelings, fears or what "
+                "they have tried are [[REALITY]], even before any goal was agreed. Ideas, suggestions and 'what could you "
+                "do' are [[OPTIONS]]. Choosing, a first step, when, and what would help them follow through are "
+                "[[COMMITMENT]].\n"
+                f"The conversation has reached {_marker(self.current_state)}. Judge by what the coach's last message asks "
+                "or does; when it asks more than one thing, its last question counts. Earlier stages count as the "
+                "current one.\n"
+                "Answer with the marker only."
+            )
+            resp = client.chat.completions.create(
+                model=_chat_model(),
+                messages=[{"role": "system", "content": prompt}, {"role": "user", "content": recent}],
+                max_tokens=8,
+                temperature=0,
+            )
+            result["signal"] = _split_stage_signal(_response_text(resp))[0]
+        except Exception:
+            logger.warning("Labelling the coach's message failed; the stage stays", exc_info=True)
 
     def _get_llm_response(self, api_key: str, decide_stage: bool = False):
-        """Stream the coachee reply as (text so far, stage signal) pairs; the last pair is final.
-
-        When the reply decides the stage and opens with [[END]], stop early: the session closes with a review instead.
-        """
+        """Stream the coachee reply as (text so far, None) pairs; the last pair is final. The stage comes from
+        _label_coach_message, not from the reply."""
         try:
             client = _build_client(api_key, on_usage=self.on_usage)
             self._ensure_llm_scenario(api_key)
@@ -517,45 +552,54 @@ class EricksonCoacheeAgent:
                 {
                     "role": "system",
                     "content": (
-                        "You are role-playing a coachee in a coach-training simulation. "
-                        "The human user is the coach. Stay in first person as the coachee. "
-                        f"Current stage: {self.current_state.value} of 5 ({STAGE_DESCRIPTIONS[self.current_state]}). "
-                        f"Stage intent: {COACHEE_STAGE_HINTS[self.language][self.current_state]}. "
-                        f"Respond only in {lang_instr}. {_language_output_rule(self.language)} "
-                        "Do not coach the user. Do not ask multiple questions back. "
-                        "Offer 2-4 concise sentences that answer the coach's latest prompt, reveal only what it asks about, "
-                        "and show a realistic emotional response. Your hidden ground truth is the case notes below; answer from "
-                        "the stage the coach is asking about, and don't bring up later stages before the coach does:\n"
+                        "You are role-playing a coaching client in a coach-training simulation. The human user is "
+                        "practising as your coach. Stay in the first person as the client, and be a real person, not an "
+                        "ideal client.\n"
+                        f"The conversation is in stage {self.current_state.value} of 5 ({STAGE_DESCRIPTIONS[self.current_state]}). "
+                        f"Stage intent: {COACHEE_STAGE_HINTS[self.language][self.current_state]}.\n"
+                        "How to answer:\n"
+                        "1. Talk like a real person in a chat: everyday words, usually one to three sentences, sometimes a "
+                        f"short or half-formed thought. Respond only in {lang_instr}. {_language_output_rule(self.language)}\n"
+                        "2. Answer what the coach asked, from the case notes for that topic. Reveal things gradually: you "
+                        "don't arrive with success criteria, options or a plan worked out; you find them as the coach's "
+                        "questions help you think, and you don't bring up later topics before the coach does.\n"
+                        "3. React to the coaching as a person would. A good open question or an accurate reflection helps "
+                        "you think and say more. A closed question gets a short answer. Advice or a leading question gets "
+                        "polite hesitation, such as 'maybe... I'm not sure that would work for me' (ZH: '嗯……可能吧，但我也"
+                        "不太确定'). If the coach asks several questions at once, answer only one. If they rush you, say less.\n"
+                        "4. Keep the feelings of the case, and some honest doubt; it's fine to say you don't know. No tidy "
+                        "plans, numbers or schedules unless the coach has helped you get there.\n"
+                        "5. Don't coach the coach or ask them questions, apart from a natural one such as 'What do you mean?'. "
+                        "Stay consistent with what you have already said. Write only what you say: no actions or stage "
+                        "directions such as *sighs* or (叹气).\n"
+                        "Your hidden case notes, by stage:\n"
                         + self._case_notes()
-                        + (self._stage_decision_rules() if decide_stage else self._end_only_rules())
                     ),
                 }
             ]
             for msg in _conversation_window(self.context):
                 role = "assistant" if msg["role"] == self.assistant_role else "user"
-                messages.append({"role": role, "content": _as_written(msg)})
+                messages.append({"role": role, "content": msg["content"]})
             raw = ""
             for raw in _stream_text(client, model=_chat_model(), messages=messages, max_tokens=220, temperature=0.7):
-                signal, visible = _split_stage_signal(raw)
-                if signal == "END":
-                    yield "", "END"
-                    return
-                yield visible, None
+                yield _split_stage_signal(raw)[1], None
             signal, text = _split_stage_signal(raw)
             text = _clean_response_language(text, self.language)
             if not text:
                 raise ValueError("Model returned no text content.")
-            yield text, signal if decide_stage else None
+            yield text, None
         except Exception as exc:
             raise Exception(f"LLM error: {exc}")
 
     def _build_final_review(self, api_key: str | None = None) -> str:
-        # Use LLM for review if available, otherwise fallback to template
         if self.mode == "llm" and api_key:
-            try:
-                return self._build_llm_final_review(api_key)
-            except Exception:
-                return self._build_template_final_review()
+            # The template review scores from counts that AI mode doesn't keep, so it would give a misleading score.
+            for attempt in range(2):
+                try:
+                    return self._build_llm_final_review(api_key)
+                except Exception:
+                    logger.warning("Writing the practice review failed", exc_info=True)
+            return REVIEW_UNAVAILABLE[self.language]
         
         # In template mode, if evidence is low, use the specific insufficient template
         if self._has_insufficient_evidence():

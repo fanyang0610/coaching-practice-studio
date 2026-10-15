@@ -331,14 +331,20 @@ def _tracker_html(agent, module_code: str) -> str:
     mode_badge = _module_label(module_code, lc)
     dots = []
 
+    skipped = getattr(agent, "skipped_stages", set())
     for idx, state in enumerate(states):
         classes = ["tracker-dot"]
-        if idx < current_idx:
+        title = STAGE_NAMES[lc][state]
+        if idx < current_idx and state.value in skipped:
+            # A stage the conversation jumped over isn't shown as done: for a coach in training that matters.
+            classes.append("skipped")
+            title = f"{title} · {s['stage_skipped']}"
+        elif idx < current_idx:
             classes.append("done")
         elif idx == current_idx:
             classes.append("active")
         dots.append(
-            f"<div class='{' '.join(classes)}'><span>{idx + 1}</span></div>"
+            f"<div class='{' '.join(classes)}' title='{title}'><span>{idx + 1}</span></div>"
         )
 
     return f"""
@@ -429,6 +435,8 @@ def _attach(session: dict, user: dict) -> dict:
 
 
 def _save(session: dict) -> None:
+    if not session.get("id"):
+        return
     agent = session["agent"]
     get_store().save_session(
         session["id"],
@@ -441,15 +449,27 @@ def _save(session: dict) -> None:
     )
 
 
-def _allowed_mode(user: dict, mode_code: str, lang_code: str, module_code: str) -> str:
-    """AI mode only while today's allowance for this module lasts; otherwise template mode, with a notice."""
-    if mode_code != "llm":
-        return mode_code
-    allowance = quota.allowance(get_store(), user, module_code)
+def _unavailable_notice(user: dict, module_code: str, lang_code: str) -> str | None:
+    """Why no AI session can start in this module now, and when it can, or None. There is no canned fallback:
+    canned questions in an AI coaching app read as an AI that isn't listening."""
+    store = get_store()
+    allowance = quota.allowance(store, user, module_code)
     if allowance.blocked_reason is None:
-        return "llm"
-    gr.Warning(UI[lang_code][f"quota_{allowance.blocked_reason}"].format(hours=allowance.hours_until_available()))
-    return "template"
+        return None
+    s = UI[lang_code]
+    notice = s[f"quota_{allowance.blocked_reason}"].format(hours=allowance.hours_until_available())
+    other = "coachee" if module_code == "coach" else "coach"
+    if quota.allowance(store, user, other).blocked_reason is None:
+        notice += " " + s["quota_other_mode"].format(mode=_module_label(other, lang_code))
+    return notice
+
+
+def _unavailable_session(user: dict, module_code: str, lang_code: str, notice: str) -> dict:
+    """What the page shows when no session can start: the notice in the chat, nothing to type into, nothing stored."""
+    agent = _build_agent(module_code, "llm", lang_code)
+    agent.context = [{"role": agent.assistant_role, "content": notice}]
+    return {"module": module_code, "agent": agent, "user_id": user["id"], "unavailable": notice,
+            "allowance": quota.allowance(get_store(), user, module_code)}
 
 
 def _request_language(request: gr.Request | None, fallback: str | None) -> str | None:
@@ -462,7 +482,9 @@ def _request_language(request: gr.Request | None, fallback: str | None) -> str |
 
 
 def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str) -> dict:
-    mode_code = _allowed_mode(user, mode_code, lang_code, module_code)
+    notice = _unavailable_notice(user, module_code, lang_code) if mode_code == "llm" else None
+    if notice:
+        return _unavailable_session(user, module_code, lang_code, notice)
     agent = _build_agent(module_code, mode_code, lang_code, _load_profile(user["id"], module_code))
     if module_code == "coach" and mode_code == "llm":
         now = db.utcnow()
@@ -545,7 +567,8 @@ def _session_start_outputs(session: dict):
         coach_btn=coach_btn,
         coachee_btn=coachee_btn,
         mode_context=_mode_context_html(session),
-        msg=gr.update(placeholder=copy["placeholder"], interactive=not agent.is_session_ended(), value=""),
+        msg=gr.update(placeholder=copy["placeholder"], interactive=not agent.is_session_ended() and not session.get("unavailable"),
+                      value=""),
         tts=gr.update(value=_tts_payload(agent.context[-1]["content"]) if agent.context else ""),
         memory=(m_s, m_g, m_f),
         module=gr.update(value=session["module"]),
@@ -706,6 +729,11 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
     s = UI[agent.language]
     user_msg = (message or "").strip()
 
+    if session.get("unavailable"):
+        gr.Info(session["unavailable"])
+        yield _respond_outputs(gr.update(interactive=False), _chat_history_from_context(agent), agent, session)
+        return
+
     if not user_msg:
         gr.Warning(s["empty_warning"])
         yield _respond_outputs(gr.update(), chat_history, agent, session)
@@ -808,6 +836,9 @@ def next_stage(chat_history, session, module_sel, mode_sel, lang_sel, request: g
     user = _require_user(request, _safe_lang(lang_sel))
     session = _ensure_session(session, user, module_sel, mode_sel, lang_sel)
     agent = session["agent"]
+    if session.get("unavailable"):
+        gr.Info(session["unavailable"])
+        return _next_stage_outputs(gr.update(interactive=False), _chat_history_from_context(agent), agent, session)
     lock = _agent_lock(agent)
     if not lock.acquire(blocking=False):
         gr.Warning(UI[agent.language]["busy_warning"])
@@ -825,6 +856,7 @@ def _advance_stage(chat_history, session):
     old_state = agent.current_state
     old_sub = agent.current_sub_phase
     old_turns = agent.turns_in_current_stage
+    old_complete = agent.session_complete
 
     if hasattr(agent, "manual_advance_guard"):
         blocker = agent.manual_advance_guard()
@@ -837,6 +869,11 @@ def _advance_stage(chat_history, session):
         gr.Info(s["session_ended"])
         return _next_stage_outputs(gr.update(value="", interactive=False), chat_history, agent, session, memory_updates=(m_s, m_g, m_f))
 
+    if session["module"] == "coachee" and not agent.is_session_ended():
+        # In practice the person is the coach: the tracker moves on and they ask the next question themselves.
+        _save(session)
+        return _next_stage_outputs(gr.update(), chat_history, agent, session, memory_updates=(m_s, m_g, m_f))
+
     try:
         new_prompt = _append_opening_prompt(agent)
     except Exception:
@@ -844,6 +881,7 @@ def _advance_stage(chat_history, session):
         agent.current_state = old_state
         agent.current_sub_phase = old_sub
         agent.turns_in_current_stage = old_turns
+        agent.session_complete = old_complete
         gr.Warning(s["ai_reply_error"])
         return _next_stage_outputs(gr.update(), chat_history, agent, session)
 
@@ -912,7 +950,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
         coach_btn,
         coachee_btn,
         _mode_context_html(session),
-        gr.update(placeholder=copy["placeholder"], interactive=not agent.is_session_ended()),
+        gr.update(placeholder=copy["placeholder"], interactive=not agent.is_session_ended() and not session.get("unavailable")),
         gr.update(value=s["send"]),
         gr.update(value=s["advance"]),
         gr.update(value=s["reset"]),
@@ -937,7 +975,8 @@ def select_module(module_code: str, lang_sel: str, mode_sel: str, session=None, 
 def record_feedback(session, feedback: gr.LikeData, request: gr.Request = None):
     """Thumbs up/down on a reply, saved against the message's position in the transcript."""
     user = _current_user(request)
-    if not user or not session or session.get("user_id") != user["id"] or not isinstance(feedback.index, int):
+    if (not user or not session or session.get("user_id") != user["id"] or not session.get("id")
+            or not isinstance(feedback.index, int)):
         return
     value = {True: "like", False: "dislike"}.get(feedback.liked)
     get_store().set_feedback(user["id"], session["id"], feedback.index, value)

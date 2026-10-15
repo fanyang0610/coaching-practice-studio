@@ -44,6 +44,12 @@ OPENING_QUESTIONS = {
             "When specifically will you take this first step?",
             "How will you know that you have succeeded in taking this step?",
         ],
+        # Asked when commitment hands over to closing; the client's answer ends the session.
+        CoachingState.CLOSING: [
+            "What are you taking away from our conversation today?",
+            "How do you feel now, compared with when we started?",
+            "What has become clearer for you today?",
+        ],
     },
     "zh": {
         CoachingState.CONTRACT: [
@@ -65,6 +71,11 @@ OPENING_QUESTIONS = {
             "在我们讨论的选项中，你打算致力于哪一个？",
             "你具体会在什么时候采取这第一步？",
             "你怎么知道你已经成功迈出了这一步？",
+        ],
+        CoachingState.CLOSING: [
+            "今天的对话，你最想带走的是什么？",
+            "和刚开始相比，你现在感觉怎么样？",
+            "今天有什么变得更清楚了？",
         ],
     },
 }
@@ -142,16 +153,17 @@ BRIDGE_PHRASES = {
 }
 
 
+# Said after the session has ended, when the person can no longer reply, so none of them asks anything.
 CLOSING_MESSAGES = {
     "en": [
-        "What was the most valuable part of our conversation today?",
-        "As we wrap up, what insight derived from this session will you take with you?",
-        "I acknowledge your commitment and clarity today. Well done!",
+        "Thank you for the work you did today. I hope your next step goes well.",
+        "That's a good place to stop for today. Good luck with your next step.",
+        "Thank you for thinking this through so openly today. Take care, and good luck with what comes next.",
     ],
     "zh": [
-        "今天我们的对话中，对你最有价值的部分是什么？",
-        "在结束之际，你会带着从本次会议中获得的哪种洞察离开？",
-        "我对你今天的投入和清晰度表示赞赏。做得好！",
+        "谢谢你今天的投入，祝你的下一步顺利。",
+        "今天就先到这里，祝你接下来的行动顺利。",
+        "谢谢你今天这么坦诚地梳理这些。保重，祝接下来一切顺利。",
     ],
 }
 
