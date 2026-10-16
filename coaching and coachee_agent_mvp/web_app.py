@@ -849,11 +849,26 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
         lock.release()
 
 
+def _stage_change_notice(agent, module_code: str, skipped_before: set[int]) -> str:
+    """The note when the tracker moves on. In practice it also names any stage the coach skipped, so a jump on the
+    first question reads as "you skipped agreeing the goal" rather than the tracker racing ahead."""
+    s = UI[agent.language]
+    names = STAGE_NAMES[agent.language]
+    stage_name = names.get(agent.current_state, "")
+    newly_skipped = sorted(set(getattr(agent, "skipped_stages", set())) - skipped_before)
+    if module_code == "coachee" and newly_skipped:
+        separator = "」「" if agent.language == "zh" else ", "
+        skipped = separator.join(names[CoachingState(value)] for value in newly_skipped)
+        return s["stage_moved_skipping"].format(stage=stage_name, skipped=skipped)
+    return s["stage_moved"].format(stage=stage_name)
+
+
 def _stream_reply(user_msg, chat_history, agent, session):
     chat_history = list(chat_history or [])
     chat_history.append({"role": "user", "content": user_msg})
     yield _streaming_outputs(list(chat_history), session)
     old_state = agent.current_state
+    skipped_before = set(getattr(agent, "skipped_stages", set()))
 
     api_key = _safe_key()
     if session["module"] == "coach" and safety.looks_like_crisis(user_msg):
@@ -879,9 +894,7 @@ def _stream_reply(user_msg, chat_history, agent, session):
             return
 
     if agent.current_state != old_state:
-        stage_name = STAGE_NAMES[agent.language].get(agent.current_state, "")
-        msg = f"进入下一阶段：{stage_name}" if agent.language == "zh" else f"Advanced to next stage: {stage_name}"
-        gr.Info(msg)
+        gr.Info(_stage_change_notice(agent, session["module"], skipped_before))
 
     chat_history.append({"role": "assistant", "content": coach_response})
     _save(session)

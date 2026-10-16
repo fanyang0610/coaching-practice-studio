@@ -208,7 +208,7 @@ T = {
         "help_coachee_mode": "You practise being the coach. The AI plays a client with a realistic situation, and you ask the questions. At the end you get a score and feedback. Want a different topic? Before your first question, describe the client's situation and tap \"Use my topic\".",
         "help_session_title": "During a session",
         "help_session_items": [
-            "A session moves through five stages: {stages}. The numbered dots near the top show where you are.",
+            "A session moves through five stages: {stages}. The numbered dots near the top show where you are; a dashed dot is a stage that was skipped.",
             "Type your reply and tap Send, or tap the microphone to speak.",
             "Skip Ahead moves to the next stage. New Session starts over.",
             "A session takes about 15 to 20 minutes. If you leave halfway, it is saved and reopens the next time you sign in.",
@@ -422,7 +422,7 @@ T = {
         "help_coachee_mode": "你来练习做教练。AI 扮演一位有真实处境的来访者，由你来提问。结束后你会得到评分和反馈。想练别的话题？在提出第一个问题之前，写下来访者的情况，再点“用我的话题”。",
         "help_session_title": "会话过程中",
         "help_session_items": [
-            "一次会话会经历五个阶段：{stages}。页面上方带数字的圆点显示你当前所在的阶段。",
+            "一次会话会经历五个阶段：{stages}。页面上方带数字的圆点显示你当前所在的阶段，虚线圆点表示跳过的阶段。",
             "输入回复后点击“发送”，或点击麦克风用语音输入。",
             "“跳到下一阶段”会进入下一个阶段；“新会话”会重新开始。",
             "一次会话大约 15 到 20 分钟。中途离开也没关系，会话会被保存，下次登录时自动打开。",

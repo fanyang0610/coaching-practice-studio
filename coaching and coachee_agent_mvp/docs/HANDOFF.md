@@ -159,6 +159,12 @@ Still open, in Fan's order:
        - The labelling prompt now puts "why it matters / what it means" under GOAL and has Chinese cues for worries (REALITY) and ways of doing it (OPTIONS).
        - Real check on DeepSeek, 24 first and later questions × 3 tries, both languages: 72/72 as expected (before: about 6 in 48 off, with inconsistent answers between tries).
        - Questions about the situation, feelings, worries or what was tried still move a first question to REALITY on purpose: a coach who skips contracting should see it on the tracker.
+   - ✅ (2026-10-16, Fan's second screenshot: "为什么你会觉得他不服你" as the first question, then stage 2 with dot 1 filled) **A stage left without a question now shows as skipped, not done.**
+     - Before, only stages jumped over in between (1 → 3) were dashed. Now `_apply_stage_signal` (coachee_agent) also marks the stage being left when it got no question of its own.
+     - The pop-up names it in practice mode: "进入「现实探索」，跳过了「目标合同」。虚线圆点表示跳过的阶段。" (`_stage_change_notice`, `stage_moved_skipping`). AI Coach mode keeps the old note, since there the AI leads the stages.
+     - A later question labelled as a skipped stage (agreeing the goal after exploring) un-skips it. The tracker stays where it is, and the question counts in that stage.
+     - Help mentions dashed dots. Real replay of Fan's case on DeepSeek: skipped [1] after the first question, [] after a goal question.
+     - `scripts/load_test.py`'s fake AI now labels practice questions as REALITY and answers Chinese requests in Chinese, so `dev_server.py` shows this flow in both languages. (A Chinese session drops a reply with no Chinese in it, which made the old English-only fake bounce every Chinese question.)
 9. A progress page with score history over time (the Account page shows the last six).
 10. Mentor comments on sessions.
 

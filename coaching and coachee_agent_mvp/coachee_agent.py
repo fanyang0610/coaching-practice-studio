@@ -549,6 +549,7 @@ class EricksonCoacheeAgent:
 
     def _apply_stage_signal(self, signal: str | None):
         stage = _labelled_stage(signal, self.current_state)
+        named = {word: number for number, word in STAGE_MARKERS.items()}.get(signal)
         if signal == "END":
             self._move_to(CoachingState.CLOSING)
             self.session_complete = True
@@ -558,10 +559,22 @@ class EricksonCoacheeAgent:
             # The coach's question belongs to a later stage: follow the coach, and count the question there.
             if self.metrics.stage_questions[self.current_state]:
                 self.metrics.stage_questions[self.current_state] -= 1
+            if not self.metrics.stage_questions[self.current_state]:
+                # Left without a single question of its own (e.g. a first question about the situation, with no goal
+                # agreed): the stage shows as skipped, not done. Fan saw a filled first dot and thought the tracker
+                # had raced ahead.
+                self.skipped_stages.add(self.current_state.value)
             self.metrics.stage_questions[stage] += 1
             self._move_to(stage)
             self.current_sub_phase = CoachingSubPhase.DEEPEN
             self.turns_in_current_stage = 1
+        elif named in self.skipped_stages:
+            # The coach went back to a stage they had skipped (e.g. agreeing the goal after exploring): the tracker
+            # stays where it is, but that stage now counts as worked on.
+            self.skipped_stages.discard(named)
+            if self.metrics.stage_questions[self.current_state]:
+                self.metrics.stage_questions[self.current_state] -= 1
+            self.metrics.stage_questions[CoachingState(named)] += 1
         elif signal == "NEXT" or (signal is None and self._template_stage_ready() and self.turns_in_current_stage >= 4):
             # No marker means the model ignored the format; only advance if the template logic is confident.
             self.current_sub_phase = CoachingSubPhase.BRIDGE

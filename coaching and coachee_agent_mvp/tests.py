@@ -1172,7 +1172,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
 
         self.assertEqual(reply, "I could ask my manager for one quiet afternoon.")
         self.assertEqual(agent.current_state, CoachingState.ACTION)
-        self.assertEqual(agent.skipped_stages, {2})
+        self.assertEqual(agent.skipped_stages, {1, 2})  # no goal was agreed either
         self.assertEqual(agent.metrics.stage_questions[CoachingState.ACTION], 1)
         self.assertEqual(agent.metrics.stage_questions[CoachingState.CONTRACT], 0)
         self.assertIsNone(agent.manual_advance_guard())
@@ -3188,6 +3188,42 @@ class TestOwnPracticeTopic(unittest.TestCase):
                 patch.object(EricksonCoacheeAgent, "_label_coach_message", side_effect=AssertionError("no labelling request")):
             agent.generate_response("能多说一说吗？", api_key="server-key")
         self.assertEqual(agent.current_state, CoachingState.CONTRACT)
+
+    def _practice_turns(self, *turns):
+        """A practice session in AI mode, the coach asking each question in turn; labels are the stage of each."""
+        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent._llm_scenario_ready = True
+        agent.context = [{"role": "coachee", "content": "团队中有个成员总是质疑我的决定，让我感到很无力。"}]
+        questions, labels = zip(*turns)
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["嗯……"] * len(turns), [])), \
+                _coach_labels(*labels):
+            for question in questions:
+                agent.generate_response(question, api_key="server-key")
+        return agent
+
+    def test_a_stage_left_without_a_question_shows_as_skipped(self):
+        # Fan's screenshot: one question about the situation, and the first dot looked done.
+        import web_app
+
+        agent = self._practice_turns(("为什么你会觉得他不服你？", "REALITY"))
+        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
+        self.assertEqual(agent.skipped_stages, {1})
+        self.assertIn("tracker-dot skipped", web_app._tracker_html(agent, "coachee"))
+        self.assertEqual(web_app._stage_change_notice(agent, "coachee", set()),
+                         "进入「现实探索」，跳过了「目标合同」。虚线圆点表示跳过的阶段。")
+        # In AI Coach the AI leads the stages, so the note stays as it was.
+        self.assertEqual(web_app._stage_change_notice(agent, "coach", set()), "进入下一阶段：现实探索")
+
+    def test_agreeing_the_goal_later_counts_the_skipped_stage_as_done(self):
+        agent = self._practice_turns(("为什么你会觉得他不服你？", "REALITY"), ("今天这次谈话，你希望有什么收获？", "GOAL"))
+        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)  # the tracker never goes back
+        self.assertEqual(agent.skipped_stages, set())
+        self.assertEqual(agent.metrics.stage_questions[CoachingState.CONTRACT], 1)
+
+    def test_a_stage_with_its_own_question_is_not_skipped(self):
+        agent = self._practice_turns(("今天这次谈话，你希望有什么收获？", "GOAL"), ("为什么你会觉得他不服你？", "REALITY"))
+        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
+        self.assertEqual(agent.skipped_stages, set())
 
     def test_a_topic_the_ai_cant_set_up_says_so_and_the_band_stays(self):
         web_app, store, user, request = _signed_in()

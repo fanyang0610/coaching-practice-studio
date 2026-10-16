@@ -33,6 +33,8 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE_REPLY = "[[STAY]] That sounds important to you. What would make the biggest difference this week?"
+# Chinese sessions drop replies with no Chinese in them, so a Chinese request gets a Chinese reply.
+FAKE_REPLY_ZH = "[[STAY]] 嗯，这对我挺重要的。 我也不太确定该从哪里开始。"
 
 
 class LocalHTTPServer(ThreadingHTTPServer):
@@ -74,7 +76,8 @@ def start_fake_llm(latency: float) -> ThreadingHTTPServer:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
-                words = FAKE_REPLY.split(" ")
+                chinese = "Simplified Chinese" in ((body.get("messages") or [{}])[0].get("content") or "")
+                words = (FAKE_REPLY_ZH if chinese else FAKE_REPLY).split(" ")
                 for i, word in enumerate(words):
                     chunk = {
                         "id": "fake",
@@ -92,7 +95,9 @@ def start_fake_llm(latency: float) -> ThreadingHTTPServer:
                     self.wfile.write(f"data: {json.dumps(usage)}\n\n".encode())
                 self.wfile.write(b"data: [DONE]\n\n")
                 return
-            content = fake_case(body) or FAKE_REPLY
+            # Practice mode's stage labelling: a question about the situation, so the tracker visibly moves on.
+            labelling = "You label one message" in ((body.get("messages") or [{}])[0].get("content") or "")
+            content = "[[REALITY]]" if labelling else fake_case(body) or FAKE_REPLY
             payload = json.dumps({
                 "id": "fake",
                 "object": "chat.completion",
