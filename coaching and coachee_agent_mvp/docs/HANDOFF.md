@@ -1,6 +1,6 @@
 # Handoff: Coaching Practice Studio / 教练练习室
 
-Last updated 2026-10-15. Read this file fully before changing anything. Then read `AGENTS.md`, `README.md` and `DESIGN.md` in this folder.
+Last updated 2026-10-16. Read this file fully before changing anything. Then read `AGENTS.md`, `README.md` and `DESIGN.md` in this folder.
 
 ## Prompt to start the next session
 
@@ -147,7 +147,7 @@ Still open, in Fan's order:
    - **Still to judge with real people:** sessions with an eager client end early (5–6 turns) once they have a concrete plan. The stage tracker often stays on Contract while the talk has moved on, because models rarely emit `[[NEXT]]`. Fan and a few friends should try both modes before the wider invite.
    - ✅ (2026-10-15) **Stage tracker fixed** (see Gotchas, "Stage markers"). In simulated sessions the tracker now follows the talk: AI Coach sessions mostly reach stage 3–4 before closing (before: stage 1–2), practice sessions follow the coach (e.g. 1 2 2 3 4 5), and the practice goodbye loop is gone. The AI coach may close before the commitment stage only if the person asks to finish.
 8. Coachee Lab: choose the client type, a Hint button, and a one-line purpose for each stage.
-   - ✅ (2026-10-16, first user's request) **The coach can choose the practice topic.** In practice mode, until the coach's first question, a band above the message box (`#topic-card`; `_topic_updates` in web_app) takes a description of the client's situation; "Use my topic" (`start_with_topic`) opens a new practice whose case is built around it (`EricksonCoacheeAgent.topic`, stored in the session state; `_topic_instructions` quotes it as data). On laptops the question sits beside the box (one row, 66–81 px); on phones it stacks.
+   - ✅ (2026-10-16, first user's request; **deployed 2026-10-16 00:03 UTC** with Fan's OK, Help text and startup log checked live, signed-in flow not yet tried live) **The coach can choose the practice topic.** In practice mode, until the coach's first question, a band above the message box (`#topic-card`; `_topic_updates` in web_app) takes a description of the client's situation; "Use my topic" (`start_with_topic`) opens a new practice whose case is built around it (`EricksonCoacheeAgent.topic`, stored in the session state; `_topic_instructions` quotes it as data). On laptops the question sits beside the box (one row, 66–81 px); on phones it stacks.
      - Crisis topics are turned away before any AI call (`safety.crisis_topic`, which also reads third-person wording such as "ending their life"), and the case prompt keeps clients out of crisis for indirect wording ("no point going on" became "struggling to find purpose since losing my job" in real tests).
      - A chosen topic that the AI can't turn into a case is not swapped for a built-in one: the band stays and says "couldn't set up a client for that topic".
      - **Found while testing:** practice cases were capped at 1200 tokens, and now and then the model ran on and was cut off (a Chinese topic failed twice in a row). Random cases had silently fallen back to a built-in case when that happened. Now `CASE_MAX_TOKENS` = 2000, sentences are asked to be short, and a chosen topic gets three tries; eight real cases (Chinese and English, random and chosen) all came through.
