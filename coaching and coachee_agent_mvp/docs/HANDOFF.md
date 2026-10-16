@@ -152,7 +152,7 @@ Still open, in Fan's order:
      - A chosen topic that the AI can't turn into a case is not swapped for a built-in one: the band stays and says "couldn't set up a client for that topic".
      - **Found while testing:** practice cases were capped at 1200 tokens, and now and then the model ran on and was cut off (a Chinese topic failed twice in a row). Random cases had silently fallen back to a built-in case when that happened. Now `CASE_MAX_TOKENS` = 2000, sentences are asked to be short, and a chosen topic gets three tries; eight real cases (Chinese and English, random and chosen) all came through.
      - `scripts/load_test.py`'s fake AI now returns a sample case (echoing the topic) when asked for one, so `dev_server.py` can show the topic flow.
-   - ✅ (2026-10-16, Fan's test) **Two fixes after Fan tried it live:**
+   - ✅ (2026-10-16, Fan's test; **deployed 2026-10-16 00:33 UTC** with Fan's OK, live files checked identical, startup log clean) **Two fixes after Fan tried it live:**
      - The band now goes as soon as "Use my topic" starts the new client (it used to stay until the first question). New Session brings a random client and the band back, with the last topic still typed in.
      - **"Jumped to stage 2 after the first question" was not caused by the topic.** Labels were identical with and without one. Two first questions were mislabelled REALITY: a plain "tell me more" / 能多说一说吗, and "what does this mean to you" (importance is part of the contract in this model; see the case's `contract.importance`).
        - A plain invitation to say more is now recognised without a model call (`_invites_more` in coachee_agent.py: whole message, at most 40 characters) and keeps the current stage.
