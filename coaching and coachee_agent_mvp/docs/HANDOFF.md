@@ -200,6 +200,9 @@ Still open, in Fan's order:
 - On this Mac the old code read Chinese 男声 with "Reed" at pitch 0.72 and 女声 with Meijia (a Taiwan voice). Now both use Tingting at natural pitch, since there is no natural male Chinese voice installed.
 - Help has an FAQ entry on downloading better voices on iPhone (Settings → Accessibility → Spoken Content → Voices) and using Edge on computers.
 - `TestReadAloud` runs the real script in Node against realistic voice lists.
+- Fan uses Chrome and Safari (rarely Edge), so Chrome's Google voices rank above a Mac's basic and Enhanced voices. "Google 普通话" and "Google US English" count as female.
+  - They are online: in mainland China without a VPN they never start, and the 3.5 s fallback uses the computer's own voice.
+  - The Help tip now covers iPhone (Safari or Chrome), Mac (System Settings → Accessibility → Spoken Content → System voice → Manage Voices) and Chrome's Google voices. Edge is no longer suggested first.
 10. Mentor comments on sessions.
 
 **Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done. **Both batches below were deployed to the Space on 2026-10-15 at 15:55 UTC** (with Fan's OK): build installed exactly Gradio 6.30.0, startup log clean, `/ping`, `/healthz`, `/login`, `/help` and `/privacy` checked live in both languages at phone and laptop widths. Not yet checked live: a signed-in session (needs Fan's account) and the Admin page's AI service card.

@@ -3379,6 +3379,22 @@ setTimeout(() => console.log(JSON.stringify(spoken)), 300);
         iphone = [self.APPLE_COMPACT, self.APPLE_ENHANCED, self.SINJI]
         self.assertEqual(set(self._voices_used(self._speak(iphone))), {self.APPLE_ENHANCED["voiceURI"]})
 
+    def test_chrome_on_a_mac_prefers_googles_voice_and_falls_back_in_mainland_china(self):
+        # Fan uses Chrome and Safari. Chrome lists Google's online voices next to the Mac's own.
+        tingting = {"name": "Tingting", "lang": "zh-CN", "voiceURI": "Tingting", "localService": True}
+        cantonese = {"name": "Google 粤語（香港）", "lang": "zh-HK", "voiceURI": "Google 粤語（香港）", "localService": False}
+        chrome = [tingting, self.GOOGLE_ZH, cantonese]
+        self.assertEqual(set(self._voices_used(self._speak(chrome))), {self.GOOGLE_ZH["voiceURI"]})
+        self.assertEqual(set(self._voices_used(self._speak(chrome, preference="男声"))), {self.GOOGLE_ZH["voiceURI"]})
+        blocked = self._speak(chrome, online_works=False)
+        self.assertEqual(set(self._voices_used(blocked[blocked.index("cancel", 1):])), {"Tingting"})
+        english = [{"name": "Samantha", "lang": "en-US", "voiceURI": "Samantha", "localService": True},
+                   {"name": "Google US English", "lang": "en-US", "voiceURI": "Google US English", "localService": False},
+                   {"name": "Google UK English Male", "lang": "en-GB", "voiceURI": "Google UK English Male", "localService": False}]
+        self.assertEqual(set(self._voices_used(self._speak(english, language="English"))), {"Google US English"})
+        self.assertEqual(set(self._voices_used(self._speak(english, preference="Male", language="English"))),
+                         {"Google UK English Male"})
+
     def test_male_voices_keep_their_own_pitch(self):
         spoken = self._speak([self.APPLE_ENHANCED, self.LIMU], preference="男声")
         self.assertEqual(set(self._voices_used(spoken)), {self.LIMU["voiceURI"]})

@@ -2832,13 +2832,15 @@ tts_js = r"""
     });
     if (!sentences.length) return;
 
-    // Better voices first: Edge's free neural voices ("Natural"), Apple's Premium and Enhanced voices, then Google's.
-    const QUALITY = [[/natural|neural/, 300], [/premium/, 220], [/enhanced/, 180], [/siri/, 160], [/google/, 120]];
+    // Better voices first: Edge's free neural voices ("Natural"), Apple's Premium voices, Chrome's Google voices (online, so
+    // not in mainland China: see fallBack), then Apple's Enhanced ones. Fan uses Chrome and Safari, where Google's voice
+    // sounds clearly warmer than a Mac's basic one.
+    const QUALITY = [[/natural|neural/, 300], [/premium/, 220], [/google/, 200], [/enhanced/, 180], [/siri/, 160]];
     const NOVELTY = /albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|deranged|hysterical|junior|ralph|princess|espeak|grandma|grandpa|kathy|\bfred\b/;
     // Apple's older-style voices (on Macs and iPhones next to the good ones) sound the most robotic: last choice, below
     // a natural voice of the other gender.
     const ROBOTIC = /^(eddy|flo|reed|rocko|sandy|shelley)\b|eloquence/;
-    const FEMALE = /\b(xiaoxiao|xiaoyi|xiaohan|xiaomo|xiaoxuan|xiaorui|xiaoshuang|xiaoyan|tingting|ting-ting|meijia|mei-jia|lili|yushu|yu-shu|huihui|yaoyao|hanhan|samantha|ava|allison|susan|zoe|nicky|karen|moira|tessa|serena|kate|victoria|zira|aria|jenny|michelle|emma|sonia|libby|female)\b|女/;
+    const FEMALE = /\b(xiaoxiao|xiaoyi|xiaohan|xiaomo|xiaoxuan|xiaorui|xiaoshuang|xiaoyan|tingting|ting-ting|meijia|mei-jia|lili|yushu|yu-shu|huihui|yaoyao|hanhan|samantha|ava|allison|susan|zoe|nicky|karen|moira|tessa|serena|kate|victoria|zira|aria|jenny|michelle|emma|sonia|libby|female)\b|女|google (普通话|國語|us english)/;
     const MALE = /\b(yunxi|yunjian|yunyang|yunze|yunfeng|yunhao|yunye|kangkang|limu|li-mu|alex|tom|evan|nathan|daniel|aaron|arthur|oliver|david|mark|guy|christopher|eric|roger|steffan|andrew|brian|ryan|male)\b|男/;
     let bad = window.__ttsBadVoices;
     if (!bad) {
