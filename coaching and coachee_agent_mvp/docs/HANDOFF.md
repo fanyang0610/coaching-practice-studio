@@ -159,7 +159,7 @@ Still open, in Fan's order:
        - The labelling prompt now puts "why it matters / what it means" under GOAL and has Chinese cues for worries (REALITY) and ways of doing it (OPTIONS).
        - Real check on DeepSeek, 24 first and later questions × 3 tries, both languages: 72/72 as expected (before: about 6 in 48 off, with inconsistent answers between tries).
        - (Superseded the same day by Fan's "contract first" decision below.)
-   - ✅ **Refined (Fan, 2026-10-16, later the same day): no pop-up; the client and the review give the feedback.**
+   - ✅ **Refined (Fan, 2026-10-16, later the same day): no pop-up; the client and the review give the feedback.** (Deployed 2026-10-16 01:50 UTC with Fan's OK; live files checked identical, startup log clean.)
      - **Fan's concern:** a coach who opens with "why"/cause/solution questions may be rushing to solve the problem instead of building trust and letting the client find her own way. Judging each question by its type, and announcing it in a pop-up, felt "stiff and programmed" and could defeat the purpose of practice.
      - **The tracker** still waits on 目标合同 until a contracting question, but quietly: the `contract_first` pop-up is gone.
      - **The AI client:**
