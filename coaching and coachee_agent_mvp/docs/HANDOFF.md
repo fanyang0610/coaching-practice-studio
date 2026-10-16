@@ -200,6 +200,7 @@ Still open, in Fan's order:
 - On this Mac the old code read Chinese 男声 with "Reed" at pitch 0.72 and 女声 with Meijia (a Taiwan voice). Now both use Tingting at natural pitch, since there is no natural male Chinese voice installed.
 - Help has an FAQ entry on downloading better voices on iPhone (Settings → Accessibility → Spoken Content → Voices) and using Edge on computers.
 - `TestReadAloud` runs the real script in Node against realistic voice lists.
+- **Fan, 2026-10-16: no audible change on an iPhone.** No iPhone simulator here (no Xcode), and it's unclear whether iOS gives web pages its downloaded Enhanced/Premium voices (one Apple forum report says iOS lists only some installed voices to web pages, in every browser). So there is now a public **`/voices` "声音检查 / Voice check" page**, linked from Help. It lists the browser's Chinese and English voices, shows which one the app's own `tts_js` picks for each setting (run with speaking switched off), and has a Listen button for each. Next: Fan opens it on the iPhone and sends a screenshot.
 - Fan uses Chrome and Safari (rarely Edge), so Chrome's Google voices rank above a Mac's basic and Enhanced voices. "Google 普通话" and "Google US English" count as female.
   - They are online: in mainland China without a VPN they never start, and the 3.5 s fallback uses the computer's own voice.
   - The Help tip now covers iPhone (Safari or Chrome), Mac (System Settings → Accessibility → Spoken Content → System voice → Manage Voices) and Chrome's Google voices. Edge is no longer suggested first.

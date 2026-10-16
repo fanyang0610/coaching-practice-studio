@@ -28,7 +28,7 @@ import accounts
 import db
 import quota
 from coaching_core import CoachingState
-from web_assets import STAGE_NAMES
+from web_assets import STAGE_NAMES, tts_js
 
 
 ROOT = Path(__file__).resolve().parent
@@ -221,6 +221,17 @@ T = {
         "help_limits": "Each day (a rolling 24 hours) you have {coach} AI Coach sessions and {coachee} AI Coachee Lab sessions with the AI. When one runs out, the app tells you roughly when you can start again, and the other mode may still have sessions left. Your Account page shows what is left.",
         "help_unlimited": "no limit",
         "help_faq_title": "Questions",
+        "voices_link": "Voice check: see and hear the read-aloud voices on your device",
+        "voices_title": "Voice check",
+        "voices_intro": "Read-aloud uses the voices your browser offers. This page shows which ones there are and which one the app uses for each setting. Tap Listen to hear it.",
+        "voices_choice": "What the app uses",
+        "voices_all": "Chinese and English voices in this browser ({n})",
+        "voices_listen": "Listen",
+        "voices_none": "This browser offers no read-aloud voices.",
+        "voices_device": "on this device",
+        "voices_online": "online",
+        "voices_default": "the browser's default voice",
+        "voices_loading": "Checking…",
         "help_faq": [
             ["I forgot my password.", "Ask the person who invited you to send you a reset link."],
             ["Who can see my conversations?", "Only you. If you have a mentor, they can see your AI Coachee Lab practice, plus any AI Coach session you choose to share. The app admin can't open your conversations. The privacy page has the details."],
@@ -436,6 +447,17 @@ T = {
         "help_limits": "每天（滚动 24 小时）你可以与 AI 进行 AI教练 会话 {coach} 次、AI学员陪练 会话 {coachee} 次。某一项用完后，页面会告诉你大约多久之后可以再开始；另一项如果还有剩余，仍然可以使用。账户页面会显示剩余次数。",
         "help_unlimited": "不限",
         "help_faq_title": "常见问题",
+        "voices_link": "声音检查：看看并试听你设备上的朗读声音",
+        "voices_title": "声音检查",
+        "voices_intro": "朗读使用的是浏览器提供的声音。这一页显示有哪些声音，以及每种设置下应用会用哪一个。点“试听”可以听一听。",
+        "voices_choice": "应用会用的声音",
+        "voices_all": "这个浏览器里的中文和英文声音（{n} 个）",
+        "voices_listen": "试听",
+        "voices_none": "这个浏览器没有提供朗读声音。",
+        "voices_device": "设备上",
+        "voices_online": "在线",
+        "voices_default": "浏览器默认声音",
+        "voices_loading": "检查中…",
         "help_faq": [
             ["忘记密码怎么办？", "请联系邀请你的人，让对方给你发送重置链接。"],
             ["谁能看到我的对话？", "只有你本人。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。应用管理员无法打开你的对话。详情见隐私页面。"],
@@ -978,11 +1000,81 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <div class="card"><h2>{_e(T[lang]['module_coachee'])}</h2><p>{_e(T[lang]['help_coachee_mode'])}</p></div></div>
 <div class="card"><h2>{_e(T[lang]['help_session_title'])}</h2><ul class="steps">{session_items}</ul></div>
 <div class="card"><h2>{_e(T[lang]['help_limits_title'])}</h2><p>{_e(text(lang, 'help_limits', coach=allowance(limits['coach']), coachee=allowance(limits['coachee'])))}</p></div>
-<div class="card"><h2>{_e(T[lang]['help_faq_title'])}</h2>{faq}</div>
+<div class="card"><h2>{_e(T[lang]['help_faq_title'])}</h2>{faq}<p class="hint"><a href="/voices">{_e(T[lang]['voices_link'])}</a></p></div>
 {'' if user else f'<p><a class="button full" href="/login">{_e(T[lang]["help_cta"])}</a></p>'}"""
         return render(request, lang, T[lang]["help"], body, user=user)
 
     # Privacy --------------------------------------------------------------------
+
+    @router.get("/voices")
+    def voices_page(request: Request):
+        """Which read-aloud voices this browser offers and which one the app picks, with a Listen button for each setting.
+        Public, like Help: it shows only the visitor's own browser. Built after Fan heard no change on an iPhone."""
+        lang = page_lang(request)
+        user = current_user(request, get_store(), settings.secret)
+        words = {key: T[lang][key] for key in ("voices_listen", "voices_none", "voices_device", "voices_online",
+                                                "voices_default", "voices_all")}
+        body = f"""<div class="card"><h1>{_e(T[lang]['voices_title'])}</h1><p class="hint">{_e(T[lang]['voices_intro'])}</p>
+<h2>{_e(T[lang]['voices_choice'])}</h2><div id="voice-choice" class="list"><p class="muted">{_e(T[lang]['voices_loading'])}</p></div></div>
+<div class="card"><h2 id="voice-count"></h2><div id="voice-list" class="list"></div><p class="hint" id="voice-agent"></p></div>
+<script>
+(function () {{
+  const words = {json.dumps(words, ensure_ascii=False)};
+  const tts = ({tts_js});
+  const synth = window.speechSynthesis;
+  const settings = [["中文", "女声", "中文 · 女声"], ["中文", "男声", "中文 · 男声"], ["English", "Female", "English · Female"],
+                    ["English", "Male", "English · Male"]];
+  const samples = {{"中文": "你好。今天这次谈话，你最希望有什么收获？", "English": "Hi. What would you like to get from our conversation today?"}};
+  const escape = (text) => String(text).replace(/[&<>"]/g, (c) => ({{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}})[c]);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const where = (voice) => voice.localService ? words.voices_device : words.voices_online;
+  document.getElementById("voice-agent").textContent = navigator.userAgent;
+  const choice = document.getElementById("voice-choice");
+  if (!synth) {{ choice.innerHTML = '<p class="muted">' + escape(words.voices_none) + "</p>"; return; }}
+
+  // Which voice the app's own read-aloud code would use: run it with speaking switched off.
+  const pick = async (langLabel, preference) => {{
+    const speak = synth.speak, cancel = synth.cancel;
+    let chosen;
+    synth.speak = (utterance) => {{ if (chosen === undefined) chosen = utterance.voice || null; }};
+    synth.cancel = () => {{}};
+    window.__ttsFallbackMs = 600000;
+    tts("check" + Math.random() + "|||" + samples[langLabel], true, preference, langLabel);
+    await sleep(250);
+    window.__ttsRun = null;
+    delete window.__ttsFallbackMs;
+    synth.speak = speak;
+    synth.cancel = cancel;
+    return chosen;
+  }};
+
+  (async () => {{
+    let voices = synth.getVoices();
+    for (let i = 0; i < 20 && !voices.length; i++) {{ await sleep(150); voices = synth.getVoices(); }}
+    const rows = [];
+    for (const [langLabel, preference, label] of settings) {{
+      const voice = await pick(langLabel, preference);
+      const name = voice ? escape(voice.name) + ' <span class="pill">' + escape(voice.lang) + " · " + escape(where(voice)) + "</span>"
+                         : escape(words.voices_default);
+      rows.push('<div class="row"><div class="main"><div class="title">' + escape(label) + '</div><div class="meta">' + name +
+                '</div></div><div class="actions"><button class="quiet" type="button" data-lang="' + escape(langLabel) +
+                '" data-preference="' + escape(preference) + '">' + escape(words.voices_listen) + "</button></div></div>");
+    }}
+    choice.innerHTML = rows.join("");
+    choice.querySelectorAll("button[data-lang]").forEach((button) => button.addEventListener("click", () => {{
+      tts(Date.now() + "|||" + samples[button.dataset.lang], true, button.dataset.preference, button.dataset.lang);
+    }}));
+    const ours = voices.filter((voice) => /^(zh|en|yue)/i.test(voice.lang || ""))
+      .sort((a, b) => (a.lang + a.name).localeCompare(b.lang + b.name));
+    document.getElementById("voice-count").textContent = words.voices_all.replace("{{n}}", ours.length);
+    document.getElementById("voice-list").innerHTML = ours.map((voice) =>
+      '<div class="row"><div class="main"><div class="title">' + escape(voice.name) + '</div><div class="meta">' +
+      escape(voice.lang) + " · " + escape(where(voice)) + " · " + escape(voice.voiceURI || "") + "</div></div></div>").join("")
+      || '<p class="muted">' + escape(words.voices_none) + "</p>";
+  }})();
+}})();
+</script>"""
+        return render(request, lang, T[lang]["voices_title"], body, user=user)
 
     @router.get("/privacy")
     def privacy(request: Request):

@@ -3510,6 +3510,18 @@ class TestHelpPage(unittest.TestCase):
         self.assertIn("tells you roughly when you can start again", english)
         self.assertIn("大约多久之后可以再开始", chinese)
 
+    def test_voice_check_page_runs_the_apps_own_read_aloud_code(self):
+        # Built after Fan heard no change on an iPhone: it shows which voices a browser offers and which one the app uses.
+        import web_assets
+
+        english = self.client.get("/voices?lang=en")
+        chinese = self.client.get("/voices?lang=zh")
+        self.assertEqual((english.status_code, chinese.status_code), (200, 200))
+        self.assertIn("Voice check", english.text)
+        self.assertIn("声音检查", chinese.text)
+        self.assertIn(web_assets.tts_js.strip()[:60], english.text)
+        self.assertIn('href="/voices"', self.client.get("/help?lang=zh").text)
+
     def test_help_says_whom_to_contact_when_the_owner_sets_it(self):
         from fastapi.testclient import TestClient
         import web_app
