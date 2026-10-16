@@ -189,6 +189,17 @@ Still open, in Fan's order:
      - Help mentions dashed dots. Real replay of Fan's case on DeepSeek: skipped [1] after the first question, [] after a goal question.
      - `scripts/load_test.py`'s fake AI now labels practice questions as REALITY and answers Chinese requests in Chinese, so `dev_server.py` shows this flow in both languages. (A Chinese session drops a reply with no Chinese in it, which made the old English-only fake bounce every Chinese question.)
 9. A progress page with score history over time (the Account page shows the last six).
+
+**Read-aloud voice (2026-10-16, Fan: "sounds like a machine and too cold").** Still the browser's own voices (Web Speech API, free, nothing sent to a speech service). Fan chose this over Azure's free neural tier ("feels pre-commercialized"; 0.5M characters a month, would need an Azure account).
+- `tts_js` (web_assets) now ranks voices by quality: Edge's "Natural" neural voices, then Apple Premium / Enhanced, then Google's.
+- Apple's older robotic voices (Eddy, Flo, Reed, Rocko, Sandy, Shelley) come last, below a natural voice of the other gender.
+- Novelty voices (Grandma, Grandpa, Bells, Zarvox…) and Cantonese voices (zh-HK / yue) are never used for Mandarin.
+- Each voice keeps its own pitch. The old code pitched voices down to 0.72 to fake a male voice, which was the most robotic sound.
+- Replies are read sentence by sentence, without markdown.
+- An online voice that never starts within 3.5 s (Google's in mainland China) is swapped for one on the device and remembered for the tab.
+- On this Mac the old code read Chinese 男声 with "Reed" at pitch 0.72 and 女声 with Meijia (a Taiwan voice). Now both use Tingting at natural pitch, since there is no natural male Chinese voice installed.
+- Help has an FAQ entry on downloading better voices on iPhone (Settings → Accessibility → Spoken Content → Voices) and using Edge on computers.
+- `TestReadAloud` runs the real script in Node against realistic voice lists.
 10. Mentor comments on sessions.
 
 **Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done. **Both batches below were deployed to the Space on 2026-10-15 at 15:55 UTC** (with Fan's OK): build installed exactly Gradio 6.30.0, startup log clean, `/ping`, `/healthz`, `/login`, `/help` and `/privacy` checked live in both languages at phone and laptop widths. Not yet checked live: a signed-in session (needs Fan's account) and the Admin page's AI service card.

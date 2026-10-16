@@ -2792,107 +2792,131 @@ scroll_js = """
 }
 """
 
-tts_js = """
+# Read-aloud with the voices on the person's own device (no cost, nothing sent to a speech service). Fan found the old
+# version cold and machine-like: it took the first voice whose name matched, lowered the pitch to fake a male voice,
+# and read a whole reply in one breath. Raw string: the regular expressions keep their backslashes.
+tts_js = r"""
 (payload, toggle, voiceSelector, langSelector) => {
+    const synth = window.speechSynthesis;
     const raw = (payload || "").toString();
     const parts = raw.split("|||");
+    const runId = parts.length > 1 ? parts[0] : String(Date.now());
     const text = parts.length > 1 ? parts.slice(1).join("|||") : raw;
-    if (!text || !toggle || !window.speechSynthesis) return;
+    if (!text || !toggle || !synth) return;
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const targetLang = langSelector === "English" ? "en-US" : "zh-CN";
-    const targetFamily = targetLang.startsWith('zh') ? 'zh' : 'en';
-    const wantsFemale = voiceSelector.includes("女") || voiceSelector.includes("Female");
-    const normalize = (value) => (value || "").toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "");
-    const femaleKeywords = [
-        "tingting", "meijia", "xiaoxiao", "xiaoyi", "xiaorui", "sinji", "yushu",
-        "samantha", "victoria", "zira", "ava", "serena", "female"
-    ].map(normalize);
-    const maleKeywords = [
-        "limu", "liMu", "yunjian", "yunxi", "yunyang", "yunhao", "bohan",
-        "daniel", "alex", "david", "arthur", "fred", "reed", "male"
-    ].map(normalize);
+    window.__ttsRun = runId;
+    synth.cancel();
 
-    const scoreVoice = (voice) => {
-        const name = normalize(voice.name);
-        const uri = normalize(voice.voiceURI || '');
-        const meta = `${name} ${uri}`;
-        const lang = (voice.lang || "").toLowerCase();
-        let score = 0;
+    const zh = langSelector !== "English";
+    const family = zh ? "zh" : "en";
+    const region = zh ? "zh-cn" : "en-us";
+    const preference = (voiceSelector || "").toString();
+    const wantsFemale = preference.includes("女") || preference.includes("Female");
 
-        if (lang.startsWith(targetFamily)) score += 40;
-        if (targetLang === "zh-CN" && lang.startsWith("zh-cn")) score += 16;
-        if (targetLang === "zh-CN" && (lang.startsWith("zh-sg") || lang.startsWith("zh-hk") || lang.startsWith("zh-tw"))) score += 10;
-        if (targetLang === "en-US" && lang.startsWith("en-us")) score += 16;
-        if (targetLang === "en-US" && (lang.startsWith("en-gb") || lang.startsWith("en-au"))) score += 10;
-
-        const wanted = wantsFemale ? femaleKeywords : maleKeywords;
-        const unwanted = wantsFemale ? maleKeywords : femaleKeywords;
-
-        wanted.forEach((keyword, index) => {
-            if (meta.includes(keyword)) score += 140 - index;
+    // What a listener should hear: no markdown symbols, and one sentence at a time, so the voice pauses naturally
+    // (Chrome also cuts off a single long utterance after about 15 seconds).
+    const clean = text
+        .replace(/\*\*|__|`/g, "")
+        .replace(/^\s*(#+|[-•*])\s+/gm, "")
+        .replace(/[ \t]+/g, " ")
+        .trim();
+    const sentences = [];
+    clean.split(/\n+/).forEach((line) => {
+        line.replace(/([。！？!?；;]+|\.(?=\s|$))\s*/g, "$1\n").split("\n").forEach((piece) => {
+            piece = piece.trim();
+            if (!piece) return;
+            const last = sentences.length - 1;
+            if (last >= 0 && sentences[last].length < 8) sentences[last] += (zh ? "" : " ") + piece;
+            else sentences.push(piece);
         });
-        unwanted.forEach((keyword) => {
-            if (meta.includes(keyword)) score -= 80;
+    });
+    if (!sentences.length) return;
+
+    // Better voices first: Edge's free neural voices ("Natural"), Apple's Premium and Enhanced voices, then Google's.
+    const QUALITY = [[/natural|neural/, 300], [/premium/, 220], [/enhanced/, 180], [/siri/, 160], [/google/, 120]];
+    const NOVELTY = /albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|deranged|hysterical|junior|ralph|princess|espeak|grandma|grandpa|kathy|\bfred\b/;
+    // Apple's older-style voices (on Macs and iPhones next to the good ones) sound the most robotic: last choice, below
+    // a natural voice of the other gender.
+    const ROBOTIC = /^(eddy|flo|reed|rocko|sandy|shelley)\b|eloquence/;
+    const FEMALE = /\b(xiaoxiao|xiaoyi|xiaohan|xiaomo|xiaoxuan|xiaorui|xiaoshuang|xiaoyan|tingting|ting-ting|meijia|mei-jia|lili|yushu|yu-shu|huihui|yaoyao|hanhan|samantha|ava|allison|susan|zoe|nicky|karen|moira|tessa|serena|kate|victoria|zira|aria|jenny|michelle|emma|sonia|libby|female)\b|女/;
+    const MALE = /\b(yunxi|yunjian|yunyang|yunze|yunfeng|yunhao|yunye|kangkang|limu|li-mu|alex|tom|evan|nathan|daniel|aaron|arthur|oliver|david|mark|guy|christopher|eric|roger|steffan|andrew|brian|ryan|male)\b|男/;
+    let bad = window.__ttsBadVoices;
+    if (!bad) {
+        bad = window.__ttsBadVoices = new Set();
+        try { JSON.parse(window.sessionStorage.getItem("ttsBadVoices") || "[]").forEach((id) => bad.add(id)); } catch (error) {}
+    }
+    const voiceId = (voice) => voice.voiceURI || voice.name;
+    const describe = (voice) => ((voice.name || "") + " " + (voice.voiceURI || "")).toLowerCase();
+    const score = (voice) => {
+        const name = (voice.name || "").toLowerCase();
+        const lang = (voice.lang || "").toLowerCase().replace("_", "-");
+        // Cantonese voices (zh-HK) would read Mandarin text in Cantonese.
+        if (!lang.startsWith(family) || NOVELTY.test(name) || (zh && /hk|yue/.test(lang)) || bad.has(voiceId(voice))) return null;
+        let points = lang.startsWith(region) ? 60 : 30;
+        const quality = QUALITY.find(([pattern]) => pattern.test(describe(voice)));
+        if (quality) points += quality[1];
+        if (/compact/.test(describe(voice))) points -= 40;
+        if (ROBOTIC.test(name) || /eloquence/.test(describe(voice))) points -= 450;
+        const female = FEMALE.test(name);
+        const male = !female && MALE.test(name);
+        if (wantsFemale ? female : male) points += 250;
+        if (wantsFemale ? male : female) points -= 150;
+        return points;
+    };
+    const best = (voices, localOnly) => voices
+        .filter((voice) => !localOnly || voice.localService)
+        .map((voice) => ({ voice, points: score(voice) }))
+        .filter((item) => item.points !== null)
+        .sort((a, b) => b.points - a.points)
+        .map((item) => item.voice)[0] || null;
+
+    const speak = (voices, localOnly) => {
+        if (window.__ttsRun !== runId) return;
+        const voice = best(voices, localOnly);
+        window.__ttsVoice = voice ? voice.name : "";
+        let started = false;
+        let fellBack = false;
+        // An online voice that can't be reached (Google's in mainland China, for one) never starts: use one on the device.
+        const fallBack = () => {
+            if (started || fellBack || localOnly || !voice || voice.localService || window.__ttsRun !== runId) return;
+            fellBack = true;
+            bad.add(voiceId(voice));
+            try { window.sessionStorage.setItem("ttsBadVoices", JSON.stringify(Array.from(bad))); } catch (error) {}
+            synth.cancel();
+            speak(voices, true);
+        };
+        sentences.forEach((sentence, index) => {
+            const utterance = new SpeechSynthesisUtterance(sentence);
+            if (voice) utterance.voice = voice;
+            utterance.lang = voice ? voice.lang : (zh ? "zh-CN" : "en-US");
+            // Each voice at its own pitch (lowering it to fake a male voice sounded robotic); neural voices at full speed.
+            utterance.pitch = 1;
+            utterance.rate = voice && QUALITY.some(([pattern]) => pattern.test(describe(voice))) ? 1 : 0.95;
+            utterance.volume = 1;
+            utterance.onstart = () => { started = true; };
+            if (index === 0) {
+                utterance.onerror = (event) => {
+                    if (event && (event.error === "interrupted" || event.error === "canceled")) return;
+                    fallBack();
+                };
+            }
+            synth.speak(utterance);
         });
-
-        if (voice.default) score += 4;
-        if (voice.localService) score += 2;
-        return score;
-    };
-
-    const pickVoice = (voices) => {
-        if (!voices.length) return null;
-        const ranked = voices
-            .map((voice) => ({ voice, score: scoreVoice(voice) }))
-            .sort((a, b) => b.score - a.score);
-        return ranked[0];
-    };
-
-    const speak = () => {
-        const voices = window.speechSynthesis.getVoices();
-        const sameLang = voices.filter((voice) => (voice.lang || "").toLowerCase().startsWith(targetFamily));
-        const preferred = pickVoice(sameLang);
-        const fallback = pickVoice(voices);
-        const maleMatch = wantsFemale ? null : sameLang.find((voice) => scoreVoice(voice) >= 120);
-        const femaleMatch = wantsFemale ? sameLang.find((voice) => scoreVoice(voice) >= 120) : null;
-
-        if (maleMatch) {
-            utterance.voice = maleMatch;
-        } else if (femaleMatch) {
-            utterance.voice = femaleMatch;
-        } else if (preferred && preferred.score >= 80) {
-            utterance.voice = preferred.voice;
-        } else if (fallback) {
-            utterance.voice = fallback.voice;
-        } else if (sameLang.length > 0) {
-            utterance.voice = sameLang[0];
-        }
-
-        utterance.lang = utterance.voice?.lang || targetLang;
-        utterance.volume = 1;
-        utterance.rate = 0.95;
-        utterance.pitch = wantsFemale ? 1.0 : 0.72;
-        window.speechSynthesis.resume();
-        setTimeout(() => {
-            window.speechSynthesis.resume();
-            window.speechSynthesis.speak(utterance);
-        }, 20);
+        if (voice && !voice.localService && !localOnly) setTimeout(fallBack, window.__ttsFallbackMs || 3500);
     };
 
     let attempts = 0;
-    const waitForVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
+    const whenVoicesReady = () => {
+        const voices = synth.getVoices();
         if (voices.length > 0 || attempts >= 10) {
-            speak();
+            synth.resume();
+            setTimeout(() => speak(voices, false), 30);
             return;
         }
         attempts += 1;
-        setTimeout(waitForVoices, 120);
+        setTimeout(whenVoicesReady, 120);
     };
-
-    waitForVoices();
+    whenVoicesReady();
 }
 """
 

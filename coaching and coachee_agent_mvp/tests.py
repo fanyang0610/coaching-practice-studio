@@ -3314,6 +3314,117 @@ class TestOwnPracticeTopic(unittest.TestCase):
         self.assertEqual(store.list_sessions(user["id"]), [])
 
 
+class TestReadAloud(unittest.TestCase):
+    """Read-aloud uses the voices on the person's own device. Fan found it cold and machine-like, so it now picks the best
+    voice there is, keeps each voice's own pitch and reads sentence by sentence. These run the real script in Node."""
+
+    APPLE_COMPACT = {"name": "Tingting", "lang": "zh-CN", "voiceURI": "com.apple.voice.compact.zh-CN.Tingting", "localService": True}
+    APPLE_ENHANCED = {"name": "Tingting", "lang": "zh-CN", "voiceURI": "com.apple.voice.enhanced.zh-CN.Tingting", "localService": True}
+    LIMU = {"name": "Li-mu", "lang": "zh-CN", "voiceURI": "com.apple.voice.compact.zh-CN.Li-mu", "localService": True}
+    SINJI = {"name": "Sinji", "lang": "zh-HK", "voiceURI": "com.apple.voice.enhanced.zh-HK.Sinji", "localService": True}
+    GOOGLE_ZH = {"name": "Google 普通话（中国大陆）", "lang": "zh-CN", "voiceURI": "Google 普通话（中国大陆）", "localService": False}
+    XIAOXIAO = {"name": "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)", "lang": "zh-CN",
+                "voiceURI": "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)", "localService": False}
+    YUNXI = {"name": "Microsoft Yunxi Online (Natural) - Chinese (Mainland)", "lang": "zh-CN",
+             "voiceURI": "Microsoft Yunxi Online (Natural) - Chinese (Mainland)", "localService": False}
+    BELLS = {"name": "Bells", "lang": "en-US", "voiceURI": "com.apple.speech.synthesis.voice.Bells", "localService": True}
+    SAMANTHA = {"name": "Samantha", "lang": "en-US", "voiceURI": "com.apple.voice.enhanced.en-US.Samantha", "localService": True}
+    ALEX = {"name": "Alex", "lang": "en-US", "voiceURI": "com.apple.speech.synthesis.voice.Alex", "localService": True}
+
+    HARNESS = """
+const voices = %(voices)s;
+const spoken = [];
+global.window = {__ttsFallbackMs: 60, sessionStorage: {getItem: () => null, setItem: () => {}}};
+global.SpeechSynthesisUtterance = function (text) { this.text = text; };
+window.speechSynthesis = {
+  getVoices: () => voices,
+  cancel: () => spoken.push("cancel"),
+  resume: () => {},
+  speak: (u) => {
+    spoken.push({text: u.text, voice: u.voice ? u.voice.voiceURI : null, pitch: u.pitch, rate: u.rate});
+    if (u.voice && (u.voice.localService || %(online_works)s)) setTimeout(() => u.onstart && u.onstart(), 1);
+  },
+};
+const tts = (%(script)s);
+tts("1|||" + %(text)s, true, %(preference)s, %(language)s);
+setTimeout(() => console.log(JSON.stringify(spoken)), 300);
+"""
+
+    def _speak(self, voices, text="今天这次谈话，你希望有什么收获？", preference="女声", language="中文", online_works=True):
+        import shutil
+        import subprocess
+        import web_assets
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        source = self.HARNESS % dict(voices=json.dumps(voices, ensure_ascii=False), script=web_assets.tts_js,
+                                     online_works="true" if online_works else "false",
+                                     text=json.dumps(text, ensure_ascii=False),
+                                     preference=json.dumps(preference, ensure_ascii=False), language=json.dumps(language))
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "tts.js"
+            script.write_text(source, encoding="utf-8")
+            result = subprocess.run([node, str(script)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def _voices_used(self, spoken):
+        return [item["voice"] for item in spoken if item != "cancel"]
+
+    def test_the_best_voice_on_the_device_is_chosen(self):
+        everything = [self.APPLE_COMPACT, self.APPLE_ENHANCED, self.SINJI, self.GOOGLE_ZH, self.XIAOXIAO]
+        self.assertEqual(set(self._voices_used(self._speak(everything))), {self.XIAOXIAO["voiceURI"]})  # Edge's neural voice
+        # On an iPhone: the Enhanced voice over the basic one, never Cantonese Sinji for Mandarin text.
+        iphone = [self.APPLE_COMPACT, self.APPLE_ENHANCED, self.SINJI]
+        self.assertEqual(set(self._voices_used(self._speak(iphone))), {self.APPLE_ENHANCED["voiceURI"]})
+
+    def test_male_voices_keep_their_own_pitch(self):
+        spoken = self._speak([self.APPLE_ENHANCED, self.LIMU], preference="男声")
+        self.assertEqual(set(self._voices_used(spoken)), {self.LIMU["voiceURI"]})
+        self.assertEqual({item["pitch"] for item in spoken if item != "cancel"}, {1})  # no more lowered "male" pitch
+        edge = self._speak([self.XIAOXIAO, self.YUNXI], preference="男声")
+        self.assertEqual(set(self._voices_used(edge)), {self.YUNXI["voiceURI"]})
+
+    def test_replies_are_read_sentence_by_sentence_without_markdown(self):
+        spoken = self._speak([self.APPLE_ENHANCED], text="**行动卡**\n目标：每周两晚早点睡。\n下一步：今晚十一点前关灯！你觉得怎么样？")
+        texts = [item["text"] for item in spoken if item != "cancel"]
+        self.assertGreaterEqual(len(texts), 3)
+        self.assertFalse(any("*" in text for text in texts))
+        english = self._speak([self.SAMANTHA], language="English",
+                              text="That sounds draining. What would you like from today? We have 2.5 hours.")
+        self.assertEqual([item["text"] for item in english if item != "cancel"],
+                         ["That sounds draining.", "What would you like from today?", "We have 2.5 hours."])
+
+    def test_an_online_voice_that_never_starts_is_replaced_by_one_on_the_device(self):
+        # Google's voices need Google's servers, which mainland China blocks. An Android phone's own Chinese voice:
+        android = {"name": "中文（中国）", "lang": "zh-CN", "voiceURI": "zh-CN-language", "localService": True}
+        spoken = self._speak([self.GOOGLE_ZH, android], online_works=False)
+        self.assertEqual(spoken[1]["voice"], self.GOOGLE_ZH["voiceURI"])  # tried first: it ranks higher
+        self.assertIn("cancel", spoken[1:])
+        after_fallback = self._voices_used(spoken[spoken.index("cancel", 1):])
+        self.assertEqual(set(after_fallback), {android["voiceURI"]})
+        # Where Google's voice works, it is kept.
+        self.assertEqual(set(self._voices_used(self._speak([self.GOOGLE_ZH, android]))), {self.GOOGLE_ZH["voiceURI"]})
+
+    def test_robotic_voices_come_last_even_for_a_male_preference(self):
+        # A Mac's real list (2026-10-16) has Apple's older voices next to Tingting; the old code chose "Reed" for a male
+        # voice and lowered its pitch, which was the most machine-like sound of all.
+        mac = [{"name": f"{name} (Chinese (China mainland))", "lang": "zh-CN", "voiceURI": f"{name} (Chinese (China mainland))",
+                "localService": True} for name in ("Eddy", "Flo", "Grandma", "Grandpa", "Reed", "Rocko", "Sandy", "Shelley")]
+        tingting = {"name": "Tingting", "lang": "zh-CN", "voiceURI": "Tingting", "localService": True}
+        self.assertEqual(set(self._voices_used(self._speak(mac + [tingting], preference="男声"))), {"Tingting"})
+        self.assertEqual(set(self._voices_used(self._speak(mac + [tingting, self.LIMU], preference="男声"))), {self.LIMU["voiceURI"]})
+        only_old = self._voices_used(self._speak(mac))  # nothing better on the device: an older voice, never Grandma/Grandpa
+        self.assertTrue(only_old and not any(name.startswith(("Grandma", "Grandpa")) for name in only_old))
+
+    def test_novelty_voices_are_never_used(self):
+        self.assertEqual(set(self._voices_used(self._speak([self.BELLS, self.SAMANTHA, self.ALEX], language="English"))),
+                         {self.SAMANTHA["voiceURI"]})
+        self.assertEqual(set(self._voices_used(self._speak([self.BELLS, self.ALEX], preference="Male", language="English"))),
+                         {self.ALEX["voiceURI"]})
+
+
 class TestIndependentBranding(unittest.TestCase):
     # Internal names users never see (code identifiers, settings, cookies, files) may keep the old prefix.
     INTERNAL = re.compile(r"Erickson(Coaching|Coachee)Agent|ERICKSON_\w+|erickson_(session|lang|coach)|\.erickson_secret|"
