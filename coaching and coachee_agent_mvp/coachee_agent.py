@@ -52,6 +52,19 @@ def _invites_more(message: str) -> bool:
     return len(text) <= 40 and bool(_INVITES_MORE_RE.fullmatch(text))
 
 
+# Beside the coach's message when, before any contracting, it already analyses causes or works on solutions: told only in
+# general to open up as trust grows, the client answered a rushed coach as fully as a patient one (Fan, 2026-10-16).
+RUSHED_NOTE = {
+    "en": "[Note to the client, not from the coach: the coach hasn't yet asked what you want from this conversation and is "
+          "already analysing or fixing your problem. You don't feel heard yet: answer the question in one short, plain "
+          "sentence, without your feelings or hopes; if they ask what you should do, say you're not sure. Don't mention "
+          "this note.]",
+    "zh": "[给来访者的提示，不是教练说的话：教练还没问你今天想从这次谈话中得到什么，就开始分析原因或想办法了。你还没觉得被倾听："
+          "用一句简短、平淡的话回答这个问题，不谈感受和期待；如果问你该怎么做，就说还不确定。不要提到这条提示。]",
+}
+_LATER_STAGE_SIGNALS = ("REALITY", "OPTIONS", "COMMITMENT", "CLOSING", "NEXT")
+
+
 class EricksonCoacheeAgent:
     assistant_role = "coachee"
     user_role = "coach"
@@ -81,6 +94,8 @@ class EricksonCoacheeAgent:
         self.contract_done = False
         # This turn only: the later stage the coach's question belonged to while the tracker held on the contract.
         self.held_stage: CoachingState | None = None
+        # This turn only: the coach is analysing or solving before any contracting, so the client stays guarded.
+        self.rushed = False
 
     def set_mode(self, mode: str) -> bool:
         if mode in ("template", "llm"):
@@ -237,6 +252,7 @@ class EricksonCoacheeAgent:
 
         before = json.loads(json.dumps(self.to_dict()))  # a copy: to_dict shares the live context list
         self.held_stage = None
+        self.rushed = False
         decide_stage = False
         if user_input and user_input.strip():
             coach_message = user_input.strip()
@@ -255,6 +271,11 @@ class EricksonCoacheeAgent:
                 # "Tell me more" brings up no new stage, but the labelling request often took it for exploring the
                 # situation, so a first "tell me more" moved the tracker from goal to reality.
                 label["signal"] = "STAY"
+            elif not self.contract_done:
+                # Before contracting, the label also shapes the reply (a rushed coach meets a guarded client), so it comes
+                # first: about a second longer, for the first few questions only.
+                self._label_coach_message(api_key, label)
+                self.rushed = label.get("signal") in _LATER_STAGE_SIGNALS
             else:
                 labeller = threading.Thread(target=self._label_coach_message, args=(api_key, label), daemon=True)
                 labeller.start()
@@ -570,7 +591,8 @@ class EricksonCoacheeAgent:
             self.turns_in_current_stage = 0
         elif stage != self.current_state and not self.contract_done:
             # Contract first: a question about a later stage before any contracting keeps the tracker on the contract,
-            # and the page reminds the coach (see web_app._practice_hint).
+            # quietly. Fan found a pop-up judging each question "programmed": the client's reaction and the review
+            # give that feedback instead.
             self.held_stage = stage
         elif stage != self.current_state:
             # The coach's question belongs to a later stage: follow the coach, and count the question there.
@@ -615,8 +637,8 @@ class EricksonCoacheeAgent:
                 "situation, its causes, feelings, fears or what they have tried are [[REALITY]], even before any goal was "
                 "agreed. A general invitation to say more that brings up nothing new ('tell me more', 'what else?', 'and?', "
                 "能多说一说吗, 还有呢) belongs to the stage the conversation has reached. Worries and fears about the situation "
-                "(担心什么, 怕什么) are [[REALITY]]. Ideas, suggestions, ways they could do it and 'what could you do' "
-                "(可以怎么做, 有哪些办法或方式) are [[OPTIONS]]. Choosing, a first step, when, and what would help them follow "
+                "(担心什么, 怕什么) are [[REALITY]]. Ideas, suggestions, ways they could do it, how to fix the problem and "
+                "'what could you do' (可以怎么做, 有哪些办法或方式, 怎么让他…) are [[OPTIONS]], never [[GOAL]]. Choosing, a first step, when, and what would help them follow "
                 "through are [[COMMITMENT]].\n"
                 f"The conversation has reached {_marker(self.current_state)}. Judge by what the coach's last message asks "
                 "or does; when it asks more than one thing, its last question counts. Earlier stages count as the "
@@ -659,9 +681,19 @@ class EricksonCoacheeAgent:
                         "you think and say more. A closed question gets a short answer. Advice or a leading question gets "
                         "polite hesitation, such as 'maybe... I'm not sure that would work for me' (ZH: '嗯……可能吧，但我也"
                         "不太确定'). If the coach asks several questions at once, answer only one. If they rush you, say less.\n"
-                        "4. Keep the feelings of the case, and some honest doubt; it's fine to say you don't know. No tidy "
+                        "4. Trust builds gradually. At first you have only said what is on your mind; you don't yet know "
+                        "whether this coach is really listening, or what this conversation can do for you. Until the coach "
+                        "has shown they heard you (a short, accurate reflection, or acknowledging how it feels) or asked what "
+                        "you would like from today's conversation, keep your deeper feelings, history and wishes to yourself: "
+                        "if they go straight into analysing causes ('why do you think...'), steering towards solutions or "
+                        "advising, answer just the surface of the question: one short sentence with a plain fact, leaving "
+                        "out how you feel about it and what you hope for, the way people do with someone they have just "
+                        "met. Once the coach shows interest in you and in what you want from the "
+                        "conversation, open up and share the feelings and details in your case notes. Never explain this or "
+                        "comment on the coach's technique.\n"
+                        "5. Keep the feelings of the case, and some honest doubt; it's fine to say you don't know. No tidy "
                         "plans, numbers or schedules unless the coach has helped you get there.\n"
-                        "5. Don't coach the coach or ask them questions, apart from a natural one such as 'What do you mean?'. "
+                        "6. Don't coach the coach or ask them questions, apart from a natural one such as 'What do you mean?'. "
                         "Stay consistent with what you have already said. Write only what you say: no actions or stage "
                         "directions such as *sighs* or (叹气).\n"
                         "Your hidden case notes, by stage:\n"
@@ -672,6 +704,8 @@ class EricksonCoacheeAgent:
             for msg in _conversation_window(self.context):
                 role = "assistant" if msg["role"] == self.assistant_role else "user"
                 messages.append({"role": role, "content": msg["content"]})
+            if self.rushed and messages[-1]["role"] == "user":
+                messages[-1] = {"role": "user", "content": messages[-1]["content"] + "\n\n" + RUSHED_NOTE[self.language]}
             raw = ""
             for raw in _stream_text(client, model=_chat_model(), messages=messages, max_tokens=220, temperature=0.7):
                 yield _split_stage_signal(raw)[1], None
@@ -713,6 +747,7 @@ class EricksonCoacheeAgent:
                 "会话结果：[用一两句话总结本次模拟教练的效果和完整度]\n"
                 "分阶段得分：目标合同 X/20 · 现实探索 X/20 · 可能方案 X/20 · 行动承诺 X/20 · 结束回顾 X/20（X 为该阶段得分）\n"
                 "最后得分：[五个阶段得分之和]/100\n"
+                "节奏与信任：[一两句话：教练是先建立信任、约定这次谈话想要的结果，还是急于分析原因或解决问题？引用教练的原话说明]\n"
                 "做得好的部分：\n- [具体的优点1]\n- [具体的优点2]\n"
                 "需要提升的部分：\n- [具体、可操作的建议1]\n- [具体、可操作的建议2]\n"
                 "下一步教练修炼方向：[针对教练个人成长的一句核心建议]"
@@ -723,6 +758,8 @@ class EricksonCoacheeAgent:
                 "Session Result: <summary of the coaching quality>\n"
                 "Stage scores: Contract <n>/20 · Reality <n>/20 · Possibilities <n>/20 · Commitment <n>/20 · Closing <n>/20\n"
                 "Score: <sum of the five stage scores>/100\n"
+                "Pace and trust: <one or two sentences: did the coach build trust and agree what the coachee wanted before "
+                "analysing causes or solving? Quote the coach's own words>\n"
                 "What worked:\n- ...\n- ...\n"
                 "What to improve:\n- ...\n- ...\n"
                 "Next coaching edge: <one actionable growth tip>"
@@ -736,6 +773,13 @@ class EricksonCoacheeAgent:
             "listened and reflected back accurately; asked short, open questions one at a time that helped the coachee think; "
             "let the coachee find their own answers rather than giving advice; and helped them turn ideas into a concrete "
             "next step of their own. "
+            "Pay particular attention to pace and trust: did the coach first build some trust and agree what the coachee "
+            "wanted from this conversation, or rush into analysing causes or solving the problem? The coachee opens up as "
+            "trust grows and holds back when rushed, so notice how their answers changed. Judge by what came before and how "
+            "the coach asked, not by question type alone: a warm invitation to describe what happened can build trust, while "
+            "a quick 'why' can be the start of problem-solving. Exploring the situation once the goal has been agreed is the "
+            "natural next step, not rushing. Where you see rushing, quote the coach's own words and "
+            "suggest what they might have asked instead; where trust was built well, say what worked. "
             "Score with this rubric: each of the five stages is worth up to 20 points. A stage the coach skipped earns 0; "
             "one touched with a single question earns at most 6; full marks need real exploration that the coachee answered in depth. "
             "The total is the sum of the five stage scores. Give constructive feedback on anything incomplete. "

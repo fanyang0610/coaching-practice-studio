@@ -863,15 +863,6 @@ def _stage_change_notice(agent, module_code: str, skipped_before: set[int]) -> s
     return s["stage_moved"].format(stage=stage_name)
 
 
-def _practice_hint(agent, module_code: str) -> str | None:
-    """In practice, a question about a later stage before any contracting keeps the tracker on the contract (Fan's
-    choice: contract first); this says why, and how to go on."""
-    held = getattr(agent, "held_stage", None)
-    if module_code != "coachee" or held is None:
-        return None
-    return UI[agent.language]["contract_first"].format(stage=STAGE_NAMES[agent.language].get(held, ""))
-
-
 def _stream_reply(user_msg, chat_history, agent, session):
     chat_history = list(chat_history or [])
     chat_history.append({"role": "user", "content": user_msg})
@@ -904,9 +895,6 @@ def _stream_reply(user_msg, chat_history, agent, session):
 
     if agent.current_state != old_state:
         gr.Info(_stage_change_notice(agent, session["module"], skipped_before))
-    hint = _practice_hint(agent, session["module"])
-    if hint:
-        gr.Info(hint)
 
     chat_history.append({"role": "assistant", "content": coach_response})
     _save(session)

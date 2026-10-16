@@ -3203,19 +3203,58 @@ class TestOwnPracticeTopic(unittest.TestCase):
                 agent.generate_response(question, api_key="server-key")
         return agent
 
-    def test_a_later_question_before_contracting_keeps_the_contract_stage(self):
-        # Fan's choice (2026-10-16): contract first. Their screenshot: "为什么你会觉得他不服你" as the first question moved
-        # the tracker to reality, which felt like the app skipping the contract.
-        import web_app
+    def test_a_later_question_before_contracting_keeps_the_contract_stage_quietly(self):
+        # Fan's choice (2026-10-16): contract first, with no pop-up judging each question (that felt "programmed");
+        # the client's reaction and the review give the feedback instead.
+        web_app, store, user, request = _signed_in()
+        replies = [self.CASE, "可能是因为我比他年轻吧。"]
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+                patch("coachee_agent._build_client", return_value=_fake_llm_client(replies, [])), \
+                _coach_labels("REALITY"), patch.object(web_app.gr, "Info") as info:
+            session = web_app._open_session(user, "coachee", "llm", "zh")
+            outputs = list(web_app.respond("为什么你会觉得他不服你？", [], session, "coachee", "AI", "中文", request))
 
-        agent = self._practice_turns(("为什么你会觉得他不服你？", "REALITY"))
+        agent = outputs[-1][-1]["agent"]
         self.assertEqual(agent.current_state, CoachingState.CONTRACT)
         self.assertEqual(agent.held_stage, CoachingState.EXPERIENCE)
-        self.assertEqual(agent.skipped_stages, set())
-        self.assertFalse(agent.contract_done)
-        self.assertEqual(web_app._practice_hint(agent, "coachee"),
-                         "这个问题属于「现实探索」。目标合同还没完成：可以先问问对方今天想谈出什么结果，或点「跳到下一阶段」继续。")
-        self.assertIsNone(web_app._practice_hint(agent, "coach"))  # AI Coach: the AI leads the stages
+        self.assertEqual((agent.skipped_stages, agent.contract_done), (set(), False))
+        info.assert_not_called()
+        self.assertIn("当前阶段: 目标合同", outputs[-1][2])
+
+    def test_the_client_opens_up_as_trust_grows_and_the_review_watches_pace(self):
+        calls = []
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent._llm_scenario_ready = True
+        agent.context = [{"role": "coachee", "content": "A colleague keeps questioning my decisions."}]
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Maybe because I'm young."], calls)), \
+                _coach_labels("REALITY"):
+            agent.generate_response("Why do you think he doesn't respect you?", api_key="server-key")
+        client_prompt = calls[0]["messages"][0]["content"]
+        self.assertIn("Trust builds gradually", client_prompt)
+        self.assertIn("answer just the surface of the question", client_prompt)
+        # Analysing before any contracting: this reply comes from a client who doesn't feel heard yet.
+        from coachee_agent import RUSHED_NOTE
+        self.assertTrue(calls[0]["messages"][-1]["content"].endswith(RUSHED_NOTE["en"]))
+
+        for labels, questions in ((("GOAL",), ["What would you like from today?"]),
+                                  (("GOAL", "REALITY"), ["What would you like from today?", "Why does he do that?"])):
+            calls.clear()
+            fresh = EricksonCoacheeAgent(mode="llm", language="en")
+            fresh._llm_scenario_ready = True
+            fresh.context = [{"role": "coachee", "content": "A colleague keeps questioning my decisions."}]
+            with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Mm."] * len(questions), calls)), \
+                    _coach_labels(*labels):
+                for question in questions:
+                    fresh.generate_response(question, api_key="server-key")
+            self.assertTrue(all(RUSHED_NOTE["en"] not in call["messages"][-1]["content"] for call in calls), labels)
+
+        review_calls = []
+        with patch("coachee_agent._build_client",
+                   return_value=_fake_llm_client(["Session Result: ok\nScore: 10/100"], review_calls)):
+            agent._build_llm_final_review("server-key")
+        review_prompt = review_calls[0]["messages"][0]["content"]
+        self.assertIn("Pay particular attention to pace and trust", review_prompt)
+        self.assertIn("quote the coach's own words", review_prompt)
 
     def test_after_contracting_the_tracker_follows_the_coach(self):
         import web_app

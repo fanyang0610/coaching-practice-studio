@@ -159,6 +159,20 @@ Still open, in Fan's order:
        - The labelling prompt now puts "why it matters / what it means" under GOAL and has Chinese cues for worries (REALITY) and ways of doing it (OPTIONS).
        - Real check on DeepSeek, 24 first and later questions × 3 tries, both languages: 72/72 as expected (before: about 6 in 48 off, with inconsistent answers between tries).
        - (Superseded the same day by Fan's "contract first" decision below.)
+   - ✅ **Refined (Fan, 2026-10-16, later the same day): no pop-up; the client and the review give the feedback.**
+     - **Fan's concern:** a coach who opens with "why"/cause/solution questions may be rushing to solve the problem instead of building trust and letting the client find her own way. Judging each question by its type, and announcing it in a pop-up, felt "stiff and programmed" and could defeat the purpose of practice.
+     - **The tracker** still waits on 目标合同 until a contracting question, but quietly: the `contract_first` pop-up is gone.
+     - **The AI client:**
+       - Its rule 4, "Trust builds gradually", tells it to keep feelings and hopes back until the coach shows they heard her or asks what she wants from today.
+       - Before contracting, the labelling request now runs before the reply (about 1 s, first few questions only). When it says the coach is already analysing or solving, `RUSHED_NOTE` sits beside that message: one short, plain answer, no feelings or hopes, "not sure" if asked what to do.
+     - **The review:**
+       - It has a new "节奏与信任 / Pace and trust" line, quoting the coach's words, and judges by context, not question type.
+       - Exploring after the goal is agreed counts as the natural next step, not rushing.
+       - The labelling prompt files "how to fix it / 怎么让他…" as OPTIONS, never GOAL.
+     - **Real check (DeepSeek, the same case played rushed and patient, 2× zh, 1× en):**
+       - Rushed coach: client replies of 7–29 Chinese characters / 42–76 English characters, factual and guarded.
+       - Patient coach: 35–57 / 140–216, with feelings and details.
+       - Every review's pace line named the rush and quoted "为什么你会觉得他不服你？" / "Why do you think he doesn't respect you?"; patient sessions were credited for empathy and the goal question.
    - ✅ **Decision (Fan, 2026-10-16): in practice mode, contract first.** (Deployed 2026-10-16 01:02 UTC with Fan's OK; live files checked identical, startup log clean.)
      - **Why:** twice the tracker felt to Fan like it raced ahead, and coaching is taught goal-first. Fan chose "keep the contract first" over "follow the coach".
      - Until the coach has asked a contracting question (labelled GOAL: what they want from this conversation, why it matters, how they'll know it helped), a question about a later stage keeps the tracker on 目标合同.
