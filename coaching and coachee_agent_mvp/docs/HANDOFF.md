@@ -159,7 +159,7 @@ Still open, in Fan's order:
        - The labelling prompt now puts "why it matters / what it means" under GOAL and has Chinese cues for worries (REALITY) and ways of doing it (OPTIONS).
        - Real check on DeepSeek, 24 first and later questions × 3 tries, both languages: 72/72 as expected (before: about 6 in 48 off, with inconsistent answers between tries).
        - (Superseded the same day by Fan's "contract first" decision below.)
-   - ✅ **Decision (Fan, 2026-10-16): in practice mode, contract first.**
+   - ✅ **Decision (Fan, 2026-10-16): in practice mode, contract first.** (Deployed 2026-10-16 01:02 UTC with Fan's OK; live files checked identical, startup log clean.)
      - **Why:** twice the tracker felt to Fan like it raced ahead, and coaching is taught goal-first. Fan chose "keep the contract first" over "follow the coach".
      - Until the coach has asked a contracting question (labelled GOAL: what they want from this conversation, why it matters, how they'll know it helped), a question about a later stage keeps the tracker on 目标合同.
      - The page then shows a hint instead of moving: "这个问题属于「现实探索」。目标合同还没完成：可以先问问对方今天想谈出什么结果，或点「跳到下一阶段」继续。" (`contract_first`; `_practice_hint` in web_app; `EricksonCoacheeAgent.held_stage`).
