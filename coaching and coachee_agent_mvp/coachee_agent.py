@@ -8,7 +8,7 @@ import uuid
 
 import openai
 
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, STAGE_MARKERS, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coachee_data import (
     COACHEE_ACKNOWLEDGMENTS,
     COACHEE_BRIDGES,
@@ -34,6 +34,22 @@ REVIEW_UNAVAILABLE = {
           "saved on the Account page.",
     "zh": "本次练习已结束，但 AI 暂时没能写出点评。你的对话已保存在账户页面。",
 }
+
+
+# A coach's plain invitation to keep talking ("Tell me more.", "能多说一说吗？", "还有呢？"), the whole message.
+_INVITES_MORE_RE = re.compile(
+    r"(?:(?:can|could|would) you )?(?:please )?(?:tell me|say) (?:a (?:bit|little) )?more(?: about (?:that|this|it))?"
+    r"|what else|and(?: then)?|go on|anything else"
+    r"|(?:能|可以|请|你)?(?:再)?多(?:说|讲|聊)(?:一说|一讲|一聊|说|讲|聊|一些|一点|点)?(?:吗|吧|呢)?"
+    r"|还有呢|还有吗|然后呢|继续说|接着说|还有什么",
+    re.IGNORECASE)
+_EDGE_PUNCTUATION = " \t\n?？!！.。,，…~～"
+
+
+def _invites_more(message: str) -> bool:
+    """Whether a coach's message only invites the client to say more, so it can't move the conversation to a new stage."""
+    text = (message or "").strip(_EDGE_PUNCTUATION)
+    return len(text) <= 40 and bool(_INVITES_MORE_RE.fullmatch(text))
 
 
 class EricksonCoacheeAgent:
@@ -224,8 +240,13 @@ class EricksonCoacheeAgent:
         label: dict = {}
         labeller = None
         if decide_stage and self.mode == "llm":
-            labeller = threading.Thread(target=self._label_coach_message, args=(api_key, label), daemon=True)
-            labeller.start()
+            if _invites_more(self.context[-1]["content"]):
+                # "Tell me more" brings up no new stage, but the labelling request often took it for exploring the
+                # situation, so a first "tell me more" moved the tracker from goal to reality.
+                label["signal"] = STAGE_MARKERS[self.current_state.value]
+            else:
+                labeller = threading.Thread(target=self._label_coach_message, args=(api_key, label), daemon=True)
+                labeller.start()
         try:
             for attempt in range(2):
                 try:
@@ -244,6 +265,7 @@ class EricksonCoacheeAgent:
                         raise
             if labeller is not None:
                 labeller.join()
+            if decide_stage and self.mode == "llm":
                 signal = label.get("signal")
         except Exception:
             # Undo the turn, so the coach can send the same message again without it being counted twice.
@@ -558,11 +580,14 @@ class EricksonCoacheeAgent:
                 f"{STAGE_MARKER_GUIDE}\n"
                 "[[END]] the coach is ending the session now: they say goodbye, good luck or that's all "
                 "(ZH: 再见, 下次见, 今天就到这里, 结束了). A question is never [[END]].\n"
-                "How to tell them apart: [[GOAL]] only when the coach asks what the client wants from this conversation "
-                "or how they will know it helped. Questions about the situation, its causes, why, feelings, fears or what "
-                "they have tried are [[REALITY]], even before any goal was agreed. Ideas, suggestions and 'what could you "
-                "do' are [[OPTIONS]]. Choosing, a first step, when, and what would help them follow through are "
-                "[[COMMITMENT]].\n"
+                "How to tell them apart: [[GOAL]] when the coach asks what the client wants from this conversation, why "
+                "that matters to them or what it means to them, or how they will know it helped. Questions about the "
+                "situation, its causes, feelings, fears or what they have tried are [[REALITY]], even before any goal was "
+                "agreed. A general invitation to say more that brings up nothing new ('tell me more', 'what else?', 'and?', "
+                "能多说一说吗, 还有呢) belongs to the stage the conversation has reached. Worries and fears about the situation "
+                "(担心什么, 怕什么) are [[REALITY]]. Ideas, suggestions, ways they could do it and 'what could you do' "
+                "(可以怎么做, 有哪些办法或方式) are [[OPTIONS]]. Choosing, a first step, when, and what would help them follow "
+                "through are [[COMMITMENT]].\n"
                 f"The conversation has reached {_marker(self.current_state)}. Judge by what the coach's last message asks "
                 "or does; when it asks more than one thing, its last question counts. Earlier stages count as the "
                 "current one.\n"

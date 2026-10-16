@@ -380,11 +380,13 @@ def _rating_updates(session: dict):
 
 def _topic_updates(session: dict):
     """The "practise your own topic" band (card, prompt, topic box, button). It shows in practice mode until the coach
-    asks their first question, so a coach who doesn't fancy the client the AI picked can describe their own."""
+    asks their first question, so a coach who doesn't fancy the client the AI picked can describe their own. Once they
+    have used their own topic it has done its job and goes (New Session brings a random client and the band back)."""
     agent = session["agent"]
     s = UI[agent.language]
     show = (session["module"] == "coachee" and agent.mode == "llm" and _user_turns(agent) == 0
-            and not agent.is_session_ended() and session.get("unavailable_reason") != "allowance")
+            and not getattr(agent, "topic", "") and not agent.is_session_ended()
+            and session.get("unavailable_reason") != "allowance")
     return (
         gr.update(visible=show),
         gr.update(value=f'<p class="topic-question">{s["topic_prompt"]}</p>'),

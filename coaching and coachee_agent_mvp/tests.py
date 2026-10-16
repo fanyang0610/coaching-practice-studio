@@ -3140,6 +3140,9 @@ class TestOwnPracticeTopic(unittest.TestCase):
         self.assertEqual(outputs[0][-1]["content"], "I've just been promoted and I still do everything myself.")
         self.assertEqual(store.get_session(first["id"])["status"], "abandoned")
         self.assertEqual(json.loads(store.get_session(session["id"])["state"])["topic"], session["agent"].topic)
+        # Fan's feedback: once the topic is in use, the band goes straight away rather than after the first question.
+        topic_card = outputs[-1 - web_app.TOPIC_OUTPUT_COUNT]
+        self.assertFalse(topic_card["visible"])
 
     def test_an_empty_or_long_topic_changes_nothing(self):
         import gradio as gr
@@ -3168,6 +3171,23 @@ class TestOwnPracticeTopic(unittest.TestCase):
         self.assertEqual(store.list_sessions(user["id"]), [])
         for topic in ("a new manager who finds it hard to delegate", "想和父母谈搬去外地工作的事", "ending a long friendship"):
             self.assertFalse(safety.crisis_topic(topic), topic)
+
+    def test_a_plain_invitation_to_say_more_keeps_the_stage(self):
+        # Fan saw the tracker jump to reality on a first "tell me more"; the labelling request took it for exploring.
+        from coachee_agent import _invites_more
+
+        for text in ("Tell me more.", "Can you tell me more about that?", "What else?", "能多说一说吗？", "还有呢？", "然后呢"):
+            self.assertTrue(_invites_more(text), text)
+        for text in ("What else could you do?", "还有别的办法吗？", "能说说你现在的情况吗？", "What have you tried so far?"):
+            self.assertFalse(_invites_more(text), text)
+
+        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent.context = [{"role": "coachee", "content": "我一直不知道怎么跟父母开口。"}]
+        agent._llm_scenario_ready = True
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["嗯……就是怕他们反对。"], [])), \
+                patch.object(EricksonCoacheeAgent, "_label_coach_message", side_effect=AssertionError("no labelling request")):
+            agent.generate_response("能多说一说吗？", api_key="server-key")
+        self.assertEqual(agent.current_state, CoachingState.CONTRACT)
 
     def test_a_topic_the_ai_cant_set_up_says_so_and_the_band_stays(self):
         web_app, store, user, request = _signed_in()
