@@ -76,6 +76,11 @@ class EricksonCoacheeAgent:
         self.skipped_stages: set[int] = set()
         # What the coach asked this client to be about, in their own words; empty means a case the AI picks.
         self.topic = ""
+        # Whether the coach has asked a contracting question (what the client wants from this conversation). Until
+        # then the tracker stays on the first stage (Fan's choice, 2026-10-16: contract first, as coaching is taught).
+        self.contract_done = False
+        # This turn only: the later stage the coach's question belonged to while the tracker held on the contract.
+        self.held_stage: CoachingState | None = None
 
     def set_mode(self, mode: str) -> bool:
         if mode in ("template", "llm"):
@@ -119,6 +124,7 @@ class EricksonCoacheeAgent:
             "seed": self.scenario_variation_seed,
             "skipped": sorted(self.skipped_stages),
             "topic": self.topic,
+            "contract_done": self.contract_done,
         }
 
     @classmethod
@@ -146,6 +152,8 @@ class EricksonCoacheeAgent:
         agent.scenario_variation_seed = data["seed"]
         agent.skipped_stages = set(data.get("skipped", []))
         agent.topic = data.get("topic", "")
+        # Sessions saved before the contract-first rule carry on as they were once past the first stage.
+        agent.contract_done = data.get("contract_done", agent.current_state != CoachingState.CONTRACT)
         return agent
 
     def translate_history(self, new_lang: str, api_key: str | None = None) -> bool:
@@ -206,6 +214,8 @@ class EricksonCoacheeAgent:
             self.current_state = CoachingState.CLOSING
             self.session_complete = True
         else:
+            if self.current_state == CoachingState.CONTRACT and not self.contract_done:
+                self.skipped_stages.add(CoachingState.CONTRACT.value)  # moved on by hand without contracting
             self.current_state = CoachingState(self.current_state.value + 1)
         self.current_sub_phase = CoachingSubPhase.OPEN
         self.turns_in_current_stage = 0
@@ -226,6 +236,7 @@ class EricksonCoacheeAgent:
             raise ValueError("Session complete. Start a new session to continue.")
 
         before = json.loads(json.dumps(self.to_dict()))  # a copy: to_dict shares the live context list
+        self.held_stage = None
         decide_stage = False
         if user_input and user_input.strip():
             coach_message = user_input.strip()
@@ -243,7 +254,7 @@ class EricksonCoacheeAgent:
             if _invites_more(self.context[-1]["content"]):
                 # "Tell me more" brings up no new stage, but the labelling request often took it for exploring the
                 # situation, so a first "tell me more" moved the tracker from goal to reality.
-                label["signal"] = STAGE_MARKERS[self.current_state.value]
+                label["signal"] = "STAY"
             else:
                 labeller = threading.Thread(target=self._label_coach_message, args=(api_key, label), daemon=True)
                 labeller.start()
@@ -550,16 +561,22 @@ class EricksonCoacheeAgent:
     def _apply_stage_signal(self, signal: str | None):
         stage = _labelled_stage(signal, self.current_state)
         named = {word: number for number, word in STAGE_MARKERS.items()}.get(signal)
+        if named == CoachingState.CONTRACT.value:
+            self.contract_done = True
         if signal == "END":
             self._move_to(CoachingState.CLOSING)
             self.session_complete = True
             self.current_sub_phase = CoachingSubPhase.OPEN
             self.turns_in_current_stage = 0
+        elif stage != self.current_state and not self.contract_done:
+            # Contract first: a question about a later stage before any contracting keeps the tracker on the contract,
+            # and the page reminds the coach (see web_app._practice_hint).
+            self.held_stage = stage
         elif stage != self.current_state:
             # The coach's question belongs to a later stage: follow the coach, and count the question there.
             if self.metrics.stage_questions[self.current_state]:
                 self.metrics.stage_questions[self.current_state] -= 1
-            if not self.metrics.stage_questions[self.current_state]:
+            if not self.metrics.stage_questions[self.current_state] and self.current_state != CoachingState.CONTRACT:
                 # Left without a single question of its own (e.g. a first question about the situation, with no goal
                 # agreed): the stage shows as skipped, not done. Fan saw a filled first dot and thought the tracker
                 # had raced ahead.

@@ -158,8 +158,17 @@ Still open, in Fan's order:
        - A plain invitation to say more is now recognised without a model call (`_invites_more` in coachee_agent.py: whole message, at most 40 characters) and keeps the current stage.
        - The labelling prompt now puts "why it matters / what it means" under GOAL and has Chinese cues for worries (REALITY) and ways of doing it (OPTIONS).
        - Real check on DeepSeek, 24 first and later questions × 3 tries, both languages: 72/72 as expected (before: about 6 in 48 off, with inconsistent answers between tries).
-       - Questions about the situation, feelings, worries or what was tried still move a first question to REALITY on purpose: a coach who skips contracting should see it on the tracker.
-   - ✅ (2026-10-16, Fan's second screenshot: "为什么你会觉得他不服你" as the first question, then stage 2 with dot 1 filled) **A stage left without a question now shows as skipped, not done.**
+       - (Superseded the same day by Fan's "contract first" decision below.)
+   - ✅ **Decision (Fan, 2026-10-16): in practice mode, contract first.**
+     - **Why:** twice the tracker felt to Fan like it raced ahead, and coaching is taught goal-first. Fan chose "keep the contract first" over "follow the coach".
+     - Until the coach has asked a contracting question (labelled GOAL: what they want from this conversation, why it matters, how they'll know it helped), a question about a later stage keeps the tracker on 目标合同.
+     - The page then shows a hint instead of moving: "这个问题属于「现实探索」。目标合同还没完成：可以先问问对方今天想谈出什么结果，或点「跳到下一阶段」继续。" (`contract_first`; `_practice_hint` in web_app; `EricksonCoacheeAgent.held_stage`).
+     - After that the tracker follows the coach as before, jumps over later stages included (dashed dots and the "skipping" note).
+     - `contract_done` is saved with the session. Sessions saved earlier count as done once past the first stage.
+     - "Tell me more" (`_invites_more`) is labelled STAY, not GOAL, so it doesn't count as contracting.
+     - Skip Ahead from the first stage without contracting marks it skipped (dashed); a later goal question un-skips it.
+     - Real replay on DeepSeek of Fan's case: a reality question keeps stage 1 with the hint; "tell me more" keeps stage 1; a goal question completes the contract; the next reality question moves to stage 2.
+   - ✅ (2026-10-16, Fan's second screenshot: "为什么你会觉得他不服你" as the first question, then stage 2 with dot 1 filled; first answered with dashed dots, then replaced by "contract first" above) **A stage left without a question shows as skipped, not done.**
      - Before, only stages jumped over in between (1 → 3) were dashed. Now `_apply_stage_signal` (coachee_agent) also marks the stage being left when it got no question of its own.
      - The pop-up names it in practice mode: "进入「现实探索」，跳过了「目标合同」。虚线圆点表示跳过的阶段。" (`_stage_change_notice`, `stage_moved_skipping`). AI Coach mode keeps the old note, since there the AI leads the stages.
      - A later question labelled as a skipped stage (agreeing the goal after exploring) un-skips it. The tracker stays where it is, and the question counts in that stage.

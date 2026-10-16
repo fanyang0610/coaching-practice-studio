@@ -811,6 +811,7 @@ class TestEricksonCoacheeAgent(unittest.TestCase):
         agent = EricksonCoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.current_state = CoachingState.VALUE
+        agent.contract_done = True
         agent.context = [{"role": "coachee", "content": "I'll start on Monday."}]
         agent.metrics.stage_questions[CoachingState.VALUE] = 1
         replies = ["That I can start small.", "Thanks, bye!", "Session Result: ok\nScore: 30/100"]
@@ -1163,6 +1164,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
     def test_coachee_follows_the_stage_the_coach_is_asking_about(self):
         agent = EricksonCoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
+        agent.contract_done = True  # after contracting the tracker follows the coach (see TestOwnPracticeTopic)
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
         calls = []
         client = _fake_llm_client(["I could ask my manager for one quiet afternoon."], calls)
@@ -1172,7 +1174,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
 
         self.assertEqual(reply, "I could ask my manager for one quiet afternoon.")
         self.assertEqual(agent.current_state, CoachingState.ACTION)
-        self.assertEqual(agent.skipped_stages, {1, 2})  # no goal was agreed either
+        self.assertEqual(agent.skipped_stages, {2})
         self.assertEqual(agent.metrics.stage_questions[CoachingState.ACTION], 1)
         self.assertEqual(agent.metrics.stage_questions[CoachingState.CONTRACT], 0)
         self.assertIsNone(agent.manual_advance_guard())
@@ -3201,24 +3203,59 @@ class TestOwnPracticeTopic(unittest.TestCase):
                 agent.generate_response(question, api_key="server-key")
         return agent
 
-    def test_a_stage_left_without_a_question_shows_as_skipped(self):
-        # Fan's screenshot: one question about the situation, and the first dot looked done.
+    def test_a_later_question_before_contracting_keeps_the_contract_stage(self):
+        # Fan's choice (2026-10-16): contract first. Their screenshot: "为什么你会觉得他不服你" as the first question moved
+        # the tracker to reality, which felt like the app skipping the contract.
         import web_app
 
         agent = self._practice_turns(("为什么你会觉得他不服你？", "REALITY"))
-        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
-        self.assertEqual(agent.skipped_stages, {1})
-        self.assertIn("tracker-dot skipped", web_app._tracker_html(agent, "coachee"))
-        self.assertEqual(web_app._stage_change_notice(agent, "coachee", set()),
-                         "进入「现实探索」，跳过了「目标合同」。虚线圆点表示跳过的阶段。")
-        # In AI Coach the AI leads the stages, so the note stays as it was.
-        self.assertEqual(web_app._stage_change_notice(agent, "coach", set()), "进入下一阶段：现实探索")
-
-    def test_agreeing_the_goal_later_counts_the_skipped_stage_as_done(self):
-        agent = self._practice_turns(("为什么你会觉得他不服你？", "REALITY"), ("今天这次谈话，你希望有什么收获？", "GOAL"))
-        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)  # the tracker never goes back
+        self.assertEqual(agent.current_state, CoachingState.CONTRACT)
+        self.assertEqual(agent.held_stage, CoachingState.EXPERIENCE)
         self.assertEqual(agent.skipped_stages, set())
-        self.assertEqual(agent.metrics.stage_questions[CoachingState.CONTRACT], 1)
+        self.assertFalse(agent.contract_done)
+        self.assertEqual(web_app._practice_hint(agent, "coachee"),
+                         "这个问题属于「现实探索」。目标合同还没完成：可以先问问对方今天想谈出什么结果，或点「跳到下一阶段」继续。")
+        self.assertIsNone(web_app._practice_hint(agent, "coach"))  # AI Coach: the AI leads the stages
+
+    def test_after_contracting_the_tracker_follows_the_coach(self):
+        import web_app
+
+        agent = self._practice_turns(("为什么你会觉得他不服你？", "REALITY"), ("今天这次谈话，你希望有什么收获？", "GOAL"),
+                                     ("你之前试过怎么处理？", "REALITY"))
+        self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
+        self.assertTrue(agent.contract_done)
+        self.assertIsNone(agent.held_stage)
+        self.assertEqual(agent.skipped_stages, set())
+        restored = EricksonCoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
+        self.assertTrue(restored.contract_done)
+
+        # A jump over a later stage still shows as skipped, and the note says so.
+        agent = self._practice_turns(("今天你希望有什么收获？", "GOAL"), ("你打算先做哪一步？什么时候？", "COMMITMENT"))
+        self.assertEqual((agent.current_state, agent.skipped_stages), (CoachingState.VALUE, {2, 3}))
+        self.assertEqual(web_app._stage_change_notice(agent, "coachee", set()),
+                         "进入「行动承诺」，跳过了「现实探索」「可能方案」。虚线圆点表示跳过的阶段。")
+
+    def test_tell_me_more_is_not_contracting(self):
+        agent = self._practice_turns(("能多说一说吗？", "unused"))
+        self.assertFalse(agent.contract_done)
+        self.assertEqual((agent.current_state, agent.held_stage), (CoachingState.CONTRACT, None))
+
+    def test_skip_ahead_without_contracting_shows_the_contract_as_skipped(self):
+        agent = self._practice_turns(("为什么你会觉得他不服你？", "REALITY"))
+        self.assertIsNone(agent.manual_advance_guard())  # a question was asked, so Skip Ahead is allowed
+        agent.force_next_state()
+        self.assertEqual((agent.current_state, agent.skipped_stages), (CoachingState.EXPERIENCE, {1}))
+        # Agreeing the goal later counts the contract as done; the tracker stays where it is.
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["嗯……"], [])), _coach_labels("GOAL"):
+            agent.generate_response("今天这次谈话，你希望有什么收获？", api_key="server-key")
+        self.assertEqual((agent.current_state, agent.skipped_stages, agent.contract_done),
+                         (CoachingState.EXPERIENCE, set(), True))
+
+    def test_sessions_saved_before_the_contract_rule_carry_on(self):
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        saved = {key: value for key, value in agent.to_dict().items() if key != "contract_done"}
+        self.assertFalse(EricksonCoacheeAgent.from_dict(saved).contract_done)
+        self.assertTrue(EricksonCoacheeAgent.from_dict({**saved, "state": "EXPERIENCE"}).contract_done)
 
     def test_a_stage_with_its_own_question_is_not_skipped(self):
         agent = self._practice_turns(("今天这次谈话，你希望有什么收获？", "GOAL"), ("为什么你会觉得他不服你？", "REALITY"))
