@@ -198,12 +198,19 @@ Still open, in Fan's order:
 - Replies are read sentence by sentence, without markdown.
 - An online voice that never starts within 3.5 s (Google's in mainland China) is swapped for one on the device and remembered for the tab.
 - On this Mac the old code read Chinese 男声 with "Reed" at pitch 0.72 and 女声 with Meijia (a Taiwan voice). Now both use Tingting at natural pitch, since there is no natural male Chinese voice installed.
-- Help has an FAQ entry on downloading better voices on iPhone (Settings → Accessibility → Spoken Content → Voices) and using Edge on computers.
+- Help's FAQ on the robotic voice was first written as "download better voices on iPhone". That turned out wrong (see Fan's iPhone result below) and was corrected.
 - `TestReadAloud` runs the real script in Node against realistic voice lists.
 - **Fan, 2026-10-16: no audible change on an iPhone.** No iPhone simulator here (no Xcode), and it's unclear whether iOS gives web pages its downloaded Enhanced/Premium voices (one Apple forum report says iOS lists only some installed voices to web pages, in every browser). So there is now a public **`/voices` "声音检查 / Voice check" page**, linked from Help. It lists the browser's Chinese and English voices, shows which one the app's own `tts_js` picks for each setting (run with speaking switched off), and has a Listen button for each. Deployed 2026-10-16 11:21 UTC with Fan's OK. Next: Fan opens it on the iPhone and sends a screenshot.
 - Fan uses Chrome and Safari (rarely Edge), so Chrome's Google voices rank above a Mac's basic and Enhanced voices. "Google 普通话" and "Google US English" count as female.
   - They are online: in mainland China without a VPN they never start, and the 3.5 s fallback uses the computer's own voice.
-  - The Help tip now covers iPhone (Safari or Chrome), Mac (System Settings → Accessibility → Spoken Content → System voice → Manage Voices) and Chrome's Google voices. Edge is no longer suggested first.
+  - Edge is no longer suggested first.
+- **Fan's iPhone result (2026-10-16): iOS gives websites only Apple's basic voices.** The `/voices` screenshots from Safari listed only the "super-compact" voices (Tingting, Meijia, Sinji…), and Lilian, which Fan had downloaded in the iPhone's Settings, did not appear at all. Nothing the page can do about it. Chosen fixes ("1 and 2"), not yet deployed:
+  1. The Help FAQ now says plainly that on iPhone and iPad websites only get Apple's basic voices (voices downloaded in the device's Settings app aren't available to websites), that Chrome on a computer has Google's more natural voices, and that a female voice is used when there's no natural male one.
+  2. In Settings, choosing 男声 / Male on a device with no natural male voice for the language shows "这台设备没有自然的中文男声，会用女声朗读。" / "This device has no natural male English voice, so a female voice is used." (`voice_note_js`, `#voice-note`). The `/voices` page marks the same case. The ranking code is shared: `_VOICE_RANKING_JS` in web_assets feeds both `tts_js` and `voice_note_js`, and `tts_js` sets `window.__ttsVoiceIsMale`.
+  - Found while checking: switching language left neither voice option selected (the labels changed, the value didn't). `switch_lang` now takes the voice and keeps its gender (男声 ↔ Male).
+  - Also found: an AI opening emptied by the language clean-up showed a blank bubble. `_get_llm_opening_response` (coach_agent) now tries once more, then raises, so the page shows `ai_unavailable`.
+  - The local fake AI (`scripts/load_test.py`, used by `dev_server.py`) now answers in Chinese for Chinese requests and handles language-switch translations.
+  - Option 3, server-side recorded voices (Kokoro), was offered and not chosen.
 10. Mentor comments on sessions.
 
 **Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done. **Both batches below were deployed to the Space on 2026-10-15 at 15:55 UTC** (with Fan's OK): build installed exactly Gradio 6.30.0, startup log clean, `/ping`, `/healthz`, `/login`, `/help` and `/privacy` checked live in both languages at phone and laptop widths. Not yet checked live: a signed-in session (needs Fan's account) and the Admin page's AI service card.

@@ -701,6 +701,20 @@ class TestWebAppServerConfig(unittest.TestCase):
         self.assertEqual(store.list_sessions(user["id"]), [])
         self.assertFalse(web_app._session_start_outputs(session)["msg"]["interactive"])
 
+    def test_an_empty_ai_opening_is_tried_again_then_reported(self):
+        # Seen with a fake model: an English opening in a Chinese session was cleaned to nothing, leaving a blank bubble.
+        web_app, store, user, _ = _signed_in()
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+                patch("coach_agent._build_client", return_value=_fake_llm_client(["Hello there.", "今天想聊点什么？"], [])):
+            session = web_app._open_session(user, "coach", "llm", "zh")
+        self.assertEqual(session["agent"].context[-1]["content"], "今天想聊点什么？")
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+                patch("coach_agent._build_client", return_value=_fake_llm_client(["Hello.", "Hi again."], [])), \
+                patch.object(web_app.logger, "exception"):
+            session = web_app._open_session(user, "coach", "llm", "zh")
+        self.assertEqual(session["unavailable"], web_app.UI["zh"]["ai_unavailable"])
+
     def test_practice_does_not_open_when_the_ai_service_is_down(self):
         # An unreadable practice case falls back to a built-in one, but a service that refuses every request (no credit,
         # wrong key) must not open a practice that can't continue.
@@ -2498,11 +2512,19 @@ class TestSessionTakeaways(unittest.TestCase):
         reply = json.dumps({"translations": ["今天你最想聚焦在什么上？"]}, ensure_ascii=False)
         with patch.object(web_app, "_safe_key", return_value="server-key"), \
                 patch("coaching_core._build_client", return_value=_fake_llm_client([reply], [])):
-            outputs = web_app.switch_lang("中文", session, "coach", "AI", request)
+            outputs = web_app.switch_lang("中文", session, "coach", "AI", request=request)
 
         self.assertEqual(agent.language, "zh")
         self.assertEqual(agent.context[0]["content"], "今天你最想聚焦在什么上？")
         self.assertEqual(outputs[0][0]["content"], "今天你最想聚焦在什么上？")
+
+    def test_switching_language_keeps_the_chosen_voice(self):
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coach", "template", "zh")
+        voice = web_app.switch_lang("English", session, "coach", "Template", "男声", request=request)[15]
+        self.assertEqual((voice["choices"], voice["value"]), (["Female", "Male"], "Male"))
+        voice = web_app.switch_lang("中文", session, "coach", "Template", "Female", request=request)[15]
+        self.assertEqual(voice["value"], "女声")
 
     def test_busy_ai_service_is_tried_again_but_a_timeout_is_not(self):
         import httpx
@@ -2552,7 +2574,7 @@ class TestSessionTakeaways(unittest.TestCase):
         with patch.object(web_app, "_safe_key", return_value="server-key"), \
                 patch("coachee_agent._translate_texts", side_effect=RuntimeError("busy")), \
                 patch.object(coachee_agent.logger, "warning"), patch.object(web_app.gr, "Warning") as warning:
-            switched = web_app.switch_lang("English", session, "coachee", "AI", request)
+            switched = web_app.switch_lang("English", session, "coachee", "AI", request=request)
             reopened = web_app.initial_load(None, "coachee", "AI", "English", english_phone)
 
         self.assertEqual(agent.language, "zh")
@@ -3012,7 +3034,8 @@ class TestProviderAndRegionSupport(unittest.TestCase):
         if not node:
             self.skipTest("node is not installed")
         with tempfile.TemporaryDirectory() as folder:
-            scripts = {name: "(" + getattr(web_assets, name) + ")" for name in ("force_light_js", "tts_js", "scroll_js", "remember_lang_js")}
+            scripts = {name: "(" + getattr(web_assets, name) + ")" for name in ("force_light_js", "tts_js", "voice_note_js", "scroll_js",
+                                                                              "remember_lang_js")}
             # An HTML block's js_on_load is a function body that receives the block as `element`.
             scripts["welcome_js"] = "(function (element) {" + web_assets.welcome_js + "})"
             scripts["space_status_js"] = web_assets.space_status_js  # a whole <script>, not an expression
@@ -3434,6 +3457,52 @@ setTimeout(() => console.log(JSON.stringify(spoken)), 300);
         only_old = self._voices_used(self._speak(mac))  # nothing better on the device: an older voice, never Grandma/Grandpa
         self.assertTrue(only_old and not any(name.startswith(("Grandma", "Grandpa")) for name in only_old))
 
+    NOTE_HARNESS = """
+const voices = %(voices)s;
+const note = {textContent: "unset"};
+global.document = {getElementById: (id) => (id === "voice-note-text" ? note : null)};
+global.window = {speechSynthesis: {getVoices: () => voices}};
+const run = (%(script)s);
+run(%(preference)s, %(language)s);
+setTimeout(() => console.log(JSON.stringify(note.textContent)), 50);
+"""
+
+    def _note(self, voices, preference, language="中文"):
+        import shutil
+        import subprocess
+        import web_assets
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        source = self.NOTE_HARNESS % dict(voices=json.dumps(voices, ensure_ascii=False), script=web_assets.voice_note_js,
+                                          preference=json.dumps(preference, ensure_ascii=False),
+                                          language=json.dumps(language))
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "note.js"
+            script.write_text(source, encoding="utf-8")
+            result = subprocess.run([node, str(script)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_settings_note_says_when_a_device_has_no_natural_male_voice(self):
+        # Fan's iPhone (2026-10-16): websites get only super-compact voices, and no male Chinese one.
+        iphone = [{"name": "Tingting", "lang": "zh-CN", "voiceURI": "com.apple.voice.super-compact.zh-CN.Tingting",
+                   "localService": True},
+                  {"name": "Daniel", "lang": "en-GB", "voiceURI": "com.apple.voice.super-compact.en-GB.Daniel",
+                   "localService": True},
+                  {"name": "Albert", "lang": "en-US", "voiceURI": "com.apple.speech.synthesis.voice.Albert", "localService": True}]
+        self.assertEqual(self._note(iphone, "男声"), "这台设备没有自然的中文男声，会用女声朗读。")
+        self.assertEqual(self._note(iphone, "女声"), "")
+        self.assertEqual(self._note(iphone, "Male", "English"), "")  # Daniel
+        self.assertEqual(self._note(iphone + [self.LIMU], "男声"), "")
+        reed = {"name": "Reed (Chinese (China mainland))", "lang": "zh-CN", "voiceURI": "Reed (Chinese (China mainland))",
+                "localService": True}
+        self.assertEqual(self._note(iphone + [reed], "男声"), "这台设备没有自然的中文男声，会用女声朗读。")  # robotic only
+        english_only_women = [{"name": "Samantha", "lang": "en-US", "voiceURI": "Samantha", "localService": True}]
+        self.assertEqual(self._note(english_only_women, "Male", "English"),
+                         "This device has no natural male English voice, so a female voice is used.")
+
     def test_novelty_voices_are_never_used(self):
         self.assertEqual(set(self._voices_used(self._speak([self.BELLS, self.SAMANTHA, self.ALEX], language="English"))),
                          {self.SAMANTHA["voiceURI"]})
@@ -3509,6 +3578,14 @@ class TestHelpPage(unittest.TestCase):
         self.assertNotIn("内置问题", chinese)
         self.assertIn("tells you roughly when you can start again", english)
         self.assertIn("大约多久之后可以再开始", chinese)
+
+    def test_help_says_iphone_websites_get_only_basic_voices(self):
+        # Fan downloaded "Lilian" on an iPhone; it never reached the browser's voice list, so Help no longer suggests it.
+        english = self.client.get("/help?lang=en").text
+        chinese = self.client.get("/help?lang=zh").text
+        self.assertIn("browsers only let websites use Apple&#x27;s basic voices", english)
+        self.assertIn("浏览器只允许网页使用苹果的基础声音", chinese)
+        self.assertNotIn("download an Enhanced or Premium voice", english)
 
     def test_voice_check_page_runs_the_apps_own_read_aloud_code(self):
         # Built after Fan heard no change on an iPhone: it shows which voices a browser offers and which one the app uses.

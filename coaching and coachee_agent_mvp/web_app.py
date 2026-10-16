@@ -44,6 +44,7 @@ from web_assets import (
     scroll_js,
     space_status_js,
     tts_js,
+    voice_note_js,
     welcome_js,
 )
 
@@ -1038,7 +1039,7 @@ def start_with_topic(topic: str, lang_sel, mode_sel, session=None, request: gr.R
     return _new_session_outputs(_open_session(user, "coachee", _safe_mode(mode_sel), lc, topic=topic))
 
 
-def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = None):
+def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request: gr.Request = None):
     lc = _safe_lang(new_lang)
     user = _require_user(request, lc)
     # Keep the conversation in its old language until it has been translated; setting the new language first made
@@ -1076,7 +1077,9 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
         gr.update(label=s["language"], value=new_lang),
         gr.update(label=s["mode"], choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
         gr.update(label=s["tts_enable"]),
-        gr.update(label=s["tts_voice"], choices=[s["voice_f"], s["voice_m"]]),
+        # The voice keeps its gender in the new language (男声 is Male), so one of the two stays selected.
+        gr.update(label=s["tts_voice"], choices=[s["voice_f"], s["voice_m"]],
+                  value=s["voice_m"] if voice_sel in (UI["en"]["voice_m"], UI["zh"]["voice_m"]) else s["voice_f"]),
         m_s, m_g, m_f,
         _memory_title(lc),
         gr.update(value=session["module"]),
@@ -1184,7 +1187,9 @@ with gr.Blocks(
                 tts_voice = gr.Radio([UI["zh"]["voice_f"], UI["zh"]["voice_m"]], label=UI["zh"]["tts_voice"], value=UI["zh"]["voice_f"], scale=1, min_width=0)
                 # Off until someone turns it on, so replies aren't read aloud unexpectedly, e.g. in an office.
                 tts_toggle = gr.Checkbox(label=UI["zh"]["tts_enable"], value=False, scale=1, min_width=0)
-            
+            # Filled in the browser (voice_note_js) when this device has no natural male voice for the language.
+            gr.HTML('<p id="voice-note-text" class="voice-note"></p>', elem_id="voice-note")
+
             # AI Insights Dashboard
             gr.Markdown("---")
             with gr.Column(elem_classes="memory-dashboard"):
@@ -1250,7 +1255,8 @@ with gr.Blocks(
         [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, *rating_outputs, *topic_outputs, session_state],
         js=force_light_js,
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js)
+    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(
+        None, [tts_voice, lang_radio], None, js=voice_note_js)
 
     send_btn.click(
         respond,
@@ -1282,7 +1288,7 @@ with gr.Blocks(
 
     lang_radio.change(
         switch_lang,
-        [lang_radio, session_state, module_state, mode_radio],
+        [lang_radio, session_state, module_state, mode_radio, tts_voice],
         [
             chatbot,
             tracker,
@@ -1310,7 +1316,8 @@ with gr.Blocks(
             session_state,
         ],
         **LLM_EVENT,
-    ).then(None, [lang_radio], None, js=remember_lang_js)
+    ).then(None, [lang_radio], None, js=remember_lang_js).then(None, [tts_voice, lang_radio], None, js=voice_note_js)
+    tts_voice.change(None, [tts_voice, lang_radio], None, js=voice_note_js)
 
     coach_module_btn.click(
         select_module,

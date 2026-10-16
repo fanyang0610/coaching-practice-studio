@@ -452,13 +452,19 @@ Variation lens: choose a fresh entry point among clarity, desired outcome, usefu
 FOLLOW-UP: in their previous session the client made this plan ({notes}).
 Instead of a fresh entry point, warmly ask how it went with that next step. Ask exactly ONE question and nothing else; if they would rather talk about something new, they will say so."""
 
-        resp = client.chat.completions.create(
-            model=_chat_model(),
-            messages=[{"role": "system", "content": system_prompt}],
-            max_tokens=160 if self.last_card else 120,
-            temperature=0.7,
-        )
-        return _clean_response_language(_response_text(resp), self.language)
+        # An opening emptied by the language clean-up (written in the other language) would show as a blank bubble: one
+        # more try, then the error lets the page say plainly that the AI isn't available.
+        for _ in range(2):
+            resp = client.chat.completions.create(
+                model=_chat_model(),
+                messages=[{"role": "system", "content": system_prompt}],
+                max_tokens=160 if self.last_card else 120,
+                temperature=0.7,
+            )
+            opening = _clean_response_language(_response_text(resp), self.language)
+            if opening:
+                return opening
+        raise ValueError("Model returned no text content.")
 
     def _get_llm_response(self, api_key: str, decide_stage: bool = False):
         """Stream the coach reply as (text so far, stage signal) pairs; the last pair is final."""

@@ -64,6 +64,17 @@ def fake_case(body: dict) -> str | None:
     return json.dumps(case, ensure_ascii=False)
 
 
+def fake_translation(body: dict) -> str | None:
+    """A switch of language asks for the conversation translated: one stock line in the new language per message."""
+    messages = body.get("messages") or [{}]
+    system = messages[0].get("content", "")
+    if not system.startswith("Translate each string"):
+        return None
+    line = FAKE_REPLY_ZH if "Simplified Chinese" in system else FAKE_REPLY
+    texts = json.loads(messages[-1].get("content") or "[]")
+    return json.dumps({"translations": [line.replace("[[STAY]] ", "")] * len(texts)}, ensure_ascii=False)
+
+
 def start_fake_llm(latency: float) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -96,8 +107,11 @@ def start_fake_llm(latency: float) -> ThreadingHTTPServer:
                 self.wfile.write(b"data: [DONE]\n\n")
                 return
             # Practice mode's stage labelling: a question about the situation, so the tracker visibly moves on.
-            labelling = "You label one message" in ((body.get("messages") or [{}])[0].get("content") or "")
-            content = "[[REALITY]]" if labelling else fake_case(body) or FAKE_REPLY
+            system = (body.get("messages") or [{}])[0].get("content") or ""
+            labelling = "You label one message" in system
+            # Only streamed replies carry a stage marker; a one-off reply (the coach's opening) has none.
+            reply = (FAKE_REPLY_ZH if "Simplified Chinese" in system else FAKE_REPLY).replace("[[STAY]] ", "")
+            content = "[[REALITY]]" if labelling else fake_case(body) or fake_translation(body) or reply
             payload = json.dumps({
                 "id": "fake",
                 "object": "chat.completion",

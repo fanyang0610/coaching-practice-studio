@@ -232,11 +232,12 @@ T = {
         "voices_online": "online",
         "voices_default": "the browser's default voice",
         "voices_loading": "Checking…",
+        "voices_no_male": "no natural male voice on this device, so a female one",
         "help_faq": [
             ["I forgot my password.", "Ask the person who invited you to send you a reset link."],
             ["Who can see my conversations?", "Only you. If you have a mentor, they can see your AI Coachee Lab practice, plus any AI Coach session you choose to share. The app admin can't open your conversations. The privacy page has the details."],
             ["The microphone doesn't work.", "Voice input depends on your browser. Safari works well. In some regions Chrome's voice service is blocked. You can always type instead."],
-            ["The read-aloud voice sounds robotic.", "Read-aloud uses the voices of your own phone or computer, and the app picks the best one it finds. A free higher-quality voice makes the biggest difference. iPhone (Safari or Chrome): Settings → Accessibility → Spoken Content → Voices → Chinese (or English), download an Enhanced or Premium voice. Mac: System Settings → Accessibility → Spoken Content → System voice → Manage Voices. Then reload this page. Chrome on a computer also has Google's voices, which sound more natural (they don't work in mainland China without a VPN; the app then uses your computer's own voice). If your device has no natural-sounding male voice, a natural female voice is used instead."],
+            ["The read-aloud voice sounds robotic.", "Read-aloud uses the voices your browser offers, and the app picks the best one. On iPhone and iPad, browsers only let websites use Apple's basic voices (voices you download in the device's Settings app aren't available to websites), so read-aloud sounds plain there. On a computer, Chrome has Google's more natural voices (they don't work in mainland China without a VPN; the app then uses the computer's own voice). If a device has no natural male voice for the language, a female voice is used. The Voice check page below shows what your device offers."],
             ["The page won't load.", "The server may be waking up: wait a minute, then refresh. If it still won't open, your network may be blocking the server. Try another network or a VPN."],
             ["Is this therapy?", "No. This is a coaching practice tool. If you are in crisis, call your local emergency number. In mainland China, call 12356 (the national psychological help line), or 120 or 110 in an emergency. Elsewhere, findahelpline.com lists free helplines."],
         ],
@@ -458,11 +459,12 @@ T = {
         "voices_online": "在线",
         "voices_default": "浏览器默认声音",
         "voices_loading": "检查中…",
+        "voices_no_male": "这台设备没有自然的男声，改用女声",
         "help_faq": [
             ["忘记密码怎么办？", "请联系邀请你的人，让对方给你发送重置链接。"],
             ["谁能看到我的对话？", "只有你本人。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。应用管理员无法打开你的对话。详情见隐私页面。"],
             ["麦克风用不了。", "语音输入取决于你的浏览器。Safari 效果很好；在部分地区，Chrome 的语音服务无法使用。你随时可以改为打字。"],
-            ["朗读的声音很机械。", "朗读使用的是你手机或电脑自带的声音，应用会自动选出其中最好的一个。下载一个免费的高质量声音，效果提升最明显。iPhone（Safari 或 Chrome）：“设置 → 辅助功能 → 朗读内容 → 声音 → 中文”（或英文），下载一个高质量版本的声音。Mac：“系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音”。下载后刷新本页面。电脑上的 Chrome 还带有 Google 的声音，听起来更自然（在中国大陆不用 VPN 时无法使用，应用会自动改用电脑自带的声音）。如果设备上没有自然的男声，会改用自然的女声。"],
+            ["朗读的声音很机械。", "朗读使用的是浏览器提供的声音，应用会自动选出其中最好的一个。在 iPhone 和 iPad 上，浏览器只允许网页使用苹果的基础声音（在手机“设置”App 里下载的声音，网页用不了），所以朗读听起来比较平淡。电脑上的 Chrome 带有 Google 的声音，听起来更自然（在中国大陆不用 VPN 时无法使用，应用会自动改用电脑自带的声音）。如果设备上没有这种语言的自然男声，会用女声朗读。下面的“声音检查”页面可以看到你的设备有哪些声音。"],
             ["页面打不开。", "服务器可能正在唤醒：请等一分钟后刷新。如果仍然打不开，可能是你的网络无法访问服务器，请换一个网络或使用 VPN。"],
             ["这是心理治疗吗？", "不是。这是一个教练练习工具。如果你正处于危机中，请拨打当地紧急电话。在中国大陆，可拨打全国统一心理援助热线 12356，紧急情况请拨打 120 或 110。其他国家和地区可在 findahelpline.com 找到免费求助热线。"],
         ],
@@ -1013,7 +1015,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
         lang = page_lang(request)
         user = current_user(request, get_store(), settings.secret)
         words = {key: T[lang][key] for key in ("voices_listen", "voices_none", "voices_device", "voices_online",
-                                                "voices_default", "voices_all")}
+                                                "voices_default", "voices_all", "voices_no_male")}
         body = f"""<div class="card"><h1>{_e(T[lang]['voices_title'])}</h1><p class="hint">{_e(T[lang]['voices_intro'])}</p>
 <h2>{_e(T[lang]['voices_choice'])}</h2><div id="voice-choice" class="list"><p class="muted">{_e(T[lang]['voices_loading'])}</p></div></div>
 <div class="card"><h2 id="voice-count"></h2><div id="voice-list" class="list"></div><p class="hint" id="voice-agent"></p></div>
@@ -1036,6 +1038,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
   const pick = async (langLabel, preference) => {{
     const speak = synth.speak, cancel = synth.cancel;
     let chosen;
+    window.__ttsVoiceIsMale = false;
     synth.speak = (utterance) => {{ if (chosen === undefined) chosen = utterance.voice || null; }};
     synth.cancel = () => {{}};
     window.__ttsFallbackMs = 600000;
@@ -1045,7 +1048,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
     delete window.__ttsFallbackMs;
     synth.speak = speak;
     synth.cancel = cancel;
-    return chosen;
+    return {{ voice: chosen, male: window.__ttsVoiceIsMale }};
   }};
 
   (async () => {{
@@ -1053,9 +1056,10 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
     for (let i = 0; i < 20 && !voices.length; i++) {{ await sleep(150); voices = synth.getVoices(); }}
     const rows = [];
     for (const [langLabel, preference, label] of settings) {{
-      const voice = await pick(langLabel, preference);
-      const name = voice ? escape(voice.name) + ' <span class="pill">' + escape(voice.lang) + " · " + escape(where(voice)) + "</span>"
-                         : escape(words.voices_default);
+      const {{ voice, male }} = await pick(langLabel, preference);
+      let name = voice ? escape(voice.name) + ' <span class="pill">' + escape(voice.lang) + " · " + escape(where(voice)) + "</span>"
+                       : escape(words.voices_default);
+      if (/男|Male/.test(preference) && !male) name += '<br><span class="hint">' + escape(words.voices_no_male) + "</span>";
       rows.push('<div class="row"><div class="main"><div class="title">' + escape(label) + '</div><div class="meta">' + name +
                 '</div></div><div class="actions"><button class="quiet" type="button" data-lang="' + escape(langLabel) +
                 '" data-preference="' + escape(preference) + '">' + escape(words.voices_listen) + "</button></div></div>");

@@ -2692,6 +2692,20 @@ div:has(> .tracker-shell) {
     }
 }
 
+/* Under the voice setting: says so when this device has no natural male voice for the language */
+#app-shell .voice-note {
+    margin: 2px 2px 0 !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+    color: #62809a !important;
+}
+
+/* With nothing to say, the whole block goes, so it leaves no gap in the settings */
+#app-shell .voice-note:empty,
+#app-shell #voice-note:has(.voice-note:empty) {
+    display: none !important;
+}
+
 @media (max-width: 767px) {
     #app-shell #topic-card {
         margin: 0 8px !important;
@@ -2792,6 +2806,52 @@ scroll_js = """
 }
 """
 
+# How voices are ranked, shared by read-aloud (tts_js) and the 男声 note (voice_note_js) so the two always agree.
+_VOICE_RANKING_JS = r"""
+    // Better voices first: Edge's free neural voices ("Natural"), Apple's Premium voices, Chrome's Google voices (online, so
+    // not in mainland China: see fallBack), then Apple's Enhanced ones. Fan uses Chrome and Safari, where Google's voice
+    // sounds clearly warmer than a Mac's basic one.
+    const QUALITY = [[/natural|neural/, 300], [/premium/, 220], [/google/, 200], [/enhanced/, 180], [/siri/, 160]];
+    const NOVELTY = /albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|deranged|hysterical|junior|ralph|princess|espeak|grandma|grandpa|kathy|\bfred\b/;
+    // Apple's older-style voices (on Macs and iPhones next to the good ones) sound the most robotic: last choice, below
+    // a natural voice of the other gender.
+    const ROBOTIC = /^(eddy|flo|reed|rocko|sandy|shelley)\b|eloquence/;
+    const FEMALE = /\b(xiaoxiao|xiaoyi|xiaohan|xiaomo|xiaoxuan|xiaorui|xiaoshuang|xiaoyan|tingting|ting-ting|meijia|mei-jia|lili|yushu|yu-shu|huihui|yaoyao|hanhan|samantha|ava|allison|susan|zoe|nicky|karen|moira|tessa|serena|kate|victoria|zira|aria|jenny|michelle|emma|sonia|libby|female)\b|女|google (普通话|國語|us english)/;
+    const MALE = /\b(yunxi|yunjian|yunyang|yunze|yunfeng|yunhao|yunye|kangkang|limu|li-mu|alex|tom|evan|nathan|daniel|aaron|arthur|oliver|david|mark|guy|christopher|eric|roger|steffan|andrew|brian|ryan|male)\b|男/;
+    const voiceId = (voice) => voice.voiceURI || voice.name;
+    const describe = (voice) => ((voice.name || "") + " " + (voice.voiceURI || "")).toLowerCase();
+    const isMaleVoice = (voice) => {
+        const name = (voice.name || "").toLowerCase();
+        return !FEMALE.test(name) && MALE.test(name);
+    };
+    // A language's usable voices, best first, for a female or male preference; `bad` holds voices that failed to start.
+    const rankVoices = (voices, zh, wantsFemale, bad) => {
+        const family = zh ? "zh" : "en";
+        const region = zh ? "zh-cn" : "en-us";
+        const score = (voice) => {
+            const name = (voice.name || "").toLowerCase();
+            const lang = (voice.lang || "").toLowerCase().replace("_", "-");
+            // Cantonese voices (zh-HK) would read Mandarin text in Cantonese.
+            if (!lang.startsWith(family) || NOVELTY.test(name) || (zh && /hk|yue/.test(lang)) || bad.has(voiceId(voice))) return null;
+            let points = lang.startsWith(region) ? 60 : 30;
+            const quality = QUALITY.find(([pattern]) => pattern.test(describe(voice)));
+            if (quality) points += quality[1];
+            if (/compact/.test(describe(voice))) points -= 40;
+            if (ROBOTIC.test(name) || /eloquence/.test(describe(voice))) points -= 450;
+            const female = FEMALE.test(name);
+            const male = !female && MALE.test(name);
+            if (wantsFemale ? female : male) points += 250;
+            if (wantsFemale ? male : female) points -= 150;
+            return points;
+        };
+        return voices
+            .map((voice) => ({ voice, points: score(voice) }))
+            .filter((item) => item.points !== null)
+            .sort((a, b) => b.points - a.points)
+            .map((item) => item.voice);
+    };
+"""
+
 # Read-aloud with the voices on the person's own device (no cost, nothing sent to a speech service). Fan found the old
 # version cold and machine-like: it took the first voice whose name matched, lowered the pitch to fake a male voice,
 # and read a whole reply in one breath. Raw string: the regular expressions keep their backslashes.
@@ -2808,8 +2868,6 @@ tts_js = r"""
     synth.cancel();
 
     const zh = langSelector !== "English";
-    const family = zh ? "zh" : "en";
-    const region = zh ? "zh-cn" : "en-us";
     const preference = (voiceSelector || "").toString();
     const wantsFemale = preference.includes("女") || preference.includes("Female");
 
@@ -2832,50 +2890,19 @@ tts_js = r"""
     });
     if (!sentences.length) return;
 
-    // Better voices first: Edge's free neural voices ("Natural"), Apple's Premium voices, Chrome's Google voices (online, so
-    // not in mainland China: see fallBack), then Apple's Enhanced ones. Fan uses Chrome and Safari, where Google's voice
-    // sounds clearly warmer than a Mac's basic one.
-    const QUALITY = [[/natural|neural/, 300], [/premium/, 220], [/google/, 200], [/enhanced/, 180], [/siri/, 160]];
-    const NOVELTY = /albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|deranged|hysterical|junior|ralph|princess|espeak|grandma|grandpa|kathy|\bfred\b/;
-    // Apple's older-style voices (on Macs and iPhones next to the good ones) sound the most robotic: last choice, below
-    // a natural voice of the other gender.
-    const ROBOTIC = /^(eddy|flo|reed|rocko|sandy|shelley)\b|eloquence/;
-    const FEMALE = /\b(xiaoxiao|xiaoyi|xiaohan|xiaomo|xiaoxuan|xiaorui|xiaoshuang|xiaoyan|tingting|ting-ting|meijia|mei-jia|lili|yushu|yu-shu|huihui|yaoyao|hanhan|samantha|ava|allison|susan|zoe|nicky|karen|moira|tessa|serena|kate|victoria|zira|aria|jenny|michelle|emma|sonia|libby|female)\b|女|google (普通话|國語|us english)/;
-    const MALE = /\b(yunxi|yunjian|yunyang|yunze|yunfeng|yunhao|yunye|kangkang|limu|li-mu|alex|tom|evan|nathan|daniel|aaron|arthur|oliver|david|mark|guy|christopher|eric|roger|steffan|andrew|brian|ryan|male)\b|男/;
-    let bad = window.__ttsBadVoices;
+""" + _VOICE_RANKING_JS + r"""    let bad = window.__ttsBadVoices;
     if (!bad) {
         bad = window.__ttsBadVoices = new Set();
         try { JSON.parse(window.sessionStorage.getItem("ttsBadVoices") || "[]").forEach((id) => bad.add(id)); } catch (error) {}
     }
-    const voiceId = (voice) => voice.voiceURI || voice.name;
-    const describe = (voice) => ((voice.name || "") + " " + (voice.voiceURI || "")).toLowerCase();
-    const score = (voice) => {
-        const name = (voice.name || "").toLowerCase();
-        const lang = (voice.lang || "").toLowerCase().replace("_", "-");
-        // Cantonese voices (zh-HK) would read Mandarin text in Cantonese.
-        if (!lang.startsWith(family) || NOVELTY.test(name) || (zh && /hk|yue/.test(lang)) || bad.has(voiceId(voice))) return null;
-        let points = lang.startsWith(region) ? 60 : 30;
-        const quality = QUALITY.find(([pattern]) => pattern.test(describe(voice)));
-        if (quality) points += quality[1];
-        if (/compact/.test(describe(voice))) points -= 40;
-        if (ROBOTIC.test(name) || /eloquence/.test(describe(voice))) points -= 450;
-        const female = FEMALE.test(name);
-        const male = !female && MALE.test(name);
-        if (wantsFemale ? female : male) points += 250;
-        if (wantsFemale ? male : female) points -= 150;
-        return points;
-    };
-    const best = (voices, localOnly) => voices
-        .filter((voice) => !localOnly || voice.localService)
-        .map((voice) => ({ voice, points: score(voice) }))
-        .filter((item) => item.points !== null)
-        .sort((a, b) => b.points - a.points)
-        .map((item) => item.voice)[0] || null;
+    const best = (voices, localOnly) =>
+        rankVoices(voices.filter((voice) => !localOnly || voice.localService), zh, wantsFemale, bad)[0] || null;
 
     const speak = (voices, localOnly) => {
         if (window.__ttsRun !== runId) return;
         const voice = best(voices, localOnly);
         window.__ttsVoice = voice ? voice.name : "";
+        window.__ttsVoiceIsMale = Boolean(voice && isMaleVoice(voice));
         let started = false;
         let fellBack = false;
         // An online voice that can't be reached (Google's in mainland China, for one) never starts: use one on the device.
@@ -2919,6 +2946,34 @@ tts_js = r"""
         setTimeout(whenVoicesReady, 120);
     };
     whenVoicesReady();
+}
+"""
+
+# Fills the note under the voice setting: whether this device has a natural male voice for the language.
+voice_note_js = r"""
+(voiceSelector, langSelector) => {
+    const note = document.getElementById("voice-note-text");
+    const synth = window.speechSynthesis;
+    if (!note || !synth) return;
+    const preference = (voiceSelector || "").toString();
+    const wantsFemale = preference.includes("女") || preference.includes("Female");
+    const zh = langSelector !== "English";
+""" + _VOICE_RANKING_JS + r"""    // Said plainly when the device has no natural male voice for the language (an iPhone has none for Chinese), so
+    // choosing 男声 and hearing a woman doesn't feel broken.
+    let attempts = 0;
+    const update = () => {
+        const voices = synth.getVoices();
+        if (!voices.length && attempts < 10) {
+            attempts += 1;
+            setTimeout(update, 150);
+            return;
+        }
+        const voice = rankVoices(voices, zh, wantsFemale, window.__ttsBadVoices || new Set())[0];
+        const missing = !wantsFemale && voices.length > 0 && !(voice && isMaleVoice(voice));
+        note.textContent = !missing ? "" : zh ? "这台设备没有自然的中文男声，会用女声朗读。"
+            : "This device has no natural male English voice, so a female voice is used.";
+    };
+    update();
 }
 """
 
