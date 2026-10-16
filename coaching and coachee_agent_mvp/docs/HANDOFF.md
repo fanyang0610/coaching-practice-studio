@@ -190,7 +190,7 @@ Still open, in Fan's order:
      - `scripts/load_test.py`'s fake AI now labels practice questions as REALITY and answers Chinese requests in Chinese, so `dev_server.py` shows this flow in both languages. (A Chinese session drops a reply with no Chinese in it, which made the old English-only fake bounce every Chinese question.)
 9. A progress page with score history over time (the Account page shows the last six).
 
-**Read-aloud voice (2026-10-16, Fan: "sounds like a machine and too cold").** Still the browser's own voices (Web Speech API, free, nothing sent to a speech service). Fan chose this over Azure's free neural tier ("feels pre-commercialized"; 0.5M characters a month, would need an Azure account).
+**Read-aloud voice (2026-10-16, Fan: "sounds like a machine and too cold"; deployed 05:03 UTC with Fan's OK, live files checked identical).** Still the browser's own voices (Web Speech API, free, nothing sent to a speech service). Fan chose this over Azure's free neural tier ("feels pre-commercialized"; 0.5M characters a month, would need an Azure account).
 - `tts_js` (web_assets) now ranks voices by quality: Edge's "Natural" neural voices, then Apple Premium / Enhanced, then Google's.
 - Apple's older robotic voices (Eddy, Flo, Reed, Rocko, Sandy, Shelley) come last, below a natural voice of the other gender.
 - Novelty voices (Grandma, Grandpa, Bells, Zarvox…) and Cantonese voices (zh-HK / yue) are never used for Mandarin.
