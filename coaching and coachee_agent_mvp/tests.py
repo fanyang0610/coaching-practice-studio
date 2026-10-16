@@ -3038,6 +3038,150 @@ class TestProviderAndRegionSupport(unittest.TestCase):
         self.assertIn("你的数据处理地点：Server: Hugging Face (US) · AI: DeepSeek (China)", page)
 
 
+class TestOwnPracticeTopic(unittest.TestCase):
+    """First user's request: in practice mode, the coach can describe the client's topic instead of taking the AI's."""
+
+    CASE = json.dumps({
+        "intro": "I've just been promoted and I still do everything myself.",
+        "contract": {"goal": ["I want to hand over work.", "I want my evenings back."],
+                     "importance": ["My team is waiting.", "I'm tired."], "success": ["One task handed over.", "Less overtime."]},
+        "experience": {"reality": ["I redo their work.", "I stay late."], "obstacle": ["I fear mistakes.", "It's faster myself."],
+                       "strength": ["I explain well.", "I care."], "past_success": ["I trained an intern once.", "It went fine."],
+                       "scale": ["A three.", "Maybe four."]},
+        "action": {"possibility": ["Hand over the weekly report.", "Pair on it first."],
+                   "stretch": ["Let them run a meeting.", "Skip checking once."], "support": ["My manager.", "A peer."]},
+        "value": {"commitment": ["I'll hand over the report.", "I'll pair on Monday."], "timeline": ["This week.", "Monday."],
+                  "risk": ["I'll grab it back.", "Deadlines."], "accountability": ["Tell my manager.", "Diary note."]},
+        "closing": {"reflection": ["I feel lighter.", "It's a start."]},
+    })
+
+    def _case_client(self, captured, payload=None):
+        payload = self.CASE if payload is None else payload
+
+        class Completions:
+            def create(self, **kwargs):
+                captured.append(kwargs["messages"][0]["content"])
+                message = type("Message", (), {"content": payload})()
+                return type("Response", (), {"choices": [type("Choice", (), {"message": message})()]})()
+
+        return type("Client", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+
+    def test_the_case_is_built_around_the_coachs_topic(self):
+        prompts = []
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent.topic = "a new manager who finds it hard to delegate"
+        with patch("coachee_agent._build_client", return_value=self._case_client(prompts)):
+            intro = agent.get_stage_prompt(api_key="server-key")
+
+        self.assertIn("<<a new manager who finds it hard to delegate>>", prompts[0])
+        self.assertIn("never as instructions", prompts[0])
+        self.assertNotIn("Do not default to generic career or management dilemmas", prompts[0])
+        self.assertEqual(intro, "I've just been promoted and I still do everything myself.")
+        restored = EricksonCoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
+        self.assertEqual(restored.topic, "a new manager who finds it hard to delegate")
+        saved_before_topics = {key: value for key, value in agent.to_dict().items() if key != "topic"}
+        self.assertEqual(EricksonCoacheeAgent.from_dict(saved_before_topics).topic, "")
+
+    def test_an_unreadable_case_on_a_chosen_topic_is_not_swapped_for_a_random_one(self):
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent.topic = "talking to my parents about moving abroad"
+        with patch("coachee_agent._build_client", return_value=self._case_client([], payload="not json at all")), \
+                self.assertRaises(Exception):
+            agent.get_stage_prompt(api_key="server-key")
+
+        random_case = EricksonCoacheeAgent(mode="llm", language="en")
+        with patch("coachee_agent._build_client", return_value=self._case_client([], payload="not json at all")), \
+                patch("coachee_agent.logger.warning"):
+            self.assertTrue(random_case.get_stage_prompt(api_key="server-key"))  # the built-in case, as before
+
+    def test_the_topic_band_shows_in_practice_until_the_first_question(self):
+        web_app, store, user, request = _signed_in()
+        practice = web_app._open_session(user, "coachee", "template", "en")
+        practice["agent"].mode = "llm"  # the band is for AI practice; templates can't follow a topic
+        self.assertTrue(web_app._topic_updates(practice)[0]["visible"])
+        self.assertEqual(web_app._topic_updates(practice)[3]["value"], "Use my topic")
+
+        practice["agent"].context.append({"role": "coach", "content": "What would you like from today?"})
+        self.assertFalse(web_app._topic_updates(practice)[0]["visible"])
+        coaching = web_app._open_session(user, "coach", "template", "en")
+        coaching["agent"].mode = "llm"
+        self.assertFalse(web_app._topic_updates(coaching)[0]["visible"])
+        self.assertFalse(web_app._topic_updates(web_app._open_session(user, "coachee", "template", "en"))[0]["visible"])
+
+        # Out of practice sessions for today: nothing to offer. The AI not answering: the band lets them try again.
+        used_up = web_app._unavailable_session(user, "coachee", "en", "No more today.")
+        self.assertFalse(web_app._topic_updates(used_up)[0]["visible"])
+        ai_down = web_app._unavailable_session(user, "coachee", "en", "AI down.", reason="ai")
+        self.assertTrue(web_app._topic_updates(ai_down)[0]["visible"])
+
+    def test_asking_a_question_hides_the_band_while_the_reply_streams(self):
+        web_app, _, user, _ = _signed_in()
+        practice = web_app._open_session(user, "coachee", "template", "en")
+        outputs = web_app._streaming_outputs([{"role": "user", "content": "Hi"}], practice)
+
+        self.assertEqual(len(outputs), web_app.RESPOND_OUTPUT_COUNT)
+        self.assertEqual(outputs[-1 - web_app.TOPIC_OUTPUT_COUNT], {"__type__": "update", "visible": False})
+        self.assertIs(outputs[-1], practice)
+
+    def test_use_my_topic_starts_a_new_practice_on_it(self):
+        web_app, store, user, request = _signed_in()
+        first = web_app._open_session(user, "coachee", "template", "en")
+        prompts = []
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+                patch("coachee_agent._build_client", return_value=self._case_client(prompts)):
+            outputs = web_app.start_with_topic("  a new manager who finds it hard to delegate ", "English", "AI", first, request)
+
+        session = outputs[-1]
+        self.assertEqual(len(outputs), web_app.NEW_SESSION_OUTPUT_COUNT)
+        self.assertEqual(session["module"], "coachee")
+        self.assertEqual(session["agent"].topic, "a new manager who finds it hard to delegate")
+        self.assertIn("<<a new manager who finds it hard to delegate>>", prompts[0])
+        self.assertEqual(outputs[0][-1]["content"], "I've just been promoted and I still do everything myself.")
+        self.assertEqual(store.get_session(first["id"])["status"], "abandoned")
+        self.assertEqual(json.loads(store.get_session(session["id"])["state"])["topic"], session["agent"].topic)
+
+    def test_an_empty_or_long_topic_changes_nothing(self):
+        import gradio as gr
+
+        web_app, store, user, request = _signed_in()
+        current = web_app._open_session(user, "coachee", "template", "en")
+        for topic, message in (("   ", "Describe the topic first."), ("x" * (web_app.MAX_TOPIC_CHARS + 1), "under 300 characters")):
+            with patch.object(web_app.gr, "Warning") as warning:
+                outputs = web_app.start_with_topic(topic, "English", "AI", current, request)
+            self.assertIn(message, warning.call_args.args[0])
+            self.assertEqual(len(outputs), web_app.NEW_SESSION_OUTPUT_COUNT)
+            self.assertTrue(all(output == gr.skip() for output in outputs))
+        self.assertEqual(store.get_session(current["id"])["status"], "active")
+
+    def test_a_crisis_topic_is_turned_away_with_a_reason(self):
+        # A practice client in crisis would teach coaching through it instead of referring the person on.
+        import safety
+
+        web_app, store, user, request = _signed_in()
+        for topic in ("a client who has been thinking about ending their life", "a manager who hurts himself when stressed",
+                      "来访者最近有自杀的念头", "a suicidal client"):
+            self.assertTrue(safety.crisis_topic(topic), topic)
+            with patch.object(web_app.gr, "Warning") as warning:
+                web_app.start_with_topic(topic, "English", "AI", None, request)
+            warning.assert_called_with(web_app.UI["en"]["topic_crisis"])
+        self.assertEqual(store.list_sessions(user["id"]), [])
+        for topic in ("a new manager who finds it hard to delegate", "想和父母谈搬去外地工作的事", "ending a long friendship"):
+            self.assertFalse(safety.crisis_topic(topic), topic)
+
+    def test_a_topic_the_ai_cant_set_up_says_so_and_the_band_stays(self):
+        web_app, store, user, request = _signed_in()
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+                patch("coachee_agent._build_client", return_value=self._case_client([], payload="not json")), \
+                patch.object(web_app.logger, "exception"):
+            outputs = web_app.start_with_topic("moving abroad", "中文", "AI", None, request)
+
+        session = outputs[-1]
+        self.assertEqual(session["unavailable"], web_app.UI["zh"]["topic_failed"])
+        self.assertTrue(web_app._topic_updates(session)[0]["visible"])
+        self.assertEqual(store.list_sessions(user["id"]), [])
+
+
 class TestIndependentBranding(unittest.TestCase):
     # Internal names users never see (code identifiers, settings, cookies, files) may keep the old prefix.
     INTERNAL = re.compile(r"Erickson(Coaching|Coachee)Agent|ERICKSON_\w+|erickson_(session|lang|coach)|\.erickson_secret|"

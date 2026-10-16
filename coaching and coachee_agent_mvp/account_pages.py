@@ -205,7 +205,7 @@ T = {
         ],
         "help_modes_title": "The two modes",
         "help_coach_mode": "The AI coaches you on something real in your life: a goal, a decision or a challenge. These sessions are private to you.",
-        "help_coachee_mode": "You practise being the coach. The AI plays a client with a realistic situation, and you ask the questions. At the end you get a score and feedback.",
+        "help_coachee_mode": "You practise being the coach. The AI plays a client with a realistic situation, and you ask the questions. At the end you get a score and feedback. Want a different topic? Before your first question, describe the client's situation and tap \"Use my topic\".",
         "help_session_title": "During a session",
         "help_session_items": [
             "A session moves through five stages: {stages}. The numbered dots near the top show where you are.",
@@ -419,7 +419,7 @@ T = {
         ],
         "help_modes_title": "两种模式",
         "help_coach_mode": "AI 针对你生活中的真实话题为你做教练：一个目标、一个决定或一个挑战。这些会话只有你自己能看到。",
-        "help_coachee_mode": "你来练习做教练。AI 扮演一位有真实处境的来访者，由你来提问。结束后你会得到评分和反馈。",
+        "help_coachee_mode": "你来练习做教练。AI 扮演一位有真实处境的来访者，由你来提问。结束后你会得到评分和反馈。想练别的话题？在提出第一个问题之前，写下来访者的情况，再点“用我的话题”。",
         "help_session_title": "会话过程中",
         "help_session_items": [
             "一次会话会经历五个阶段：{stages}。页面上方带数字的圆点显示你当前所在的阶段。",

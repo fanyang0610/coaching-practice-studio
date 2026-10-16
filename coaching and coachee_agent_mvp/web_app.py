@@ -98,13 +98,19 @@ def _launch_inbrowser(env: dict[str, str] | None = None) -> bool:
 default_mode = "llm"
 default_lang = "zh"
 default_module = "coach"
-RESPOND_OUTPUT_COUNT = 13
-NEXT_STAGE_OUTPUT_COUNT = 13
+RESPOND_OUTPUT_COUNT = 17
+NEXT_STAGE_OUTPUT_COUNT = 17
+# New Session, switching mode, and starting a practice on one's own topic all fill the same outputs.
+NEW_SESSION_OUTPUT_COUNT = 21
+# The practice topic band: card, prompt, topic box, button (see _topic_updates).
+TOPIC_OUTPUT_COUNT = 4
 
 # Every event that can call the model shares one pool of worker slots. Calls mostly wait on
 # the network, so 24 at once is comfortable for a 2-vCPU host and stays under Gradio's 40 threads.
 LLM_CONCURRENCY = 24
 MAX_MESSAGE_CHARS = 2000
+# A practice client's topic, in the coach's words: a sentence or two is plenty.
+MAX_TOPIC_CHARS = 300
 MAX_USER_TURNS_PER_SESSION = 40
 # A new AI Coach session asks about the last action card made in this window (not one from minutes ago).
 FOLLOW_UP_WITHIN = dt.timedelta(days=60)
@@ -372,6 +378,21 @@ def _rating_updates(session: dict):
     return gr.update(visible=True), gr.update(value=text), gr.update(visible=True)
 
 
+def _topic_updates(session: dict):
+    """The "practise your own topic" band (card, prompt, topic box, button). It shows in practice mode until the coach
+    asks their first question, so a coach who doesn't fancy the client the AI picked can describe their own."""
+    agent = session["agent"]
+    s = UI[agent.language]
+    show = (session["module"] == "coachee" and agent.mode == "llm" and _user_turns(agent) == 0
+            and not agent.is_session_ended() and session.get("unavailable_reason") != "allowance")
+    return (
+        gr.update(visible=show),
+        gr.update(value=f'<p class="topic-question">{s["topic_prompt"]}</p>'),
+        gr.update(placeholder=s["topic_placeholder"]),
+        gr.update(value=s["topic_start"]),
+    )
+
+
 def rate_session(choice: str, session, request: gr.Request = None):
     """One tap on the end-of-session question; tapping again changes the rating."""
     user = _current_user(request)
@@ -499,12 +520,13 @@ def _unavailable_notice(user: dict, module_code: str, lang_code: str) -> str | N
     return notice
 
 
-def _unavailable_session(user: dict, module_code: str, lang_code: str, notice: str) -> dict:
-    """What the page shows when no session can start: the notice in the chat, nothing to type into, nothing stored."""
+def _unavailable_session(user: dict, module_code: str, lang_code: str, notice: str, reason: str = "allowance") -> dict:
+    """What the page shows when no session can start: the notice in the chat, nothing to type into, nothing stored.
+    reason is "allowance" (today's sessions are used up) or "ai" (the AI couldn't answer)."""
     agent = _build_agent(module_code, "llm", lang_code)
     agent.context = [{"role": agent.assistant_role, "content": notice}]
     return {"module": module_code, "agent": agent, "user_id": user["id"], "unavailable": notice,
-            "allowance": quota.allowance(get_store(), user, module_code)}
+            "unavailable_reason": reason, "allowance": quota.allowance(get_store(), user, module_code)}
 
 
 def _request_language(request: gr.Request | None, fallback: str | None) -> str | None:
@@ -516,11 +538,14 @@ def _request_language(request: gr.Request | None, fallback: str | None) -> str |
     return account_pages.preferred_language(cookies, headers, fallback)
 
 
-def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str) -> dict:
+def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str, topic: str = "") -> dict:
+    """A new stored session. topic, in practice mode, is the coach's own description of the client's situation."""
     notice = _unavailable_notice(user, module_code, lang_code) if mode_code == "llm" else None
     if notice:
         return _unavailable_session(user, module_code, lang_code, notice)
     agent = _build_agent(module_code, mode_code, lang_code, _load_profile(user["id"], module_code))
+    if topic and module_code == "coachee":
+        agent.topic = topic
     if module_code == "coach" and mode_code == "llm":
         now = db.utcnow()
         agent.last_card = get_store().latest_card(user["id"], since=now - FOLLOW_UP_WITHIN, until=now - FOLLOW_UP_AFTER)
@@ -533,7 +558,8 @@ def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str) 
         # attempt doesn't count against today's allowance.
         logger.exception("Opening a session failed")
         get_store().delete_session(session_id)
-        return _unavailable_session(user, module_code, lang_code, UI[lang_code]["ai_unavailable"])
+        return _unavailable_session(user, module_code, lang_code, UI[lang_code]["topic_failed" if topic else "ai_unavailable"],
+                                    reason="ai")
     _save(session)
     return session
 
@@ -615,6 +641,7 @@ def _session_start_outputs(session: dict):
         # The hidden mode setting stays on the default; the daily allowance alone decides when a session uses templates.
         mode=gr.update(choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
         rating=_rating_updates(session),
+        topic=_topic_updates(session),
     )
 
 
@@ -643,7 +670,7 @@ def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, r
     return (
         out["chat"], out["tracker"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
         out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"],
-        _memory_title(agent.language), welcome, *out["rating"], session,
+        _memory_title(agent.language), welcome, *out["rating"], *out["topic"], session,
     )
 
 
@@ -688,6 +715,7 @@ def _respond_outputs(message_update, chat_history, agent, session, tts_update=No
         memory_updates[1],
         memory_updates[2],
         *_rating_updates(session),
+        *_topic_updates(session),
         session,
     )
 
@@ -697,8 +725,11 @@ def _next_stage_outputs(message_update, chat_history, agent, session, tts_update
 
 
 def _streaming_outputs(chat_history, session):
-    """Mid-reply update: only the transcript changes, so the other panels are left untouched."""
-    return (gr.update(value=""), chat_history) + (gr.update(),) * (RESPOND_OUTPUT_COUNT - 3) + (session,)
+    """Mid-reply update: the transcript changes and the practice topic band goes (a question has been asked); the other
+    panels are left untouched."""
+    untouched = (gr.update(),) * (RESPOND_OUTPUT_COUNT - 3 - TOPIC_OUTPUT_COUNT)
+    topic = (gr.update(visible=False),) + (gr.update(),) * (TOPIC_OUTPUT_COUNT - 1)
+    return (gr.update(value=""), chat_history) + untouched + topic + (session,)
 
 
 def _learn_from_session(session: dict, api_key: str):
@@ -965,11 +996,31 @@ def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Requ
     if session and session.get("user_id") == user["id"]:
         _leave_session(session)
     session = _open_session(user, _safe_module(module_sel), _safe_mode(mode_sel), lc)
+    return _new_session_outputs(session)
+
+
+def _new_session_outputs(session: dict):
     out = _session_start_outputs(session)
     return (
         out["chat"], out["tracker"], out["tts"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
-        out["msg"], *out["memory"], out["module"], out["mode"], *out["rating"], session,
+        out["msg"], *out["memory"], out["module"], out["mode"], *out["rating"], *out["topic"], session,
     )
+
+
+def start_with_topic(topic: str, lang_sel, mode_sel, session=None, request: gr.Request = None):
+    """A new practice client on the coach's own topic, instead of the one the AI picked."""
+    lc = _safe_lang(lang_sel)
+    user = _require_user(request, lc)
+    topic = (topic or "").strip()
+    problem = ("topic_empty" if not topic else "topic_too_long" if len(topic) > MAX_TOPIC_CHARS
+               else "topic_crisis" if safety.crisis_topic(topic) else None)
+    if problem:
+        gr.Warning(UI[lc][problem].format(limit=MAX_TOPIC_CHARS))
+        # gr.skip() leaves every output as it is, the stored session and the person's typing included.
+        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
+    if session and session.get("user_id") == user["id"]:
+        _leave_session(session)
+    return _new_session_outputs(_open_session(user, "coachee", _safe_mode(mode_sel), lc, topic=topic))
 
 
 def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = None):
@@ -1015,6 +1066,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
         _memory_title(lc),
         gr.update(value=session["module"]),
         *_rating_updates(session),
+        *_topic_updates(session),
         session,
     )
 
@@ -1138,6 +1190,13 @@ with gr.Blocks(
                 with gr.Row(elem_classes="rating-row", visible=False) as rating_row:
                     rating_buttons = [gr.Button(str(n), elem_classes="rating-btn", min_width=0) for n in range(1, 6)]
 
+            with gr.Column(elem_id="topic-card", visible=False, min_width=0) as topic_card:
+                topic_prompt = gr.HTML("", elem_classes="topic-prompt")
+                with gr.Row(elem_classes="topic-row"):
+                    topic_input = gr.Textbox(show_label=False, container=False, lines=1, max_lines=2, max_length=MAX_TOPIC_CHARS,
+                                             placeholder=UI["zh"]["topic_placeholder"], elem_id="topic-input", scale=1, min_width=0)
+                    topic_btn = gr.Button(UI["zh"]["topic_start"], elem_classes="topic-btn", scale=0, min_width=0)
+
             with gr.Column(elem_id="composer-shell"):
                 with gr.Row(elem_classes="composer-grid"):
                     with gr.Column(elem_id="input-panel", scale=1, min_width=0):
@@ -1168,11 +1227,12 @@ with gr.Blocks(
         welcome_html = gr.HTML("", elem_id="welcome-host", js_on_load=welcome_js)
 
     rating_outputs = [rating_card, rating_prompt, rating_row]
+    topic_outputs = [topic_card, topic_prompt, topic_input, topic_btn]
 
     demo.load(
         initial_load,
         [session_state, module_state, mode_radio, lang_radio],
-        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, *rating_outputs, session_state],
+        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, *rating_outputs, *topic_outputs, session_state],
         js=force_light_js,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js)
@@ -1180,28 +1240,28 @@ with gr.Blocks(
     send_btn.click(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, session_state],
+        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     msg.submit(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, session_state],
+        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     next_btn.click(
         next_stage,
         [chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, session_state],
+        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     reset_btn.click(
         reset_session,
         [lang_radio, module_state, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, session_state],
+        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
@@ -1231,6 +1291,7 @@ with gr.Blocks(
             memory_title_md,
             module_state,
             *rating_outputs,
+            *topic_outputs,
             session_state,
         ],
         **LLM_EVENT,
@@ -1239,14 +1300,24 @@ with gr.Blocks(
     coach_module_btn.click(
         select_module,
         [coach_module_value, lang_radio, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, session_state],
+        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     coachee_module_btn.click(
         select_module,
         [coachee_module_value, lang_radio, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, session_state],
+        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, *topic_outputs, session_state],
+        **LLM_EVENT,
+    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+
+    new_session_outputs = [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg,
+                           memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs,
+                           *topic_outputs, session_state]
+    topic_btn.click(
+        start_with_topic,
+        [topic_input, lang_radio, mode_radio, session_state],
+        new_session_outputs,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 

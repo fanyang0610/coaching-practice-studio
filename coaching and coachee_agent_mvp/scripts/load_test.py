@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import socketserver
@@ -39,6 +40,26 @@ class LocalHTTPServer(ThreadingHTTPServer):
         # The stock server_bind does a reverse-DNS lookup that can hang; loopback needs no name.
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
+
+
+def fake_case(body: dict) -> str | None:
+    """A practice case as JSON when the app asks for one, built around the coach's topic if there is one."""
+    system = (body.get("messages") or [{}])[0].get("content", "")
+    if "coachee case" not in system:
+        return None
+    topic = re.search(r"<<(.+?)>>", system, re.DOTALL)
+    chinese = "Simplified Chinese" in system
+    if topic:
+        intro = (f"我想聊聊这件事：{topic.group(1)}" if chinese else f"I'd like to talk about this: {topic.group(1)}")
+    else:
+        intro = "我最近总觉得工作和生活都很乱。" if chinese else "Lately everything at work feels a bit much."
+    line = ["这对我很重要。", "我还不确定。"] if chinese else ["It matters to me.", "I'm not sure yet."]
+    sections = {"contract": ("goal", "importance", "success"),
+                "experience": ("reality", "obstacle", "strength", "past_success", "scale"),
+                "action": ("possibility", "stretch", "support"),
+                "value": ("commitment", "timeline", "risk", "accountability"), "closing": ("reflection",)}
+    case = {"intro": intro, **{name: {key: line for key in keys} for name, keys in sections.items()}}
+    return json.dumps(case, ensure_ascii=False)
 
 
 def start_fake_llm(latency: float) -> ThreadingHTTPServer:
@@ -71,12 +92,13 @@ def start_fake_llm(latency: float) -> ThreadingHTTPServer:
                     self.wfile.write(f"data: {json.dumps(usage)}\n\n".encode())
                 self.wfile.write(b"data: [DONE]\n\n")
                 return
+            content = fake_case(body) or FAKE_REPLY
             payload = json.dumps({
                 "id": "fake",
                 "object": "chat.completion",
                 "created": 0,
                 "model": "fake",
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": FAKE_REPLY}, "finish_reason": "stop"}],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
             }).encode()
             self.send_response(200)

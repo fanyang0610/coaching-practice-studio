@@ -43,7 +43,7 @@ AI Coach sessions are private by default, because people bring their real lives 
 
 - **First visit.** A short welcome card explains the two modes ("Be coached" and "Practise coaching") and links to the Help page. It shows only while the person has no sessions yet. The app header always has Help and Account links.
 - **AI Coach.** The coach always sees the start of the conversation (where the goal is agreed) as well as the latest messages. At the end, the person gets an **action card**: goal, next step, by when, and support. It appears in the chat and is kept on the Account page. A new AI Coach session opens by asking how the last plan went, using a card that is 8 hours to 60 days old.
-- **AI Coachee Lab.** The score from each practice review is saved. The Account page shows the latest scores with an average, and the member's mentor sees the scores in their session list.
+- **AI Coachee Lab.** Until the coach asks their first question, a slim band above the message box offers "Want a different topic?": the coach describes the client's situation (up to 300 characters) and a new practice client is built around it. Topics asking for a client in crisis or self-harm are turned away with a reason, and the AI keeps every practice client within coaching. The score from each practice review is saved. The Account page shows the latest scores with an average, and the member's mentor sees the scores in their session list.
 - The admin sees neither action cards nor scores, in keeping with "the admin can't read conversations".
 - **Phone and laptop.** A session continues wherever the person signs in. If a tab left open elsewhere is out of date, its next message first shows the newer turns (the message stays in the box), so one device never overwrites the other.
 

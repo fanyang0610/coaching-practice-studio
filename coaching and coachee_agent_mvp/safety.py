@@ -55,3 +55,18 @@ CRISIS_REPLY = {
 
 def looks_like_crisis(text: str) -> bool:
     return bool(_CRISIS_RE.search(text or ""))
+
+
+# A practice topic describes someone else ("a client who…"), so it is also checked in the third person.
+_THIRD_PERSON_CRISIS_RE = re.compile("|".join([
+    r"\bend(ing|s)? (their|his|her) (own )?li(fe|ves)\b",
+    r"\btak(e|es|ing) (their|his|her) (own )?li(fe|ves)\b",
+    r"\b(kill|kills|killing|hurt|hurts|hurting|harm|harms|harming|cut|cuts|cutting) (themselves|himself|herself)\b",
+    r"\b(wants?|wanting) to die\b",
+]), re.IGNORECASE)
+
+
+def crisis_topic(text: str) -> bool:
+    """Whether a practice topic asks for a client in crisis. Coaching practice stays out of that: such a person needs a
+    trained professional, and a practice client in crisis would teach coaching through it instead of referring on."""
+    return looks_like_crisis(text) or bool(_THIRD_PERSON_CRISIS_RE.search(text or ""))

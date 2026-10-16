@@ -51,6 +51,13 @@ UI = {
         "session_changed_elsewhere": "This conversation was continued in another tab or on another device, so here is the latest version. Your message is still in the box: send it again if it still fits.",
         "session_moved": "This conversation changed in another tab or on another device. Please refresh the page to continue.",
         "reply_not_saved": "This conversation was also continued in another tab or on another device at the same time, so this last reply wasn't saved. Please refresh the page to see the latest version.",
+        "topic_prompt": "Want a different topic? Describe the client's situation, and the AI will play that client.",
+        "topic_placeholder": "e.g. a new manager who finds it hard to delegate",
+        "topic_start": "Use my topic",
+        "topic_empty": "Describe the topic first.",
+        "topic_too_long": "Please keep the topic under {limit} characters.",
+        "topic_failed": "The AI couldn't set up a client for that topic just now. Please try again in a moment.",
+        "topic_crisis": "Practice clients stay within coaching. Self-harm and crisis situations need a trained professional, so please choose another topic.",
         "rate_limited": "You're sending messages quickly. Please wait a moment before the next one.",
         "signed_out": "Your sign-in has expired. Please reload the page and sign in again.",
         "quota_sessions": "You've had today's sessions in this mode. You can start a new one in about {hours} h.",
@@ -134,6 +141,13 @@ UI = {
         "session_changed_elsewhere": "这段对话在另一个标签页或设备上有了新内容，这里已更新为最新版本。你的消息还在输入框里，如果仍然合适，可以再发送一次。",
         "session_moved": "这段对话在另一个标签页或设备上有了变化，请刷新页面后继续。",
         "reply_not_saved": "这段对话同时在另一个标签页或设备上继续了，所以刚才这条回复没有保存。请刷新页面查看最新内容。",
+        "topic_prompt": "想练别的话题？写下来访者的情况，AI 会改为扮演这位来访者。",
+        "topic_placeholder": "例如：刚当上经理，不太会把工作交给别人",
+        "topic_start": "用我的话题",
+        "topic_empty": "请先写下话题。",
+        "topic_too_long": "话题请控制在 {limit} 个字以内。",
+        "topic_failed": "AI 暂时没能按这个话题设定来访者，请稍后再试。",
+        "topic_crisis": "陪练来访者只涉及教练话题。自伤或危机情况需要专业人士处理，请换一个话题。",
         "rate_limited": "消息发送得有点快，请稍等片刻再发下一条。",
         "signed_out": "登录已过期，请刷新页面并重新登录。",
         "quota_sessions": "你今天在这个模式下的会话次数已用完，约 {hours} 小时后可以开始新的会话。",
@@ -2589,6 +2603,106 @@ div:has(> .tracker-shell) {
 #app-shell .rating-btn:hover {
     background: #eef5fb !important;
     border-color: #1979ba !important;
+}
+
+/* Practise your own topic: a slim band above the message box until the coach's first question */
+/* No display rule here either: Gradio hides the card with a class. */
+#app-shell #topic-card {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    align-self: stretch !important;
+    gap: 8px !important;
+    margin: 0 14px !important;
+    padding: 10px 14px !important;
+    background: #f8fbff !important;
+    border: 1px solid #d8e5f2 !important;
+    border-radius: 14px !important;
+    box-sizing: border-box !important;
+}
+
+#app-shell .topic-prompt,
+#app-shell .topic-prompt .html-container {
+    padding: 0 !important;
+    min-width: 0 !important;
+}
+
+#app-shell .topic-question {
+    margin: 0 !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+    color: #18364a !important;
+}
+
+#app-shell .topic-row {
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+}
+
+/* 16px text: anything smaller makes iPhones zoom the page when the box is tapped */
+#app-shell #topic-input textarea,
+#app-shell #topic-input input {
+    min-height: 44px !important;
+    padding: 10px 12px !important;
+    font-size: 16px !important;
+    line-height: 1.3 !important;
+    border: 1px solid #d8e5f2 !important;
+    border-radius: 12px !important;
+    background: #ffffff !important;
+}
+
+#app-shell .topic-btn {
+    flex: 0 0 auto !important;
+    min-height: 44px !important;
+    padding: 0 16px !important;
+    border-radius: 12px !important;
+    border: 1px solid #d8e5f2 !important;
+    background: #ffffff !important;
+    color: #155e95 !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    white-space: nowrap !important;
+}
+
+#app-shell .topic-btn:hover {
+    background: #eef5fb !important;
+    border-color: #1979ba !important;
+}
+
+/* Laptops: the question beside the box, so the band takes one row and the chat keeps its room */
+@media (min-width: 768px) {
+    #app-shell #topic-card {
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 8px 16px !important;
+    }
+
+    #app-shell .topic-prompt {
+        flex: 0 1 340px !important;
+    }
+
+    #app-shell .topic-row {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+    }
+}
+
+@media (max-width: 767px) {
+    #app-shell #topic-card {
+        margin: 0 8px !important;
+        padding: 8px 10px !important;
+        gap: 6px !important;
+    }
+
+    #app-shell .topic-question {
+        font-size: 13px !important;
+    }
+
+    #app-shell .topic-btn {
+        padding: 0 12px !important;
+        font-size: 14px !important;
+    }
 }
 
 @media (max-width: 767px) {
