@@ -211,7 +211,7 @@ Still open, in Fan's order:
   - Also found: an AI opening emptied by the language clean-up showed a blank bubble. `_get_llm_opening_response` (coach_agent) now tries once more, then raises, so the page shows `ai_unavailable`.
   - The local fake AI (`scripts/load_test.py`, used by `dev_server.py`) now answers in Chinese for Chinese requests and handles language-switch translations.
   - Option 3, server-side recorded voices (Kokoro), was offered and not chosen.
-- **Voice page simplified (2026-10-17, Fan: since nobody can change the voices, the long list only confuses).** Not yet deployed.
+- **Voice page simplified (2026-10-17, Fan: since nobody can change the voices, the long list only confuses).** **Deployed 2026-10-17 08:13 UTC with Fan's OK** (live files checked identical, startup log clean, live `/voices` checked in both languages at phone and laptop widths; the plain page has no voice list, `?details=1` does).
   - `/voices` is now "朗读声音 / Read-aloud voices".
   - It shows a plain how-it-works line and the voice used for each of the four settings, each with a Listen button. It also notes when there's no natural male voice, and that an online (Google) voice falls back to the device's own.
   - The iPhone/iPad line appears only on those devices (iPadOS is detected as a Mac with a touch screen).
