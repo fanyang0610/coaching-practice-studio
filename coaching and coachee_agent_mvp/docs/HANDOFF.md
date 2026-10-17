@@ -211,6 +211,11 @@ Still open, in Fan's order:
   - Also found: an AI opening emptied by the language clean-up showed a blank bubble. `_get_llm_opening_response` (coach_agent) now tries once more, then raises, so the page shows `ai_unavailable`.
   - The local fake AI (`scripts/load_test.py`, used by `dev_server.py`) now answers in Chinese for Chinese requests and handles language-switch translations.
   - Option 3, server-side recorded voices (Kokoro), was offered and not chosen.
+- **Voice page simplified (2026-10-17, Fan: since nobody can change the voices, the long list only confuses).** Not yet deployed.
+  - `/voices` is now "朗读声音 / Read-aloud voices".
+  - It shows a plain how-it-works line and the voice used for each of the four settings, each with a Listen button. It also notes when there's no natural male voice, and that an online (Google) voice falls back to the device's own.
+  - The iPhone/iPad line appears only on those devices (iPadOS is detected as a Mac with a touch screen).
+  - The full voice list, language codes and browser ID string show only with `/voices?details=1`, for troubleshooting a user's report.
 10. Mentor comments on sessions.
 
 **Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done. **Both batches below were deployed to the Space on 2026-10-15 at 15:55 UTC** (with Fan's OK): build installed exactly Gradio 6.30.0, startup log clean, `/ping`, `/healthz`, `/login`, `/help` and `/privacy` checked live in both languages at phone and laptop widths. Not yet checked live: a signed-in session (needs Fan's account) and the Admin page's AI service card.

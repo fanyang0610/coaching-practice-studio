@@ -3587,17 +3587,23 @@ class TestHelpPage(unittest.TestCase):
         self.assertIn("浏览器只允许网页使用苹果的基础声音", chinese)
         self.assertNotIn("download an Enhanced or Premium voice", english)
 
-    def test_voice_check_page_runs_the_apps_own_read_aloud_code(self):
-        # Built after Fan heard no change on an iPhone: it shows which voices a browser offers and which one the app uses.
+    def test_voice_page_runs_the_apps_own_read_aloud_code(self):
+        # Built after Fan heard no change on an iPhone: the voice the app uses for each setting, with a Listen button.
         import web_assets
 
         english = self.client.get("/voices?lang=en")
         chinese = self.client.get("/voices?lang=zh")
         self.assertEqual((english.status_code, chinese.status_code), (200, 200))
-        self.assertIn("Voice check", english.text)
-        self.assertIn("声音检查", chinese.text)
+        self.assertIn("Read-aloud voices", english.text)
+        self.assertIn("朗读声音", chinese.text)
+        self.assertIn("网页只能使用苹果的基础声音", chinese.text)
         self.assertIn(web_assets.tts_js.strip()[:60], english.text)
         self.assertIn('href="/voices"', self.client.get("/help?lang=zh").text)
+
+    def test_voice_page_lists_every_voice_only_when_asked(self):
+        # Fan: the full list of voices confused more than it helped, since nobody can change them. It stays for troubleshooting.
+        self.assertNotIn('id="voice-list"', self.client.get("/voices?lang=zh").text)
+        self.assertIn('id="voice-list"', self.client.get("/voices?lang=zh&details=1").text)
 
     def test_help_says_whom_to_contact_when_the_owner_sets_it(self):
         from fastapi.testclient import TestClient
