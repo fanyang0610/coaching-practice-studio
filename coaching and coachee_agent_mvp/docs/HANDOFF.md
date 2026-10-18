@@ -1,15 +1,15 @@
 # Handoff: Coaching Practice Studio / 教练练习室
 
-Last updated 2026-10-16. Read this file fully before changing anything. Then read `AGENTS.md`, `README.md` and `DESIGN.md` in this folder.
+Last updated 2026-10-18. Read this file fully before changing anything. Then read `AGENTS.md`, `README.md` and `DESIGN.md` in this folder.
 
 ## Prompt to start the next session
 
 Open the new session in this folder:
-`/Users/fanyang/Documents/My Documents/Vibe Coding/erickson-coach-scale/coaching and coachee_agent_mvp`
+`/Users/fanyang/Developer/coaching-practice-studio/coaching and coachee_agent_mvp`
 
 Then paste:
 
-> Continue work on Coaching Practice Studio (教练练习室). Read `docs/HANDOFF.md` first, then `AGENTS.md`, `README.md` and `DESIGN.md`. We are on branch `scale/phase-0-1` in the worktree folder `erickson-coach-scale`. The original version on `main` is my fallback; don't touch it. Before deploying I still want to make some changes to the app. I'll describe them next. Confirm you've read the handoff by summarising the current state in five lines, then wait for my first change.
+> Continue work on Coaching Practice Studio (教练练习室). Read `docs/HANDOFF.md` first, then `AGENTS.md`, `README.md` and `DESIGN.md`. We are on branch `scale/phase-0-1` in `/Users/fanyang/Developer/coaching-practice-studio`. The original version on `main` is my fallback; don't touch it. Before deploying I still want to make some changes to the app. I'll describe them next. Confirm you've read the handoff by summarising the current state in five lines, then wait for my first change.
 
 ---
 
@@ -27,9 +27,9 @@ Then paste:
 
 | What | Where |
 |---|---|
-| **Current work** | `Vibe Coding/erickson-coach-scale/coaching and coachee_agent_mvp/` on branch **`scale/phase-0-1`**. This is a git worktree of the repo rooted at `Vibe Coding/`. |
-| Original (fallback) | `Vibe Coding/coaching and coachee_agent_mvp/` on `main`. Don't modify. |
-| Stale copies | `Vibe Coding/coaching_agent_mvp/` and `Vibe Coding/coaching_agent_mvp branch/` (March, unused). A leftover worktree from a side session is at `coaching_agent_mvp branch/.claude/worktrees/hopeful-aryabhata-bef63a`; its fix is already merged and the folder can be removed. |
+| **Current work** | `/Users/fanyang/Developer/coaching-practice-studio/` (the repo root) on branch **`scale/phase-0-1`**; the app is in its `coaching and coachee_agent_mvp/` folder. One plain checkout, no worktrees. |
+| Original (fallback) | Branch `main` in the same repo. It has no folder of its own; look at it with `git show main:<path>` or a temporary `git worktree add`. Don't modify it. |
+| Move out of iCloud (2026-10-18) | Until then everything lived in `~/Documents/My Documents/Vibe Coding/`, which iCloud syncs (iCloud had evicted some git files and created a duplicate `refs 2` inside `.git`). The repo was copied to `~/Developer` with all branches and history, plus the local-only `.env`, `.erickson_secret` and `erickson.db`. The old repo, its worktree `erickson-coach-scale`, the old `main` checkout and the stale March copies (`coaching_agent_mvp`, `coaching_agent_mvp branch`) went to the Trash. The leftover branch `claude/hopeful-aryabhata-bef63a` was deleted (already merged). |
 | GitHub | `github.com/fanyang0610/coaching-practice-studio`. Renamed from `Erickson-Coach-MVP` and made **private** on 2026-10-15; no keys or secret files were ever in its history. `scale/phase-0-1` was pushed that day as a backup (with Fan's OK). `origin/main` is untouched, and local `main` is still 2 commits ahead of it (older work). Push only when Fan asks. |
 | Hugging Face Space | `fanyang0610/Coaching-Practice-Studio` (renamed from `Erickson-Coach-App` on 2026-10-15; public, free CPU), at `https://fanyang0610-coaching-practice-studio.hf.space`. `DEFAULT_SPACE_ID` in `scripts/deploy_hf_space.py` matches. **The new version was deployed on 2026-10-15** (branch `scale/phase-0-1`, Neon database, admin created from the Space secrets), replacing the old open version. The old `erickson-coach-app` address no longer works. Variables: `OPENAI_BASE_URL`, `OPENAI_MODEL=deepseek/deepseek-chat`, `ERICKSON_DATA_LOCATIONS`. The `hf` CLI on this Mac is logged in as `fanyang0610`. |
 | Local secrets | `.env` in the project folder (OpenRouter key, `OPENAI_MODEL=openrouter/free`). It is not committed. Never print its values. |

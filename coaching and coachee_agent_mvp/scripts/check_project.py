@@ -122,15 +122,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8787, help="Port for browser checks.")
     args = parser.parse_args(argv)
 
+    # The launcher first: the tests check its icon, and a fresh checkout has no launcher until it is built.
+    if args.launcher:
+        compile_launcher()
+
     run([sys.executable, "tests.py"])
     run([sys.executable, "-m", "py_compile", *PYTHON_FILES])
     run([sys.executable, "scripts/deploy_hf_space.py", "--dry-run"])
 
     if args.browser:
         run_browser_check(args.port)
-
-    if args.launcher:
-        compile_launcher()
 
     return 0
 
