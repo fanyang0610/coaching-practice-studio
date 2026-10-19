@@ -216,6 +216,12 @@ Still open, in Fan's order:
   - It shows a plain how-it-works line and the voice used for each of the four settings, each with a Listen button. It also notes when there's no natural male voice, and that an online (Google) voice falls back to the device's own.
   - The iPhone/iPad line appears only on those devices (iPadOS is detected as a Mac with a touch screen).
   - The full voice list, language codes and browser ID string show only with `/voices?details=1`, for troubleshooting a user's report.
+**Conversation message limit (2026-10-19, reported by Xiaofang, a mentor; not yet deployed).** Her careful practice reached stage 3 of 5 when it hit the old cap of 40 messages per conversation (a guess made on 2026-10-14, before anyone used the app). Her daily counter still read 20/20, since it counts finished practices only. Then she was stuck: the box locked, and Skip Ahead stopped at stage 4 (it wants a question there first), so 40 messages of practice got no review. Fan approved three fixes:
+  1. The limit is now 100 (`quota.MESSAGES_PER_CONVERSATION`). The daily token allowance already caps cost, and each reply only re-reads the start and the latest part of a conversation.
+  2. The last message ends the conversation properly (`_end_at_limit` in web_app; `end_at_limit` on both agents). A practice gets its review, which is told the practice stopped at the limit and scores the unreached stages 0; it now reads the whole practice (up to 210 messages), not just the first 10 and last 60. AI Coach gets a short goodbye (`LIMIT_GOODBYE`), then its action card.
+  3. With 5 or fewer left, each reply shows a countdown that names the limit and how far they are, as Fan asked: "每次对话最多可以发 100 条消息。你已经发了 95 条，还剩 5 条，可以开始收尾了。" Help explains the limit too.
+  - Her stuck practice (40 messages) unlocks once this is deployed, if it is still her open one, since 40 < 100.
+  - The local fake AI now also returns a review-shaped reply, so the score path can be checked locally.
 10. Mentor comments on sessions.
 
 **Pre-rollout review (2026-10-15).** Fan asked for a full review before inviting more people. Fifteen findings; Fan approved the first six, now done. **Both batches below were deployed to the Space on 2026-10-15 at 15:55 UTC** (with Fan's OK): build installed exactly Gradio 6.30.0, startup log clean, `/ping`, `/healthz`, `/login`, `/help` and `/privacy` checked live in both languages at phone and laptop widths. Not yet checked live: a signed-in session (needs Fan's account) and the Admin page's AI service card.

@@ -27,6 +27,11 @@ ROLE_DEFAULTS = {
     "admin": {"coach": None, "coachee": None, "tokens": None},
 }
 MESSAGES_PER_MINUTE = 10
+# A backstop against a runaway conversation, well above a full practice: Xiaofang's careful practice reached stage 3
+# of 5 after 40 messages (the old cap, a guess made before anyone used the app). The last few are counted down, and
+# the last one ends the conversation with its review or action card instead of locking it.
+MESSAGES_PER_CONVERSATION = 100
+MESSAGES_LEFT_WARNING = 5
 WINDOW = dt.timedelta(hours=24)
 
 

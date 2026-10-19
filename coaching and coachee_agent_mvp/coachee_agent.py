@@ -96,6 +96,8 @@ class EricksonCoacheeAgent:
         self.held_stage: CoachingState | None = None
         # This turn only: the coach is analysing or solving before any contracting, so the client stays guarded.
         self.rushed = False
+        # This request only: the practice ended because the coach used every message a conversation allows.
+        self.stopped_at_limit: int | None = None
 
     def set_mode(self, mode: str) -> bool:
         if mode in ("template", "llm"):
@@ -235,6 +237,15 @@ class EricksonCoacheeAgent:
         self.current_sub_phase = CoachingSubPhase.OPEN
         self.turns_in_current_stage = 0
         return True
+
+    def end_at_limit(self, limit: int, api_key: str | None = None) -> str:
+        """The coach used every message a conversation allows: the practice ends here with its review, which scores the
+        stages reached. (Xiaofang hit the old cap at stage 3 and had no way left to finish and get her review.)"""
+        self.stopped_at_limit = limit
+        self.session_complete = True
+        review = self._build_final_review(api_key)
+        self.context.append({"role": self.assistant_role, "content": review})
+        return review
 
     def generate_response(self, user_input: str, api_key: str | None = None) -> str:
         response = ""
@@ -736,7 +747,8 @@ class EricksonCoacheeAgent:
         client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         transcript = []
-        for msg in _conversation_window(self.context, head=10, tail=60):
+        # The whole practice, up to the longest a conversation can be, so the review sees every stage.
+        for msg in _conversation_window(self.context, head=10, tail=200):
             speaker = "Coach" if msg["role"] == self.user_role else "Coachee"
             transcript.append(f"{speaker}: {msg['content']}")
 
@@ -783,7 +795,12 @@ class EricksonCoacheeAgent:
             "Score with this rubric: each of the five stages is worth up to 20 points. A stage the coach skipped earns 0; "
             "one touched with a single question earns at most 6; full marks need real exploration that the coachee answered in depth. "
             "The total is the sum of the five stage scores. Give constructive feedback on anything incomplete. "
-            f"The coach spoke {self._coach_turns()} times in this session, so the total must not exceed {self._score_ceiling()}. "
+            + (f"This practice stopped because the coach used all {self.stopped_at_limit} messages a conversation allows, "
+               f"during the {('Contract', 'Reality', 'Possibilities', 'Commitment', 'Closing')[self.current_state.value - 1]} "
+               "stage. The stages after it were not reached, so they earn 0; say so plainly in the result, and don't count "
+               "reaching the limit itself as a fault. "
+               if self.stopped_at_limit else "")
+            +             f"The coach spoke {self._coach_turns()} times in this session, so the total must not exceed {self._score_ceiling()}. "
             "Be strict and consistent, because learners track these scores over time. "
             f"Respond only in {lang_instr}. {_language_output_rule(self.language)}\n"
             f"{struct}\n\n"

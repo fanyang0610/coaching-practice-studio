@@ -89,6 +89,12 @@ STRAIGHT_TO_QUESTION_NOTE = {
           "如果对方刚说了很痛苦的事，就先用几个字回应一下。]",
 }
 
+# When the client has used every message a conversation allows. The action card follows, as after any goodbye.
+LIMIT_GOODBYE = {
+    "en": "We've covered a lot in this conversation, so let's stop here for today. Thank you for the thought you've put in.",
+    "zh": "这次我们已经聊了很多，今天就先到这里吧。谢谢你认真的投入。",
+}
+
 
 class EricksonCoachingAgent:
     assistant_role = "coach"
@@ -188,6 +194,13 @@ class EricksonCoachingAgent:
             return
 
         yield from self._get_llm_response(api_key, decide_stage)
+
+    def end_at_limit(self, limit: int, api_key: str | None = None) -> str:
+        """The client used every message a conversation allows: a short goodbye ends the session."""
+        self.session_complete = True
+        goodbye = LIMIT_GOODBYE[self.language]
+        self.context.append({"role": self.assistant_role, "content": goodbye})
+        return goodbye
 
     def force_next_state(self) -> bool:
         """Skip Ahead: the next stage. From the closing stage it ends the session, and so does reaching closing in

@@ -112,7 +112,7 @@ LLM_CONCURRENCY = 24
 MAX_MESSAGE_CHARS = 2000
 # A practice client's topic, in the coach's words: a sentence or two is plenty.
 MAX_TOPIC_CHARS = 300
-MAX_USER_TURNS_PER_SESSION = 40
+MAX_USER_TURNS_PER_SESSION = quota.MESSAGES_PER_CONVERSATION
 # A new AI Coach session asks about the last action card made in this window (not one from minutes ago).
 FOLLOW_UP_WITHIN = dt.timedelta(days=60)
 FOLLOW_UP_AFTER = dt.timedelta(hours=8)
@@ -829,11 +829,6 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
         yield _respond_outputs(gr.update(value="", interactive=False), chat_history, agent, session)
         return
 
-    if _user_turns(agent) >= MAX_USER_TURNS_PER_SESSION:
-        gr.Warning(s["turn_limit"])
-        yield _respond_outputs(gr.update(value="", interactive=False), chat_history, agent, session)
-        return
-
     if not _message_limiter.allow(user["id"]):
         gr.Warning(s["rate_limited"])
         yield _respond_outputs(gr.update(), chat_history, agent, session)
@@ -845,6 +840,11 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
         yield _respond_outputs(gr.update(), chat_history, agent, session)
         return
     try:
+        if _user_turns(agent) >= MAX_USER_TURNS_PER_SESSION:
+            # Only a conversation saved before reaching the limit ended it lands here: it ends now, with its review or
+            # action card, rather than staying locked with no way to finish (Xiaofang's practice under the old cap).
+            yield from _end_at_limit(_chat_history_from_context(agent), session, _safe_key(), gr.update())
+            return
         yield from _stream_reply(user_msg, chat_history, agent, session)
     finally:
         lock.release()
@@ -901,6 +901,34 @@ def _stream_reply(user_msg, chat_history, agent, session):
     _save(session)
 
     tts_update = gr.update(value=_tts_payload(coach_response))
+    if not agent.is_session_ended():
+        left = MAX_USER_TURNS_PER_SESSION - _user_turns(agent)
+        if left <= 0:
+            yield from _end_at_limit(chat_history, session, api_key, tts_update)
+            return
+        if left <= quota.MESSAGES_LEFT_WARNING:
+            # Says how far they have come as well as what is left, so the end is never a surprise.
+            gr.Warning(UI[agent.language]["turns_left"].format(
+                limit=MAX_USER_TURNS_PER_SESSION, used=MAX_USER_TURNS_PER_SESSION - left, left=left))
+    yield from _close_turn(chat_history, session, api_key, tts_update)
+
+
+def _end_at_limit(chat_history, session, api_key, tts_update):
+    """The person used every message a conversation allows: it ends as if finished, with the practice review, or with a
+    goodbye and the action card in AI Coach, instead of staying locked with no way to finish."""
+    agent = session["agent"]
+    notice = "turn_limit_review" if session["module"] == "coachee" else "turn_limit"
+    gr.Info(UI[agent.language][notice].format(limit=MAX_USER_TURNS_PER_SESSION))
+    # The notice and the last reply first: a practice review takes a few seconds to write.
+    yield _respond_outputs(gr.update(value="", interactive=False), list(chat_history), agent, session, tts_update)
+    chat_history.append({"role": "assistant", "content": agent.end_at_limit(MAX_USER_TURNS_PER_SESSION, api_key)})
+    _save(session)
+    yield from _close_turn(chat_history, session, api_key, gr.update())
+
+
+def _close_turn(chat_history, session, api_key, tts_update):
+    """The end of a turn: a session that has just finished keeps its score or action card, then the page updates."""
+    agent = session["agent"]
     is_ended = agent.is_session_ended()
     if is_ended:
         msg = "会话已结束" if agent.language == "zh" else "Session Complete"

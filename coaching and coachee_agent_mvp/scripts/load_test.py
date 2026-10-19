@@ -75,6 +75,17 @@ def fake_translation(body: dict) -> str | None:
     return json.dumps({"translations": [line.replace("[[STAY]] ", "")] * len(texts)}, ensure_ascii=False)
 
 
+def fake_review(body: dict) -> str | None:
+    """A practice review in the shape the app reads its score from."""
+    system = (body.get("messages") or [{}])[0].get("content", "")
+    if "COACHING HISTORY TO EVALUATE" not in system:
+        return None
+    if "Simplified Chinese" in system:
+        return "会话结果：练习在消息上限处结束。\n分阶段得分：目标合同 12/20 · 现实探索 10/20 · 可能方案 0/20 · 行动承诺 0/20 · 结束回顾 0/20\n最后得分：22/100"
+    return ("Session Result: The practice ended at the message limit.\n"
+            "Stage scores: Contract 12/20 · Reality 10/20 · Possibilities 0/20 · Commitment 0/20 · Closing 0/20\nScore: 22/100")
+
+
 def start_fake_llm(latency: float) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -111,7 +122,7 @@ def start_fake_llm(latency: float) -> ThreadingHTTPServer:
             labelling = "You label one message" in system
             # Only streamed replies carry a stage marker; a one-off reply (the coach's opening) has none.
             reply = (FAKE_REPLY_ZH if "Simplified Chinese" in system else FAKE_REPLY).replace("[[STAY]] ", "")
-            content = "[[REALITY]]" if labelling else fake_case(body) or fake_translation(body) or reply
+            content = "[[REALITY]]" if labelling else fake_case(body) or fake_translation(body) or fake_review(body) or reply
             payload = json.dumps({
                 "id": "fake",
                 "object": "chat.completion",

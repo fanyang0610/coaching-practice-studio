@@ -218,7 +218,7 @@ T = {
             "Change the language or the reading voice under Settings.",
         ],
         "help_limits_title": "Daily allowance",
-        "help_limits": "Each day (a rolling 24 hours) you have {coach} AI Coach sessions and {coachee} AI Coachee Lab sessions with the AI. When one runs out, the app tells you roughly when you can start again, and the other mode may still have sessions left. Your Account page shows what is left.",
+        "help_limits": "Each day (a rolling 24 hours) you have {coach} AI Coach sessions and {coachee} AI Coachee Lab sessions with the AI. When one runs out, the app tells you roughly when you can start again, and the other mode may still have sessions left. Your Account page shows what is left. One conversation can have up to {messages} of your messages; when {warning} are left, the app counts them down, and the last one ends the conversation with its feedback.",
         "help_unlimited": "no limit",
         "help_faq_title": "Questions",
         "voices_link": "Read-aloud voices: hear the voice your device will use",
@@ -447,7 +447,7 @@ T = {
             "在“设置”里可以切换语言和朗读声音。",
         ],
         "help_limits_title": "每日额度",
-        "help_limits": "每天（滚动 24 小时）你可以与 AI 进行 AI教练 会话 {coach} 次、AI学员陪练 会话 {coachee} 次。某一项用完后，页面会告诉你大约多久之后可以再开始；另一项如果还有剩余，仍然可以使用。账户页面会显示剩余次数。",
+        "help_limits": "每天（滚动 24 小时）你可以与 AI 进行 AI教练 会话 {coach} 次、AI学员陪练 会话 {coachee} 次。某一项用完后，页面会告诉你大约多久之后可以再开始；另一项如果还有剩余，仍然可以使用。账户页面会显示剩余次数。每次对话最多可以发 {messages} 条消息；还剩 {warning} 条时，应用会提醒你还剩几条，发完最后一条后对话结束，并给出反馈。",
         "help_unlimited": "不限",
         "help_faq_title": "常见问题",
         "voices_link": "朗读声音：试听你的设备会用的声音",
@@ -1005,7 +1005,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 <div class="grid2"><div class="card"><h2>{_e(T[lang]['module_coach'])}</h2><p>{_e(T[lang]['help_coach_mode'])}</p></div>
 <div class="card"><h2>{_e(T[lang]['module_coachee'])}</h2><p>{_e(T[lang]['help_coachee_mode'])}</p></div></div>
 <div class="card"><h2>{_e(T[lang]['help_session_title'])}</h2><ul class="steps">{session_items}</ul></div>
-<div class="card"><h2>{_e(T[lang]['help_limits_title'])}</h2><p>{_e(text(lang, 'help_limits', coach=allowance(limits['coach']), coachee=allowance(limits['coachee'])))}</p></div>
+<div class="card"><h2>{_e(T[lang]['help_limits_title'])}</h2><p>{_e(text(lang, 'help_limits', coach=allowance(limits['coach']), coachee=allowance(limits['coachee']), messages=quota.MESSAGES_PER_CONVERSATION, warning=quota.MESSAGES_LEFT_WARNING))}</p></div>
 <div class="card"><h2>{_e(T[lang]['help_faq_title'])}</h2>{faq}<p class="hint"><a href="/voices">{_e(T[lang]['voices_link'])}</a></p></div>
 {'' if user else f'<p><a class="button full" href="/login">{_e(T[lang]["help_cta"])}</a></p>'}"""
         return render(request, lang, T[lang]["help"], body, user=user)

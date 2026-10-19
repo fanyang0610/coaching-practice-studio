@@ -1227,6 +1227,12 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(first.client.max_retries, coaching_core.LLM_MAX_RETRIES)
 
 
+def _conversation(agent, sent: int) -> list[dict]:
+    """A conversation in which the person has already sent this many messages, each answered."""
+    return [message for i in range(sent) for message in ({"role": agent.user_role, "content": f"Message {i}"},
+                                                           {"role": agent.assistant_role, "content": "Mm."})]
+
+
 def _signed_in(role="user", **fields):
     """A fresh in-memory store with one signed-in person; returns (web_app, store, user, gr.Request)."""
     import gradio as gr
@@ -1337,17 +1343,59 @@ class TestHostedAccessAndLimits(unittest.TestCase):
         self.assertIn(str(web_app.MAX_MESSAGE_CHARS), warning.call_args.args[0])
         self.assertEqual(len(session["agent"].context), 1)
 
-    def test_respond_stops_at_session_turn_limit(self):
+    def test_the_last_messages_of_a_conversation_are_counted_down(self):
+        # Fan: say what the limit is and how far they have come, not just that it is near.
         web_app, _, user, request = _signed_in()
         session = web_app._open_session(user, "coach", "template", "en")
         agent = session["agent"]
-        agent.context = [{"role": agent.user_role, "content": "hi"}] * web_app.MAX_USER_TURNS_PER_SESSION
+        agent.context = _conversation(agent, web_app.MAX_USER_TURNS_PER_SESSION - 7)
         with patch.object(web_app.gr, "Warning") as warning:
-            outputs = list(web_app.respond("one more", [], session, "coach", "Template", "English", request))
+            list(web_app.respond("One more thing.", [], session, "coach", "Template", "English", request))
+        self.assertFalse(warning.called)  # 6 left
 
-        self.assertEqual(warning.call_args.args[0], web_app.UI["en"]["turn_limit"])
+        with patch.object(web_app.gr, "Warning") as warning:
+            list(web_app.respond("And another.", [], session, "coach", "Template", "English", request))
+        self.assertEqual(warning.call_args.args[0], "Each conversation allows up to 100 messages. You've sent 95, so 5 "
+                                                    "left. Time to start wrapping up.")
+
+    def test_the_last_message_ends_a_practice_with_its_review(self):
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coachee", "template", "zh")
+        agent = session["agent"]
+        agent.context = _conversation(agent, web_app.MAX_USER_TURNS_PER_SESSION - 1)
+        with patch.object(web_app.gr, "Info") as info:
+            outputs = list(web_app.respond("你今天最想谈什么？", [], session, "coachee", "Template", "中文", request))
+
+        self.assertTrue(agent.is_session_ended())
+        self.assertIn("这次练习已经发满 100 条消息的上限，到此结束。下面是你的得分和反馈。", [c.args[0] for c in info.call_args_list])
+        self.assertIn("最后得分", agent.context[-1]["content"])
         self.assertFalse(outputs[-1][0]["interactive"])
-        self.assertEqual(len(agent.context), web_app.MAX_USER_TURNS_PER_SESSION)
+
+    def test_the_last_message_ends_ai_coach_with_a_goodbye(self):
+        import coach_agent
+
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coach", "template", "en")
+        agent = session["agent"]
+        agent.context = _conversation(agent, web_app.MAX_USER_TURNS_PER_SESSION - 1)
+        outputs = list(web_app.respond("That helps.", [], session, "coach", "Template", "English", request))
+
+        self.assertTrue(agent.is_session_ended())
+        self.assertEqual(agent.context[-1]["content"], coach_agent.LIMIT_GOODBYE["en"])
+        self.assertFalse(outputs[-1][0]["interactive"])
+
+    def test_a_conversation_already_at_the_limit_ends_with_its_review_instead_of_locking(self):
+        # Xiaofang's practice under the old 40-message cap: the box locked at stage 3, Skip Ahead stopped at stage 4 (it
+        # wants a question there first), and she had no way to finish and get her review.
+        web_app, _, user, request = _signed_in()
+        session = web_app._open_session(user, "coachee", "template", "zh")
+        agent = session["agent"]
+        agent.context = _conversation(agent, web_app.MAX_USER_TURNS_PER_SESSION)
+        list(web_app.respond("还有一个问题？", [], session, "coachee", "Template", "中文", request))
+
+        self.assertTrue(agent.is_session_ended())
+        self.assertEqual(web_app._user_turns(agent), web_app.MAX_USER_TURNS_PER_SESSION)
+        self.assertIn("最后得分", agent.context[-1]["content"])
 
     def test_respond_refuses_overlapping_sends_on_one_conversation(self):
         web_app, _, user, request = _signed_in()
@@ -2728,6 +2776,20 @@ class TestStructuredReplies(unittest.TestCase):
         self.assertIn("A stage the coach skipped earns 0", prompt)
         self.assertIn("The coach spoke 1 times in this session, so the total must not exceed 8.", prompt)
 
+    def test_a_practice_ended_at_the_limit_is_reviewed_whole_and_says_why_it_stopped(self):
+        calls = []
+        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent.current_state = CoachingState.ACTION
+        agent.context = _conversation(agent, 100)
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Score: 40/100"], calls)):
+            review = agent.end_at_limit(100, "server-key")
+
+        prompt = calls[0]["messages"][0]["content"]
+        self.assertIn("used all 100 messages a conversation allows, during the Possibilities stage", prompt)
+        self.assertIn("Coach: Message 50", prompt)  # the middle of a long practice is reviewed too
+        self.assertTrue(agent.session_complete)
+        self.assertEqual(agent.context[-1]["content"], review)
+
     def test_practice_scores_are_held_to_the_ceiling_for_short_sessions(self):
         agent = EricksonCoacheeAgent(mode="llm", language="zh")
         agent.context = [{"role": "coach", "content": f"问题 {i}"} for i in range(5)]
@@ -3578,6 +3640,11 @@ class TestHelpPage(unittest.TestCase):
         self.assertNotIn("内置问题", chinese)
         self.assertIn("tells you roughly when you can start again", english)
         self.assertIn("大约多久之后可以再开始", chinese)
+
+    def test_help_explains_the_message_limit_of_a_conversation(self):
+        self.assertIn("One conversation can have up to 100 of your messages; when 5 are left, the app counts them down",
+                      self.client.get("/help?lang=en").text)
+        self.assertIn("每次对话最多可以发 100 条消息；还剩 5 条时，应用会提醒你还剩几条", self.client.get("/help?lang=zh").text)
 
     def test_help_says_iphone_websites_get_only_basic_voices(self):
         # Fan downloaded "Lilian" on an iPhone; it never reached the browser's voice list, so Help no longer suggests it.
