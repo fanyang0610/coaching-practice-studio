@@ -9,6 +9,7 @@ import secrets
 import socket
 import threading
 import time
+import uuid
 import webbrowser
 import weakref
 
@@ -1035,12 +1036,40 @@ def _advance_stage(chat_history, session):
 
 
 def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Request = None):
+    if _safe_module(module_sel) != "coach" or _safe_mode(mode_sel) != "llm":
+        return select_module(module_sel, lang_sel, mode_sel, session, request)
+
     lc = _safe_lang(lang_sel)
     user = _require_user(request, lc)
-    if session and session.get("user_id") == user["id"]:
-        _leave_session(session)
-    session = _open_session(user, _safe_module(module_sel), _safe_mode(mode_sel), lc)
-    return _new_session_outputs(session)
+    notice = _unavailable_notice(user, "coach", lc)
+    if notice:
+        gr.Warning(notice)
+        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
+
+    previous = session if session and session.get("user_id") == user["id"] else {}
+    try:
+        api_key = _safe_key()
+        if not api_key:
+            raise ValueError("AI model key is not configured.")
+        agent = EricksonCoachingAgent(mode="llm", language=lc, user_profile=_load_profile(user["id"], "coach"),
+                                      fresh_start=True)
+        session_id = str(uuid.uuid4())
+        new_session = _attach({"module": "coach", "agent": agent, "id": session_id}, user)
+        opening = agent.get_stage_prompt(api_key=api_key)
+        agent.context.append({"role": agent.assistant_role, "content": opening})
+        version = get_store().insert_session(
+            session_id, user["id"], "coach", lc, agent.mode, agent.current_state.name, agent.to_dict(),
+            replaces=previous.get("id"),
+        )
+    except Exception:
+        logger.exception("Starting a fresh coaching session failed")
+        gr.Warning(UI[lc]["new_coach_failed"])
+        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
+    if version is None:
+        gr.Warning(UI[lc]["session_moved"])
+        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
+    new_session["version"] = version
+    return _new_session_outputs(new_session)
 
 
 def _new_session_outputs(session: dict):
@@ -1118,7 +1147,12 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
 
 
 def select_module(module_code: str, lang_sel: str, mode_sel: str, session=None, request: gr.Request = None):
-    return reset_session(lang_sel, module_code, mode_sel, session, request)
+    lc = _safe_lang(lang_sel)
+    user = _require_user(request, lc)
+    if session and session.get("user_id") == user["id"]:
+        _leave_session(session)
+    session = _open_session(user, _safe_module(module_code), _safe_mode(mode_sel), lc)
+    return _new_session_outputs(session)
 
 
 def record_feedback(session, feedback: gr.LikeData, request: gr.Request = None):

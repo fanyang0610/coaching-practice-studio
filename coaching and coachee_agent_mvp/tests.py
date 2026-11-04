@@ -1438,6 +1438,110 @@ class TestHostedAccessAndLimits(unittest.TestCase):
 
 
 class TestStoredSessions(unittest.TestCase):
+    def test_new_ai_coach_button_starts_fresh_and_keeps_that_boundary_after_refresh(self):
+        import datetime as dt
+
+        web_app, store, user, request = _signed_in()
+        original = web_app._open_session(user, "coach", "template", "en")
+        agent = original["agent"]
+        agent.context.append({"role": "client", "content": "OLD_TRANSCRIPT: a ceramics course."})
+        agent.session_complete = True
+        web_app._save(original)
+        card = {"goal": "OLD_CARD: learn pottery", "next_step": "Book the studio"}
+        store.save_session_result(original["id"], user["id"], "coach", card=card)
+        with store.engine.begin() as conn:
+            conn.execute(db.session_results.update().values(created_at=db.utcnow() - dt.timedelta(days=1)))
+        profile = UserProfile(coaching_style_insights="OLD_STYLE: workshop confidence",
+                              strengths=["OLD_STRENGTH: patience at the wheel"],
+                              growth_areas=["OLD_GROWTH: sharing my ceramics"], last_updated="yesterday")
+        store.save_profile(user["id"], "coach", profile.to_dict())
+        calls = []
+        fake = _fake_llm_client([
+            "What feels worth talking about today? What else?",
+            "Where would you like to begin?",
+            "Take your time. What would you like to talk through?",
+            "[[REALITY]] What has made commuting difficult?",
+            "[[REALITY]] What have you already tried?",
+            "[[OPTIONS]] What would help with the pottery course now?",
+        ], calls)
+
+        with (
+            patch.object(web_app, "_safe_key", return_value="server-key"),
+            patch("coach_agent._build_client", return_value=fake),
+        ):
+            session = original
+            for opening in ("What feels worth talking about today?", "Where would you like to begin?",
+                            "Take your time. What would you like to talk through?"):
+                outputs = web_app.reset_session("English", "coach", "AI", session, request)
+                session = outputs[-1]
+                self.assertEqual(outputs[0], [{"role": "assistant", "content": opening}])
+                self.assertEqual(store.latest_active_session(user["id"])["id"], session["id"])
+                self.assertEqual(session["agent"].current_state, CoachingState.CONTRACT)
+
+            first_turn = list(web_app.respond("I want to rethink my commute.", outputs[0], session,
+                                             "coach", "AI", "English", request))
+            session = first_turn[-1][-1]
+            reopened = web_app.initial_load(None, "coach", "AI", "English", request)
+            self.assertEqual(reopened[0], first_turn[-1][1])
+            self.assertEqual(reopened[-1]["id"], session["id"])
+            self.assertEqual(reopened[-1]["agent"].current_state, CoachingState.EXPERIENCE)
+            session = reopened[-1]
+            list(web_app.respond("The trains are crowded.", [], session, "coach", "AI", "English", request))
+            list(web_app.respond("Actually, I want to revisit my pottery course.", [], session, "coach", "AI", "English", request))
+
+        for call in calls[:3]:
+            self.assertIn("Invite them to choose whatever they would like to talk about", call["messages"][0]["content"])
+        self.assertEqual(len({call["messages"][0]["content"] for call in calls[:3]}), 3)
+        self.assertTrue(all("OLD_" not in json.dumps(call["messages"]) for call in calls))
+        self.assertIn("I want to rethink my commute.", json.dumps(calls[4]["messages"]))
+        self.assertIn("Actually, I want to revisit my pottery course.", json.dumps(calls[5]["messages"]))
+        self.assertEqual(store.get_session(original["id"])["status"], "completed")
+        self.assertEqual(store.session_results(user["id"], "coach")[0]["card"], card)
+        self.assertEqual(store.get_profile(user["id"], "coach"), profile.to_dict())
+        self.assertEqual(sum(row["status"] == "active" for row in store.list_sessions(user["id"])), 1)
+
+    def test_new_ai_coach_button_preserves_the_current_session_on_failure_and_retries(self):
+        import uuid
+
+        web_app, store, user, request = _signed_in()
+        fake = _fake_llm_client(["What would you like to discuss?", "[[REALITY]] What matters about that?",
+                                 "What would you like to talk through?", "Where would you like to begin?",
+                                 "What's on your mind today?"], [])
+        with (
+            patch.object(web_app, "_safe_key", return_value="server-key"),
+            patch("coach_agent._build_client", return_value=fake) as client,
+            patch.object(web_app.gr, "Warning") as warning,
+            patch.object(web_app.logger, "exception"),
+        ):
+            current = web_app._open_session(user, "coach", "llm", "en")
+            for failure in ("model", "save"):
+                before = store.get_session(current["id"])
+                if failure == "model":
+                    client.side_effect = RuntimeError("simulated outage")
+                    outputs = web_app.reset_session("English", "coach", "AI", current, request)
+                    client.side_effect = None
+                else:
+                    # Reuse the original ID to fail the actual insert and verify the old session's update rolls back.
+                    with patch("web_app.uuid.uuid4", return_value=uuid.UUID(current["id"])):
+                        outputs = web_app.reset_session("English", "coach", "AI", current, request)
+
+                self.assertEqual(outputs, (web_app.gr.skip(),) * web_app.NEW_SESSION_OUTPUT_COUNT)
+                self.assertEqual(store.get_session(current["id"]), before)
+                self.assertEqual(len(store.list_sessions(user["id"])), 1)
+                warning.assert_called_with(web_app.UI["en"]["new_coach_failed"])
+                if failure == "model":
+                    list(web_app.respond("Here is my unsent draft.", [], current, "coach", "AI", "English", request))
+                    self.assertEqual(store.get_session(current["id"])["user_turns"], 1)
+
+            new = web_app.reset_session("English", "coach", "AI", current, request)[-1]
+            stale = web_app.reset_session("English", "coach", "AI", current, request)
+            self.assertEqual(stale, (web_app.gr.skip(),) * web_app.NEW_SESSION_OUTPUT_COUNT)
+            warning.assert_called_with(web_app.UI["en"]["session_moved"])
+
+        self.assertEqual(store.get_session(current["id"])["status"], "abandoned")
+        self.assertEqual(store.latest_active_session(user["id"])["id"], new["id"])
+        self.assertEqual(new["agent"].context[0]["content"], "Where would you like to begin?")
+
     def test_reload_reopens_the_unfinished_session(self):
         web_app, _, user, request = _signed_in()
         first = web_app._open_session(user, "coachee", "template", "en")

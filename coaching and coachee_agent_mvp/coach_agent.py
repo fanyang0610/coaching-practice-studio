@@ -100,7 +100,7 @@ class EricksonCoachingAgent:
     assistant_role = "coach"
     user_role = "client"
 
-    def __init__(self, mode="template", language="en", user_profile=None):
+    def __init__(self, mode="template", language="en", user_profile=None, *, fresh_start=False):
         self.mode = mode
         self.language = language
         self.current_state = CoachingState.CONTRACT
@@ -109,6 +109,7 @@ class EricksonCoachingAgent:
         self.turns_in_current_stage = 0
         self._last_template: str | None = None
         self.user_profile = user_profile
+        self.fresh_start = fresh_start
         # Called with (model, prompt_tokens, completion_tokens) after each model call; set by the web app.
         self.on_usage = None
         self.opening_variation_seed = uuid.uuid4().hex[:8]
@@ -145,13 +146,15 @@ class EricksonCoachingAgent:
             "turns": self.turns_in_current_stage,
             "last_template": self._last_template,
             "seed": self.opening_variation_seed,
+            "fresh_start": self.fresh_start,
             "session_complete": self.session_complete,
             "skipped": sorted(self.skipped_stages),
         }
 
     @classmethod
     def from_dict(cls, data: dict, user_profile=None) -> "EricksonCoachingAgent":
-        agent = cls(mode=data["mode"], language=data["language"], user_profile=user_profile)
+        agent = cls(mode=data["mode"], language=data["language"], user_profile=user_profile,
+                    fresh_start=data.get("fresh_start", False))
         agent.current_state = CoachingState[data["state"]]
         agent.current_sub_phase = CoachingSubPhase[data["sub_phase"]]
         agent.context = list(data["context"])
@@ -444,6 +447,15 @@ Never mention the marker in the reply itself."""
         client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         stage_desc = STAGE_DESCRIPTIONS[self.current_state]
+        opening_lens = (
+            "The client chose to start a new conversation. Invite them to choose whatever they would like to talk about "
+            "today. Leave the topic entirely open. Do not suggest a topic or ask how a previous conversation or plan "
+            "went. Keep the opening brief. A greeting is optional."
+            if self.fresh_start else
+            "Choose a fresh entry point among clarity, desired outcome, useful focus, what matters most today, or "
+            "what would make this time worthwhile. This is the start of the session: ask what they want from it, "
+            "not yet about actions or steps."
+        )
         system_prompt = f"""You are a professional solution-focused coach guiding a five-stage coaching conversation (contract, reality, possibilities, commitment, closing).
 Current stage: **{self.current_state.name}** ({stage_desc})
 Sub-phase: OPEN
@@ -457,9 +469,10 @@ Generate the first coaching prompt for this stage.
 	5. Respond only in {lang_instr}. {_language_output_rule(self.language)}
 
 Session variation seed: {self.opening_variation_seed}
-Variation lens: choose a fresh entry point among clarity, desired outcome, useful focus, what matters most today, or what would make this time worthwhile. This is the start of the session: ask what they want from it, not yet about actions or steps."""
-        if self.last_card:
-            notes = "; ".join(f"{key.replace('_', ' ')}: {value}" for key, value in self.last_card.items() if value)
+Variation lens: {opening_lens}"""
+        follow_up = self.last_card if not self.fresh_start else None
+        if follow_up:
+            notes = "; ".join(f"{key.replace('_', ' ')}: {value}" for key, value in follow_up.items() if value)
             system_prompt += f"""
 
 FOLLOW-UP: in their previous session the client made this plan ({notes}).
@@ -471,12 +484,12 @@ Instead of a fresh entry point, warmly ask how it went with that next step. Ask 
             resp = client.chat.completions.create(
                 model=_chat_model(),
                 messages=[{"role": "system", "content": system_prompt}],
-                max_tokens=160 if self.last_card else 120,
+                max_tokens=160 if follow_up else 120,
                 temperature=0.7,
             )
             opening = _clean_response_language(_response_text(resp), self.language)
             if opening:
-                return opening
+                return _end_at_question(opening)[0] if self.fresh_start else opening
         raise ValueError("Model returned no text content.")
 
     def _get_llm_response(self, api_key: str, decide_stage: bool = False):
@@ -485,7 +498,12 @@ Instead of a fresh entry point, warmly ask how it went with that next step. Ask 
             client = _build_client(api_key, on_usage=self.on_usage)
             lang_instr = "respond in English" if self.language == "en" else "respond in Simplified Chinese (简体中文)"
             persona_extension = ""
-            if self.user_profile:
+            if self.fresh_start:
+                persona_extension = (
+                    "\n\nFollow the topic the client brings to this conversation. If they bring up a past event or plan, "
+                    "use only the details shared in this conversation."
+                )
+            elif self.user_profile:
                 p = self.user_profile
                 persona_extension = (
                     f"\n\nUSER INSIGHTS (Customize your style based on these):\n"

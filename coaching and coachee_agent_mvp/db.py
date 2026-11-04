@@ -314,14 +314,28 @@ class Store:
 
     def create_session(self, user_id: int, module: str, language: str, mode: str, stage: str, state: dict) -> str:
         session_id = str(uuid.uuid4())
-        now = utcnow()
+        self.insert_session(session_id, user_id, module, language, mode, stage, state)
+        return session_id
+
+    def insert_session(self, session_id: str, user_id: int, module: str, language: str, mode: str,
+                       stage: str, state: dict, *, replaces: str | None = None) -> dt.datetime | None:
+        """Save a new session and, when replacing one, set the previous unfinished session aside atomically."""
+        version = _version_stamp()
+        c = coaching_sessions.c
         with self.engine.begin() as conn:
+            if replaces:
+                previous = (c.id == replaces, c.user_id == user_id)
+                updated = conn.execute(coaching_sessions.update().where(*previous, c.status == "active")
+                                       .values(status="abandoned", updated_at=version))
+                if not updated.rowcount and conn.scalar(sa.select(c.status).where(*previous)) == "abandoned":
+                    # Another tab already moved on from this session while the new opening was being generated.
+                    return None
             conn.execute(coaching_sessions.insert().values(
                 id=session_id, user_id=user_id, module=module, language=language, mode=mode, status="active",
                 stage=stage, shared_with_trainer=False, user_turns=0, state=json.dumps(state, ensure_ascii=False),
-                created_at=now, updated_at=now,
+                created_at=version.replace(microsecond=0), updated_at=version,
             ))
-        return session_id
+        return version
 
     def save_session(self, session_id: str, *, state: dict, status: str, stage: str, user_turns: int,
                      language: str, mode: str, expected_version: dt.datetime | None = None) -> dt.datetime | None:
