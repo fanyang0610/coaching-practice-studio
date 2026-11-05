@@ -60,10 +60,39 @@ GitHub Release 记录仓库源码。线上体验版对应 [Hugging Face 的部�
 
 ## 仅留有 Space 记录的早期改动
 
-这些改动发生于 MVP 早期，尚未找到运行文件一致的 GitHub 提交。按原 Space 提交保留，单次上传、改名或删除记录只说明仓库发生过变化。
+这批记录最早可追溯到 2026-03-07 的 Space 创建。尚未找到运行文件一致的 GitHub 提交。按原 Space 提交保留，单次上传、改名或删除记录只说明仓库发生过变化。
 
 | Space 时间 | Space 提交 | 记录 |
 | --- | --- | --- |
+| 2026-03-07 11:08 | [`bd247f2`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/bd247f2060dfc0bff07956606fe7bb78848fdbb9) | 创建 Space 仓库 |
+| 2026-03-07 11:14 | [`49519a9`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/49519a95c6d7f48761797914ead0068abc5dba57) | 上传 3 个文件，涉及 `agent.py`、`requirements.txt`、`web_app.py` |
+| 2026-03-07 11:16 | [`67dcda2`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/67dcda2e0757da0d7c95544a4e5131094e10aea8) | 上传网页入口 |
+| 2026-03-07 14:33 | [`4da32b9`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4da32b96819ee9196ca59b367f28b61bd8571a87) | 移除当时的网页实现文件 |
+| 2026-03-07 14:49 | [`5227ee6`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/5227ee60510cdbe1d54282c191cadfc9bd3f961f) | 上传 2 个文件，涉及 `app.py` |
+| 2026-03-07 14:49 | [`9a1f9fd`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/9a1f9fdbcdb11914d50a4208ea46f7ecd4033e86) | 上传教练角色实现 |
+| 2026-03-07 15:04 | [`2e9d6dc`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/2e9d6dc24f4bca03a92b1b229a9a376b2d39e790) | 上传网页入口 |
+| 2026-03-07 15:11 | [`a260843`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/a260843f9b407274d32673e5b28d63fb495a2a3d) | 上传网页入口 |
+| 2026-03-07 15:17 | [`2951fd7`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/2951fd7d02419619e976cdb02732a666554fcccc) | 上传网页入口 |
+| 2026-03-07 17:50 | [`bba62eb`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/bba62eb1e510a5e2d8b19939cdc2b13d9305bca0) | 上传网页入口 |
+| 2026-03-07 17:55 | [`ab55115`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/ab55115e442f8602470054cd51e68493b5029981) | 上传网页入口 |
+| 2026-03-07 19:06 | [`6f97203`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/6f972039a09a110e224448e8ccd9368f4addfae0) | 上传网页入口 |
+| 2026-03-07 21:06 | [`e95d2b4`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/e95d2b4118aab2ae5de5b65d7eb174e3c01b7b54) | 上传网页入口 |
+| 2026-03-07 21:44 | [`12ff8f2`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/12ff8f2da3f01af9d070a197970aef4bfc3ddd47) | 上传网页入口 |
+| 2026-03-08 11:08 | [`7d348f3`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/7d348f34cf46bb82b34eb041896483743e3f958a) | 上传 3 个文件，涉及 `app.py`、`agent.py` |
+| 2026-03-08 11:50 | [`e07c69d`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/e07c69d4d4365cf1bd6455051d280a56b86db6d9) | 上传网页入口 |
+| 2026-03-08 12:06 | [`368a51e`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/368a51e493fc5e3c6e7a29b22b8ba8758d50ac62) | 上传网页入口 |
+| 2026-03-08 12:36 | [`0f08964`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/0f089648801d45a7bc4e2cb6adc31108161c4ecb) | 上传网页入口 |
+| 2026-03-08 12:45 | [`78c35ff`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/78c35fff817814ddc2df0af7f38c2773eff02f7c) | 上传网页入口 |
+| 2026-03-08 13:08 | [`edde368`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/edde368e889fab1626a57bed142d3be1d3197cd7) | 上传网页入口 |
+| 2026-03-09 21:42 | [`d6164a0`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/d6164a0ce8ff5134d7abd84f357ab9dfdb340fb2) | 上传 2 个文件，涉及 `app.py`、`agent.py` |
+| 2026-03-09 21:49 | [`7a29b66`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/7a29b6614468c9d1f569ee714b7d998c4037498c) | 上传 4 个文件，涉及 `agent.py`、`coachee_agent.py` |
+| 2026-03-09 22:25 | [`5d97c16`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/5d97c161150fed2d28afd49f949e0273175ac447) | 上传 2 个文件，涉及 `app.py`、`coachee_agent.py` |
+| 2026-03-09 22:36 | [`7a6adc9`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/7a6adc9f368c1cc407ea06eab4ea8adbf9cac8fb) | 上传 2 个文件，涉及 `app.py`、`coachee_agent.py` |
+| 2026-03-09 22:43 | [`ed94ec8`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/ed94ec8f8831a910a7989c958f5dcf055ca57fda) | 上传网页入口 |
+| 2026-03-09 22:50 | [`ebcbd4e`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/ebcbd4efc10d1478c0ca26a65a6909ce0106abea) | 上传网页入口 |
+| 2026-03-09 23:19 | [`3df98bc`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/3df98bc54e396a4342ccb46dcdc2ef132d84c022) | 上传 2 个文件，涉及 `coachee_agent.py` |
+| 2026-03-11 19:28 | [`635400f`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/635400f881e95edddda28cf6a0d988ef797bd717) | 上传 2 个文件，涉及 `agent.py`、`coachee_agent.py` |
+| 2026-03-11 20:01 | [`26aca8c`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/26aca8cd7ed7b8616957d9dc006ef949e080dd5a) | 上传 5 个文件，涉及 `app.py`、`agent.py`、`requirements.txt`、`coachee_agent.py`、`memory.py` |
 | 2026-05-02 23:53 | [`ddf9240`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/ddf9240bcc771f2a0bc5be98da9977f071ffd575) | 移除旧的角色实现文件 |
 | 2026-05-02 23:53 | [`a2abd07`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/a2abd07e502a61c8c47adc419cb402fa57ea7fb3) | 移除当时的 Git 文件属性配置 |
 | 2026-05-02 23:54 | [`51710f2`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/51710f2116cd8bd9326f62199e8c3ce941f22d71) | 移除当时的网页入口 |
