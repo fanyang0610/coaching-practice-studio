@@ -6,14 +6,19 @@
 
 | 版本 | 日期 | 对应提交或分支 | 主要变化 |
 | --- | --- | --- | --- |
-| [v1.0.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.0) | 2026-05-10 | `85063f1`，原默认分支 | 旧版 MVP。 |
+| [v1.0.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.0) | 2026-05-10 | `996c9e3`，首个 MVP 里程碑 | 首个完整 MVP 源码归档，核心运行文件与 5 月 7 日的线上版本一致。 |
+| [v1.0.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.1) | 2026-05-10 | `85063f1`，原默认分支 | 添加仓库根 README。 |
+| [v1.0.2](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.2) | 2026-05-13 | `842e6f4` | 改进隔离浏览器检查与布局测试。 |
+| [v1.0.3](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.3) | 2026-05-23 | `34461bf` | 增加 Hugging Face 上传判断工具与检查。 |
 | [v2.0.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.0.0) | 2026-10-14 | `68b1f12`，首次改名提交 | 改名为教练练习室，更新图标与界面，纳入账号与导师功能。 |
 | [v2.1.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.1.0) | 2026-10-19 | `30c5b33`，`scale/phase-0-1` | 自选练习议题、手机布局、朗读和会话收尾。 |
 | [v2.2.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.2.0) | 2026-11-04 | `53051b5`，`codex/coach-fresh-session` | AI 教练显式新开会话。 |
 | [v2.3.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.0) | 2026-11-05 | `b8957a9`，`codex/resume-and-review-retry` | 两个模式各自恢复会话，失败点评可重试。 |
 | [v2.3.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.1) | 2026-11-05 | `b3d749c`，`main` | 重写仓库说明、清理命名并收紧发布文件。 |
 
-后续版本见 [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases)。原 `legacy-mvp` 标签与 `v1.0.0` 指向同一个提交。
+`v1.0.0` 取自首个明确标注为 MVP 里程碑的 GitHub 提交。该提交与 5 月 7 日 Space 部署的十个核心运行文件一致。随后补根 README 的提交是 `v1.0.1`，所以源码归档日期与较早的线上部署日期分别记录。
+
+后续版本见 [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases)。原 `legacy-mvp` 标签与 `v1.0.1` 指向同一个提交。
 
 ## 以后怎么发版
 
@@ -35,8 +40,8 @@ GitHub Release 记录仓库源码。线上体验版对应 [Hugging Face 的部�
 
 | Space 时间 | Space 提交 | GitHub 提交 | 变化 |
 | --- | --- | --- | --- |
-| 2026-05-07 09:25 | [`b8c3463`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/b8c34633ad94c07a8af5448668b36e6ff655b9b8) | [`85063f1`](https://github.com/fanyang0610/coaching-practice-studio/commit/85063f121dfef8c3471f3752f12cd56b3d43f1bc) · v1.0.0 | MVP 网页入口部署 |
-| 2026-10-15 01:16 | [`a9e75eb`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/a9e75eb393eb3e6c893a6c036dfc5935a66b096c) | [`85063f1`](https://github.com/fanyang0610/coaching-practice-studio/commit/85063f121dfef8c3471f3752f12cd56b3d43f1bc) · v1.0.0 | 旧站移除旧品牌文件和内部说明，核心运行文件仍对应 MVP |
+| 2026-05-07 09:25 | [`b8c3463`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/b8c34633ad94c07a8af5448668b36e6ff655b9b8) | [`996c9e3`](https://github.com/fanyang0610/coaching-practice-studio/commit/996c9e3e1fe77b5e3b8b2b7eae059cd42902125d) · v1.0.0 | MVP 网页入口部署 |
+| 2026-10-15 01:16 | [`a9e75eb`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/a9e75eb393eb3e6c893a6c036dfc5935a66b096c) | [`996c9e3`](https://github.com/fanyang0610/coaching-practice-studio/commit/996c9e3e1fe77b5e3b8b2b7eae059cd42902125d) · v1.0.0 | 旧站移除旧品牌文件和内部说明，核心运行文件仍对应 MVP |
 | 2026-10-15 01:16 | [`1e91c36`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/1e91c363c7895497d29ff354a45aabe1bb40a21c) | [`624ff32`](https://github.com/fanyang0610/coaching-practice-studio/commit/624ff32a33039b7ae6b1cc5ff9cf5626a2971c47) | 首个可配对的 Studio 上线记录，包含邀请登录与手机布局 |
 | 2026-10-15 01:20 | [`6b0cfc7`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/6b0cfc7d83ca9827c304dcec4922f8a00fc5f3ec) | [`2bb3c9f`](https://github.com/fanyang0610/coaching-practice-studio/commit/2bb3c9f382d7f24867f0b5ba9dd93476b4051d0f) | 账号页面直接提供服务，修正部署入口 |
 | 2026-10-15 01:38 | [`a8f8488`](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/a8f84881c0b7d71df36bf7e98c8ca830fb347cd0) | [`69b095d`](https://github.com/fanyang0610/coaching-practice-studio/commit/69b095d439ddd4b31dd0576c148f888e51ead6f1) | 调整手机输入区、页头与语言切换 |
