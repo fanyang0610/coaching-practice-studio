@@ -4,7 +4,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import re
 import secrets
 import socket
 import threading
@@ -27,7 +26,7 @@ import account_pages
 from coach_agent import ACTION_CARD_FIELDS, EricksonCoachingAgent
 import coaching_core
 from coaching_core import CoachingState
-from coachee_agent import EricksonCoacheeAgent
+from coachee_agent import EricksonCoacheeAgent, review_score
 import db
 import mailer
 from memory import UserProfile, merge_analysis
@@ -103,7 +102,7 @@ default_module = "coach"
 RESPOND_OUTPUT_COUNT = 17
 NEXT_STAGE_OUTPUT_COUNT = 17
 # New Session, switching mode, and starting a practice on one's own topic all fill the same outputs.
-NEW_SESSION_OUTPUT_COUNT = 21
+NEW_SESSION_OUTPUT_COUNT = 30
 # The practice topic band: card, prompt, topic box, button (see _topic_updates).
 TOPIC_OUTPUT_COUNT = 4
 
@@ -460,11 +459,14 @@ def _attach(session: dict, user: dict) -> dict:
     return session
 
 
-def _save(session: dict) -> None:
+def _save(session: dict) -> bool:
     """Store the conversation, unless another tab or device saved it after this page last did: newer turns win."""
     if not session.get("id"):
-        return
+        return False
     agent = session["agent"]
+    score = None
+    if session["module"] == "coachee" and agent.is_session_ended() and agent.context and not agent.review_failed:
+        score = review_score(agent.context[-1]["content"])
     version = get_store().save_session(
         session["id"],
         state=agent.to_dict(),
@@ -474,14 +476,16 @@ def _save(session: dict) -> None:
         language=agent.language,
         mode=agent.mode,
         expected_version=session.get("version"),
+        practice_score=score,
     )
     if version is None:
         # Both pages replied at the same moment. The other one saved first; this page reloads it on its next action.
         logger.warning("Session %s changed elsewhere; this page's last turn was not saved", session["id"])
         session["version"] = _STALE
         gr.Warning(UI[agent.language]["reply_not_saved"])
-        return
+        return False
     session["version"] = version
+    return True
 
 
 # A version no stored session has, so the next action reloads the conversation (see _save).
@@ -542,79 +546,87 @@ def _request_language(request: gr.Request | None, fallback: str | None) -> str |
     return account_pages.preferred_language(cookies, headers, fallback)
 
 
-def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str, topic: str = "") -> dict:
-    """A new stored session. topic, in practice mode, is the coach's own description of the client's situation."""
+def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str, topic: str = "", *,
+                  explicit: bool = False, expected: tuple[str, dt.datetime] | None = None) -> dict:
+    """Generate the opening before replacing the mode's previous session."""
     notice = _unavailable_notice(user, module_code, lang_code) if mode_code == "llm" else None
     if notice:
         return _unavailable_session(user, module_code, lang_code, notice)
-    agent = _build_agent(module_code, mode_code, lang_code, _load_profile(user["id"], module_code))
-    if topic and module_code == "coachee":
-        agent.topic = topic
-    if module_code == "coach" and mode_code == "llm":
-        now = db.utcnow()
-        agent.last_card = get_store().latest_card(user["id"], since=now - FOLLOW_UP_WITHIN, until=now - FOLLOW_UP_AFTER)
-    session_id = get_store().create_session(user["id"], module_code, lang_code, mode_code, agent.current_state.name, agent.to_dict())
-    session = _attach({"module": module_code, "agent": agent, "id": session_id}, user)
+    store = get_store()
+    fresh_coach = explicit and module_code == "coach" and mode_code == "llm"
     try:
+        agent = _build_agent(module_code, mode_code, lang_code, _load_profile(user["id"], module_code))
+        if module_code == "coachee":
+            agent.topic = topic
+        if fresh_coach:
+            agent.fresh_start = True
+        elif module_code == "coach" and mode_code == "llm":
+            now = db.utcnow()
+            agent.last_card = store.latest_card(user["id"], since=now - FOLLOW_UP_WITHIN, until=now - FOLLOW_UP_AFTER)
+        if explicit and mode_code == "llm" and not _safe_key():
+            raise ValueError("AI model key is not configured.")
+        session_id = str(uuid.uuid4())
+        session = _attach({"module": module_code, "agent": agent, "id": session_id}, user)
         _append_opening_prompt(agent)
+        version = store.insert_session(session_id, user["id"], module_code, lang_code, mode_code,
+                                       agent.current_state.name, agent.to_dict(), replace_current=True, expected=expected)
     except Exception:
-        # E.g. the AI account is out of credit. No canned opening: say so plainly, and since nothing was said, the
-        # attempt doesn't count against today's allowance.
         logger.exception("Opening a session failed")
-        get_store().delete_session(session_id)
-        return _unavailable_session(user, module_code, lang_code, UI[lang_code]["topic_failed" if topic else "ai_unavailable"],
-                                    reason="ai")
-    _save(session)
+        key = "topic_failed" if topic else "new_session_failed" if explicit else "ai_unavailable"
+        return _unavailable_session(user, module_code, lang_code, UI[lang_code][key], reason="ai")
+    if version is None:
+        return _unavailable_session(user, module_code, lang_code, UI[lang_code]["session_moved"], reason="conflict")
+    session["version"] = version
     return session
 
 
 def _restore_session(row: dict, user: dict) -> dict | None:
-    """Reopen a stored session; one that can no longer be read is set aside so the person can start fresh."""
+    """Reopen a stored session; an unreadable active session can be set aside if it hasn't changed."""
     agent_class = EricksonCoacheeAgent if row["module"] == "coachee" else EricksonCoachingAgent
     try:
         agent = agent_class.from_dict(json.loads(row["state"]), user_profile=_load_profile(user["id"], row["module"]))
-    except Exception:
+    except (KeyError, TypeError, ValueError):
         logger.exception("Stored session %s could not be reopened", row["id"])
-        get_store().set_session_status(row["id"], "abandoned")
+        if row["status"] == "active":
+            get_store().abandon_session(row["id"], expected_version=row["updated_at"])
         return None
     return _attach({"module": row["module"], "agent": agent, "id": row["id"], "version": row["updated_at"]}, user)
 
 
-def _leave_session(session: dict | None) -> None:
-    if session and session.get("id") and not session["agent"].is_session_ended():
-        get_store().abandon_session(session["id"])
-
-
-def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel: str, lang_sel: str,
-                    set_language: bool = True):
-    """The person's current session, reopened or started as needed.
-
-    set_language=False leaves an existing conversation in its own language, so switch_lang can translate it first.
-    """
-    module_code = _safe_module(module_sel)
-    mode_code = _safe_mode(mode_sel)
-    lang_code = _safe_lang(lang_sel)
-
-    if not session or session.get("user_id") != user["id"] or not session.get("id"):
-        row = get_store().latest_active_session(user["id"])
-        session = _restore_session(row, user) if row else None
-    elif session.get("module") == module_code:
-        session = _reload_if_changed(session, user, session["agent"].language)
-    if not session or session.get("module") != module_code:
-        _leave_session(session)
-        return _open_session(user, module_code, mode_code, lang_code)
-
-    agent = session["agent"]
-    if set_language:
-        agent.set_language(lang_code)
-    # A session keeps the mode it opened with: AI, or templates once today's allowance was used up.
+def _resume_mode(user: dict, module_code: str, mode_code: str, lang_code: str) -> dict:
+    store = get_store()
+    row = store.resumable_session(user["id"], module_code)
+    while row:
+        restored = _restore_session(row, user)
+        if restored:
+            return restored
+        if row["status"] == "completed":
+            unavailable = _unavailable_session(user, module_code, lang_code, UI[lang_code]["session_moved"], reason="conflict")
+            return {**unavailable, "expected": (row["id"], row["updated_at"])}
+        row = store.resumable_session(user["id"], module_code)
+    session = _open_session(user, module_code, mode_code, lang_code)
+    if session.get("unavailable_reason") == "conflict":
+        # Another tab may have opened this mode while the first opening was being generated.
+        row = store.resumable_session(user["id"], module_code)
+        if row:
+            return _restore_session(row, user) or session
     return session
+
+
+def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel: str, lang_sel: str):
+    """Continue the page's conversation, checking for changes made in another tab."""
+    if not session or session.get("user_id") != user["id"]:
+        return _resume_mode(user, _safe_module(module_sel), _safe_mode(mode_sel), _safe_lang(lang_sel))
+    if not session.get("id"):
+        return session
+    return _reload_if_changed(session, user, session["agent"].language)
 
 
 def _append_opening_prompt(agent):
     """The AI's next prompt (a session's opening, or the next stage after Skip Ahead). Raises if the AI can't answer."""
     api_key = _safe_key()
-    if agent.mode == "llm" and not api_key:
+    if agent.mode == "llm" and not api_key and not (
+            isinstance(agent, EricksonCoacheeAgent) and agent.is_session_ended()):
         prompt = _llm_config_message(agent.language)
     else:
         prompt = agent.get_stage_prompt(api_key=api_key or None)
@@ -641,7 +653,7 @@ def _session_start_outputs(session: dict):
         tts=gr.update(value=_tts_payload(agent.context[-1]["content"]) if agent.context else ""),
         memory=(m_s, m_g, m_f),
         module=gr.update(value=session["module"]),
-        lang=gr.update(value=_lang_selector(lc)),
+        lang=gr.update(label=UI[lc]["language"], value=_lang_selector(lc)),
         # The hidden mode setting stays on the default; the daily allowance alone decides when a session uses templates.
         mode=gr.update(choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
         rating=_rating_updates(session),
@@ -650,31 +662,23 @@ def _session_start_outputs(session: dict):
 
 
 def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, request: gr.Request = None):
-    """Reopen the person's unfinished session if there is one, otherwise start a new one."""
+    """Resume the last viewed mode and its conversation, opening only when needed."""
     user = _require_user(request, _safe_lang(lang_sel))
-    preferred = _request_language(request, None)
-    first_visit = not get_store().list_sessions(user["id"], limit=1)
-    if not session or session.get("user_id") != user["id"] or not session.get("id"):
-        row = get_store().latest_active_session(user["id"])
-        session = _restore_session(row, user) if row else None
-        if session is None:
-            session = _open_session(user, _safe_module(module_sel), _safe_mode(mode_sel), preferred or _safe_lang(lang_sel))
+    store = get_store()
+    first_visit = not store.list_sessions(user["id"], limit=1)
+    module = store.last_module(user["id"])
+    if not module:
+        row = store.latest_active_session(user["id"]) or store.resumable_session(user["id"])
+        module = row["module"] if row else default_module
+    session = _resume_mode(user, module, _safe_mode(mode_sel), _request_language(request, None) or _safe_lang(lang_sel))
     agent = session["agent"]
-    if preferred and preferred != agent.language:
-        # A reopened session follows the language the person uses now.
-        with _agent_lock(agent):
-            if agent.translate_history(new_lang=preferred, api_key=_safe_key() or None):
-                agent.set_language(preferred)
-                _save(session)
-            else:
-                # Keep the page in the conversation's language rather than mixing the two.
-                gr.Warning(UI[preferred]["translate_failed"].format(language=UI[preferred]["lang_" + agent.language]))
     out = _session_start_outputs(session)
     welcome = _welcome_html(agent.language) if first_visit else ""
     return (
         out["chat"], out["tracker"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
         out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"],
-        _memory_title(agent.language), welcome, *out["rating"], *out["topic"], session,
+        _memory_title(agent.language), welcome, *_language_control_updates(agent.language),
+        *out["rating"], *out["topic"], session,
     )
 
 
@@ -752,10 +756,44 @@ def _learn_from_session(session: dict, api_key: str):
         logger.exception("Updating the user profile from a finished session failed")
 
 
-def _review_score(review: str) -> int | None:
-    """The score in a practice review, written as "N/100"."""
-    match = re.search(r"(\d{1,3})\s*/\s*100", review or "")
-    return min(int(match.group(1)), 100) if match else None
+def retry_practice_review(row: dict, state: dict, user: dict) -> str:
+    """Claim a failed review, then atomically replace its notice and save its score."""
+    api_key = _safe_key()
+    if not api_key:
+        return "retry_failed"
+    now = db.utcnow()
+    if state.get("review_retry_until", "") > now.isoformat():
+        return "retry_busy"
+
+    store = get_store()
+    agent = EricksonCoacheeAgent.from_dict(state)
+    _attach({"id": row["id"], "module": "coachee", "agent": agent}, user)
+    original = {key: value for key, value in state.items() if key != "review_retry_until"}
+    # A crashed worker leaves a retry available again after the model's request window.
+    claimed = {**original, "review_retry_until": (now + dt.timedelta(minutes=5)).isoformat()}
+    version = store.save_review_attempt(row["id"], claimed, row["updated_at"])
+    if version is None:
+        return "retry_busy"
+
+    agent.context.pop()  # The failed review occupies the last bubble, outside the original dialogue.
+    if "stopped_at_limit" not in state and row["user_turns"] >= MAX_USER_TURNS_PER_SESSION:
+        # Older limit endings left the stage in place and included the last client reply. A natural goodbye
+        # moved to Closing and replaced the client reply with the review.
+        if agent.current_state != CoachingState.CLOSING or (agent.context and agent.context[-1]["role"] == agent.assistant_role):
+            agent.stopped_at_limit = MAX_USER_TURNS_PER_SESSION
+    try:
+        review = agent._build_final_review(api_key)
+        if not agent.review_failed:
+            agent.context.append({"role": agent.assistant_role, "content": review})
+            saved = store.save_review_attempt(row["id"], agent.to_dict(), version, score=review_score(review))
+            return "retry_saved" if saved is not None else "retry_busy"
+    except Exception:
+        logger.exception("Saving the regenerated practice review failed")
+    try:
+        store.save_review_attempt(row["id"], original, version)
+    except Exception:
+        logger.exception("Releasing the failed practice review retry failed")
+    return "retry_failed"
 
 
 def _action_card_text(card: dict, lang_code: str) -> str:
@@ -773,16 +811,12 @@ def _finish_session(session: dict, api_key: str) -> str | None:
     """Keep what a finished session produced, then learn from it in the background.
 
     An AI Coach session gets an action card: shown in the chat, listed on the Account page, and followed up on in the
-    next session. A practice session's score is read from its review. Returns the card's text when one was made.
+    next session. Returns the card's text when one was made.
     """
     agent = session["agent"]
     card_text = None
     try:
-        if session["module"] == "coachee":
-            score = _review_score(agent.context[-1]["content"]) if agent.context else None
-            if score is not None:
-                get_store().save_session_result(session["id"], session["user_id"], "coachee", score=score)
-        elif _makes_action_card(session, api_key):
+        if _makes_action_card(session, api_key):
             card = agent.action_card(api_key)
             if card:
                 get_store().save_session_result(session["id"], session["user_id"], "coach", card=card)
@@ -838,7 +872,7 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
     lock = _agent_lock(agent)
     if not lock.acquire(blocking=False):
         gr.Warning(s["busy_warning"])
-        yield _respond_outputs(gr.update(), chat_history, agent, session)
+        yield (gr.skip(),) * RESPOND_OUTPUT_COUNT
         return
     try:
         if _user_turns(agent) >= MAX_USER_TURNS_PER_SESSION:
@@ -889,7 +923,6 @@ def _stream_reply(user_msg, chat_history, agent, session):
                 yield _streaming_outputs(chat_history + [{"role": "assistant", "content": coach_response}], session)
         except Exception:
             logger.exception("Model reply failed")
-            _save(session)
             gr.Warning(UI[agent.language]["ai_reply_error"])
             chat_history.pop()
             yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
@@ -898,9 +931,20 @@ def _stream_reply(user_msg, chat_history, agent, session):
     if agent.current_state != old_state:
         gr.Info(_stage_change_notice(agent, session["module"], skipped_before))
 
-    chat_history.append({"role": "assistant", "content": coach_response})
-    _save(session)
+    if not _save(session):
+        store = get_store()
+        latest = store.get_session(session["id"])
+        restored = _restore_session(latest, store.get_user(session["user_id"])) if latest else None
+        if restored and latest["status"] != "abandoned":
+            session = restored
+            agent = session["agent"]
+        else:
+            agent.context = json.loads(latest["state"])["context"] if latest else []
+        yield _respond_outputs(gr.update(value=user_msg, interactive=not agent.is_session_ended()),
+                               _chat_history_from_context(agent), agent, session)
+        return
 
+    chat_history.append({"role": "assistant", "content": coach_response})
     tts_update = gr.update(value=_tts_payload(coach_response))
     if not agent.is_session_ended():
         left = MAX_USER_TURNS_PER_SESSION - _user_turns(agent)
@@ -923,8 +967,8 @@ def _end_at_limit(chat_history, session, api_key, tts_update):
     # The notice and the last reply first: a practice review takes a few seconds to write.
     yield _respond_outputs(gr.update(value="", interactive=False), list(chat_history), agent, session, tts_update)
     chat_history.append({"role": "assistant", "content": agent.end_at_limit(MAX_USER_TURNS_PER_SESSION, api_key)})
-    _save(session)
-    yield from _close_turn(chat_history, session, api_key, gr.update())
+    if _save(session):
+        yield from _close_turn(chat_history, session, api_key, gr.update())
 
 
 def _close_turn(chat_history, session, api_key, tts_update):
@@ -968,7 +1012,7 @@ def next_stage(chat_history, session, module_sel, mode_sel, lang_sel, request: g
     lock = _agent_lock(agent)
     if not lock.acquire(blocking=False):
         gr.Warning(UI[agent.language]["busy_warning"])
-        return _next_stage_outputs(gr.update(), chat_history, agent, session)
+        return (gr.skip(),) * NEXT_STAGE_OUTPUT_COUNT
     try:
         return _advance_stage(chat_history, session)
     finally:
@@ -1012,8 +1056,9 @@ def _advance_stage(chat_history, session):
         return _next_stage_outputs(gr.update(), chat_history, agent, session)
 
     chat_history = list(chat_history or [])
+    if not _save(session):
+        return _next_stage_outputs(gr.update(), chat_history, agent, session)
     chat_history.append({"role": "assistant", "content": new_prompt})
-    _save(session)
 
     is_ended = agent.is_session_ended()
     if is_ended:
@@ -1035,48 +1080,47 @@ def _advance_stage(chat_history, session):
     )
 
 
-def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Request = None):
-    if _safe_module(module_sel) != "coach" or _safe_mode(mode_sel) != "llm":
-        return select_module(module_sel, lang_sel, mode_sel, session, request)
+def _navigate_session(user: dict, module: str, mode: str, language: str, session: dict | None, *,
+                      explicit: bool = False, topic: str = "", voice_sel: str | None = None):
+    current = session if session and session.get("user_id") == user["id"] else None
+    lock = _agent_lock(current["agent"]) if current else None
+    if lock and not lock.acquire(blocking=False):
+        gr.Warning(UI[language]["busy_warning"])
+        return (gr.skip(),) * NEW_SESSION_OUTPUT_COUNT
+    try:
+        if explicit:
+            expected = None
+            if current and current["module"] == module:
+                expected = (current["id"], current["version"]) if current.get("id") else current.get("expected")
+            target = _open_session(user, module, mode, language, topic, explicit=True, expected=expected)
+        else:
+            target = _resume_mode(user, module, mode, language)
+        if target.get("unavailable") and (explicit or current):
+            gr.Warning(target["unavailable"])
+            return (gr.skip(),) * NEW_SESSION_OUTPUT_COUNT
+        if not explicit and target.get("id"):
+            get_store().remember_module(user["id"], module)
+            if current and current.get("id") == target["id"] and current.get("version") == target["version"]:
+                return (gr.skip(),) * NEW_SESSION_OUTPUT_COUNT
+        return _new_session_outputs(target, voice_sel)
+    finally:
+        if lock:
+            lock.release()
 
+
+def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Request = None):
     lc = _safe_lang(lang_sel)
     user = _require_user(request, lc)
-    notice = _unavailable_notice(user, "coach", lc)
-    if notice:
-        gr.Warning(notice)
-        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
-
-    previous = session if session and session.get("user_id") == user["id"] else {}
-    try:
-        api_key = _safe_key()
-        if not api_key:
-            raise ValueError("AI model key is not configured.")
-        agent = EricksonCoachingAgent(mode="llm", language=lc, user_profile=_load_profile(user["id"], "coach"),
-                                      fresh_start=True)
-        session_id = str(uuid.uuid4())
-        new_session = _attach({"module": "coach", "agent": agent, "id": session_id}, user)
-        opening = agent.get_stage_prompt(api_key=api_key)
-        agent.context.append({"role": agent.assistant_role, "content": opening})
-        version = get_store().insert_session(
-            session_id, user["id"], "coach", lc, agent.mode, agent.current_state.name, agent.to_dict(),
-            replaces=previous.get("id"),
-        )
-    except Exception:
-        logger.exception("Starting a fresh coaching session failed")
-        gr.Warning(UI[lc]["new_coach_failed"])
-        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
-    if version is None:
-        gr.Warning(UI[lc]["session_moved"])
-        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
-    new_session["version"] = version
-    return _new_session_outputs(new_session)
+    return _navigate_session(user, _safe_module(module_sel), _safe_mode(mode_sel), lc, session, explicit=True)
 
 
-def _new_session_outputs(session: dict):
+def _new_session_outputs(session: dict, voice_sel: str | None = None):
     out = _session_start_outputs(session)
+    controls = _language_control_updates(session["agent"].language, voice_sel) if voice_sel is not None else (gr.skip(),) * 7
     return (
         out["chat"], out["tracker"], out["tts"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
-        out["msg"], *out["memory"], out["module"], out["mode"], *out["rating"], *out["topic"], session,
+        out["msg"], *out["memory"], out["module"], out["mode"], out["lang"],
+        _memory_title(session["agent"].language), *controls, *out["rating"], *out["topic"], session,
     )
 
 
@@ -1089,25 +1133,37 @@ def start_with_topic(topic: str, lang_sel, mode_sel, session=None, request: gr.R
                else "topic_crisis" if safety.crisis_topic(topic) else None)
     if problem:
         gr.Warning(UI[lc][problem].format(limit=MAX_TOPIC_CHARS))
-        # gr.skip() leaves every output as it is, the stored session and the person's typing included.
-        return tuple(gr.skip() for _ in range(NEW_SESSION_OUTPUT_COUNT))
-    if session and session.get("user_id") == user["id"]:
-        _leave_session(session)
-    return _new_session_outputs(_open_session(user, "coachee", _safe_mode(mode_sel), lc, topic=topic))
+        return (gr.skip(),) * NEW_SESSION_OUTPUT_COUNT
+    return _navigate_session(user, "coachee", _safe_mode(mode_sel), lc, session, explicit=True, topic=topic)
+
+
+def _language_control_updates(language: str, voice_sel: str | None = None):
+    s = UI[language]
+    return (
+        gr.update(value=s["send"]),
+        gr.update(value=s["advance"]),
+        gr.update(value=s["reset"]),
+        gr.update(label=s["settings"], open=False),
+        gr.update(value=s["mode_hint"]),
+        gr.update(label=s["tts_enable"]),
+        gr.update(label=s["tts_voice"], choices=[s["voice_f"], s["voice_m"]],
+                  value=s["voice_m"] if voice_sel in (UI["en"]["voice_m"], UI["zh"]["voice_m"]) else s["voice_f"]),
+    )
 
 
 def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request: gr.Request = None):
     lc = _safe_lang(new_lang)
     user = _require_user(request, lc)
-    # Keep the conversation in its old language until it has been translated; setting the new language first made
-    # translate_history think there was nothing to do, so the opening question stayed in the old language.
-    session = _ensure_session(session, user, module_sel, mode_sel, new_lang, set_language=False)
+    session = _ensure_session(session, user, module_sel, mode_sel, new_lang)
     session.pop("changed_elsewhere", None)  # the latest turns are translated and shown below
     agent = session["agent"]
     with _agent_lock(agent):
-        if agent.translate_history(new_lang=lc, api_key=_safe_key() or None):
+        if lc == agent.language:
+            pass  # The language control can update when restoring a conversation.
+        elif agent.translate_history(new_lang=lc, api_key=_safe_key() or None):
             agent.set_language(lc)
-            _save(session)
+            if not (session["module"] == "coachee" and agent.is_session_ended()):
+                _save(session)
         else:
             # Stay in the conversation's language (the language choice switches back) rather than mixing the two.
             gr.Warning(UI[lc]["translate_failed"].format(language=UI[lc]["lang_" + agent.language]))
@@ -1116,6 +1172,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
     s = UI[lc]
     copy = _session_ui(agent, session["module"])
     coach_btn, coachee_btn = _module_button_updates(session["module"], lc)
+    send, advance, reset, settings, hint, tts_enabled, tts_voice = _language_control_updates(lc, voice_sel)
 
     m_s, m_g, m_f = _memory_ui_updates(agent, lc)
     return (
@@ -1126,17 +1183,10 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
         coachee_btn,
         _mode_context_html(session),
         gr.update(placeholder=copy["placeholder"], interactive=not agent.is_session_ended() and not session.get("unavailable")),
-        gr.update(value=s["send"]),
-        gr.update(value=s["advance"]),
-        gr.update(value=s["reset"]),
-        gr.update(label=s["settings"], open=False),
-        gr.update(value=s["mode_hint"]),
+        send, advance, reset, settings, hint,
         gr.update(label=s["language"], value=new_lang),
         gr.update(label=s["mode"], choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
-        gr.update(label=s["tts_enable"]),
-        # The voice keeps its gender in the new language (男声 is Male), so one of the two stays selected.
-        gr.update(label=s["tts_voice"], choices=[s["voice_f"], s["voice_m"]],
-                  value=s["voice_m"] if voice_sel in (UI["en"]["voice_m"], UI["zh"]["voice_m"]) else s["voice_f"]),
+        tts_enabled, tts_voice,
         m_s, m_g, m_f,
         _memory_title(lc),
         gr.update(value=session["module"]),
@@ -1146,13 +1196,11 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
     )
 
 
-def select_module(module_code: str, lang_sel: str, mode_sel: str, session=None, request: gr.Request = None):
+def select_module(module_code: str, lang_sel: str, mode_sel: str, session=None, voice_sel="",
+                  request: gr.Request = None):
     lc = _safe_lang(lang_sel)
     user = _require_user(request, lc)
-    if session and session.get("user_id") == user["id"]:
-        _leave_session(session)
-    session = _open_session(user, _safe_module(module_code), _safe_mode(mode_sel), lc)
-    return _new_session_outputs(session)
+    return _navigate_session(user, _safe_module(module_code), _safe_mode(mode_sel), lc, session, voice_sel=voice_sel)
 
 
 def record_feedback(session, feedback: gr.LikeData, request: gr.Request = None):
@@ -1311,10 +1359,15 @@ with gr.Blocks(
     rating_outputs = [rating_card, rating_prompt, rating_row]
     topic_outputs = [topic_card, topic_prompt, topic_input, topic_btn]
 
+    language_outputs = [send_btn, next_btn, reset_btn, settings_sheet, settings_hint, tts_toggle, tts_voice]
+    new_session_outputs = [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg,
+                           memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, lang_radio,
+                           memory_title_md, *language_outputs, *rating_outputs, *topic_outputs, session_state]
+
     demo.load(
         initial_load,
         [session_state, module_state, mode_radio, lang_radio],
-        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, *rating_outputs, *topic_outputs, session_state],
+        [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, *language_outputs, *rating_outputs, *topic_outputs, session_state],
         js=force_light_js,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(
@@ -1344,11 +1397,11 @@ with gr.Blocks(
     reset_btn.click(
         reset_session,
         [lang_radio, module_state, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, *topic_outputs, session_state],
+        new_session_outputs,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
-    lang_radio.change(
+    lang_radio.input(
         switch_lang,
         [lang_radio, session_state, module_state, mode_radio, tts_voice],
         [
@@ -1383,21 +1436,18 @@ with gr.Blocks(
 
     coach_module_btn.click(
         select_module,
-        [coach_module_value, lang_radio, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, *topic_outputs, session_state],
+        [coach_module_value, lang_radio, mode_radio, session_state, tts_voice],
+        new_session_outputs,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     coachee_module_btn.click(
         select_module,
-        [coachee_module_value, lang_radio, mode_radio, session_state],
-        [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs, *topic_outputs, session_state],
+        [coachee_module_value, lang_radio, mode_radio, session_state, tts_voice],
+        new_session_outputs,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
-    new_session_outputs = [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg,
-                           memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, *rating_outputs,
-                           *topic_outputs, session_state]
     topic_btn.click(
         start_with_topic,
         [topic_input, lang_radio, mode_radio, session_state],
@@ -1501,7 +1551,7 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
     )
     coaching_core.on_request_failure = _record_ai_failure
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    app.include_router(account_pages.build_router(get_store, settings))
+    app.include_router(account_pages.build_router(get_store, settings, retry_review=retry_practice_review))
 
     def signed_in_user_id(request) -> str | None:
         user = account_pages.current_user(request, get_store(), secret)

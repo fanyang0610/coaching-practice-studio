@@ -15,6 +15,7 @@ import secrets
 import uuid
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.pool import StaticPool
 
 
@@ -36,6 +37,13 @@ users = sa.Table(
     sa.Column("daily_token_limit", sa.Integer),
     sa.Column("consented_at", sa.DateTime),
     sa.Column("created_at", sa.DateTime, nullable=False),
+)
+
+practice_navigation = sa.Table(
+    "practice_navigation",
+    metadata,
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("module", sa.String(16), nullable=False),
 )
 
 invites = sa.Table(
@@ -318,27 +326,52 @@ class Store:
         return session_id
 
     def insert_session(self, session_id: str, user_id: int, module: str, language: str, mode: str,
-                       stage: str, state: dict, *, replaces: str | None = None) -> dt.datetime | None:
-        """Save a new session and, when replacing one, set the previous unfinished session aside atomically."""
-        version = _version_stamp()
+                       stage: str, state: dict, *, replace_current: bool = False,
+                       expected: tuple[str, dt.datetime] | None = None) -> dt.datetime | None:
+        """Insert an opening only if the mode's session still matches the snapshot used to start it."""
         c = coaching_sessions.c
         with self.engine.begin() as conn:
-            if replaces:
-                previous = (c.id == replaces, c.user_id == user_id)
-                updated = conn.execute(coaching_sessions.update().where(*previous, c.status == "active")
-                                       .values(status="abandoned", updated_at=version))
-                if not updated.rowcount and conn.scalar(sa.select(c.status).where(*previous)) == "abandoned":
-                    # Another tab already moved on from this session while the new opening was being generated.
+            if replace_current:
+                # Serialize openings for this account, including when there is no session row to lock yet.
+                # A first write also takes the SQLite write lock before reading the current slot.
+                locked = conn.execute(users.update().where(users.c.id == user_id, users.c.status == "active")
+                                      .values(display_name=users.c.display_name))
+                if not locked.rowcount:
                     return None
+                current = conn.execute(self._resumable_query(user_id, module).with_for_update()).mappings().first()
+                if (current and (current["id"], current["updated_at"])) != expected:
+                    return None
+                if current and current["status"] == "active":
+                    conn.execute(coaching_sessions.update()
+                                 .where(c.user_id == user_id, c.module == module, c.status == "active")
+                                 .values(status="abandoned", updated_at=_version_stamp()))
+            version = _version_stamp()
             conn.execute(coaching_sessions.insert().values(
                 id=session_id, user_id=user_id, module=module, language=language, mode=mode, status="active",
                 stage=stage, shared_with_trainer=False, user_turns=0, state=json.dumps(state, ensure_ascii=False),
-                created_at=version.replace(microsecond=0), updated_at=version,
+                created_at=version, updated_at=version,
             ))
+            if replace_current:
+                self._remember_module(conn, user_id, module)
         return version
 
+    def last_module(self, user_id: int) -> str | None:
+        row = self._one(sa.select(practice_navigation.c.module).where(practice_navigation.c.user_id == user_id))
+        return row["module"] if row else None
+
+    def remember_module(self, user_id: int, module: str) -> None:
+        with self.engine.begin() as conn:
+            self._remember_module(conn, user_id, module)
+
+    def _remember_module(self, conn, user_id: int, module: str) -> None:
+        insert = sqlite.insert if self.is_sqlite else postgresql.insert
+        stmt = insert(practice_navigation).values(user_id=user_id, module=module)
+        conn.execute(stmt.on_conflict_do_update(index_elements=[practice_navigation.c.user_id],
+                                                set_={"module": module}))
+
     def save_session(self, session_id: str, *, state: dict, status: str, stage: str, user_turns: int,
-                     language: str, mode: str, expected_version: dt.datetime | None = None) -> dt.datetime | None:
+                     language: str, mode: str, expected_version: dt.datetime | None = None,
+                     practice_score: int | None = None) -> dt.datetime | None:
         """Store a conversation and return its new version (its updated_at).
 
         With expected_version, the save happens only if nobody has saved the session since that version, e.g. from
@@ -354,10 +387,38 @@ class Store:
         if expected_version is not None:
             stmt = stmt.where(coaching_sessions.c.updated_at == expected_version)
         with self.engine.begin() as conn:
-            return now if conn.execute(stmt.values(**values)).rowcount == 1 else None
+            if conn.execute(stmt.values(**values)).rowcount != 1:
+                return None
+            if practice_score is not None:
+                self._insert_practice_score(conn, session_id, practice_score)
+            return now
+
+    def save_review_attempt(self, session_id: str, state: dict, expected_version: dt.datetime, *,
+                            score: int | None = None) -> dt.datetime | None:
+        """Claim or finish a retry without changing the practice's completion date or turn count."""
+        c = coaching_sessions.c
+        now = _version_stamp()
+        stmt = coaching_sessions.update().where(c.id == session_id, c.module == "coachee",
+                                               c.status == "completed", c.updated_at == expected_version)
+        with self.engine.begin() as conn:
+            if conn.execute(stmt.values(state=json.dumps(state, ensure_ascii=False), updated_at=now)).rowcount != 1:
+                return None
+            if score is not None:
+                self._insert_practice_score(conn, session_id, score)
+            return now
+
+    def _insert_practice_score(self, conn, session_id: str, score: int) -> None:
+        c = coaching_sessions.c
+        insert = sqlite.insert if self.is_sqlite else postgresql.insert
+        stmt = insert(session_results).from_select(
+            ["session_id", "user_id", "module", "score", "created_at"],
+            sa.select(c.id, c.user_id, c.module, sa.literal(score), sa.func.coalesce(c.completed_at, c.created_at))
+            .where(c.id == session_id),
+        )
+        conn.execute(stmt.on_conflict_do_nothing(index_elements=[session_results.c.session_id]))
 
     def delete_session(self, session_id: str) -> None:
-        """Remove a session that never got going (its opening failed), so it doesn't count as a started session."""
+        """Remove a session and its dependent results and ratings."""
         with self.engine.begin() as conn:
             conn.execute(coaching_sessions.delete().where(coaching_sessions.c.id == session_id))
 
@@ -371,12 +432,14 @@ class Store:
             conn.execute(coaching_sessions.update().where(coaching_sessions.c.id == session_id).values(
                 status=status, updated_at=_version_stamp()))
 
-    def abandon_session(self, session_id: str) -> None:
-        """Set an unfinished session aside. A session finished meanwhile (e.g. on another device) stays finished."""
+    def abandon_session(self, session_id: str, expected_version: dt.datetime | None = None) -> None:
+        """Set an unfinished session aside. A session finished meanwhile stays finished."""
+        c = coaching_sessions.c
+        stmt = coaching_sessions.update().where(c.id == session_id, c.status == "active")
+        if expected_version is not None:
+            stmt = stmt.where(c.updated_at == expected_version)
         with self.engine.begin() as conn:
-            conn.execute(coaching_sessions.update().where(coaching_sessions.c.id == session_id,
-                                                          coaching_sessions.c.status == "active")
-                         .values(status="abandoned", updated_at=_version_stamp()))
+            conn.execute(stmt.values(status="abandoned", updated_at=_version_stamp()))
 
     def set_session_shared(self, session_id: str, shared: bool) -> None:
         with self.engine.begin() as conn:
@@ -390,7 +453,21 @@ class Store:
                 shared_with_trainer=False))
 
     def get_session(self, session_id: str) -> dict | None:
-        return self._one(sa.select(coaching_sessions).where(coaching_sessions.c.id == session_id))
+        return self._one(sa.select(coaching_sessions, session_results.c.score)
+                         .outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id)
+                         .where(coaching_sessions.c.id == session_id))
+
+    def _resumable_query(self, user_id: int, module: str | None):
+        c = coaching_sessions.c
+        stmt = sa.select(coaching_sessions).where(c.user_id == user_id, c.status.in_(("active", "completed")))
+        if module is not None:
+            stmt = stmt.where(c.module == module)
+        # A legacy account can have an unfinished session and older finished ones. Prefer the unfinished one.
+        return stmt.order_by(sa.case((c.status == "active", 0), else_=1), c.created_at.desc(),
+                             c.updated_at.desc(), c.id.desc()).limit(1)
+
+    def resumable_session(self, user_id: int, module: str | None = None) -> dict | None:
+        return self._one(self._resumable_query(user_id, module))
 
     def latest_active_session(self, user_id: int) -> dict | None:
         stmt = (sa.select(coaching_sessions)

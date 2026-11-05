@@ -42,10 +42,10 @@ AI Coach sessions are private by default, because people bring their real lives 
 ## What Members Get
 
 - **First visit.** A short welcome card explains the two modes ("Be coached" and "Practise coaching") and links to the Help page. It shows only while the person has no sessions yet. The app header always has Help and Account links.
-- **AI Coach.** The coach sees the start of the conversation as well as the latest messages. **New Session** lets the person choose what to talk about, using only what they share in that session. If the new opening fails, they can keep chatting where they were or try again. At the end, the person gets an **action card** with their goal, next step, timing, and support. It appears in the chat and on the Account page. When the app opens a coaching session automatically or the person switches into coaching mode, the opening can still follow up on a card that is 8 hours to 60 days old.
-- **AI Coachee Lab.** Until the coach asks their first question or uses their own topic, a slim band above the message box offers "Want a different topic?": the coach describes the client's situation (up to 300 characters) and a new practice client is built around it. Topics asking for a client in crisis or self-harm are turned away with a reason, and the AI keeps every practice client within coaching. The score from each practice review is saved. The Account page shows the latest scores with an average, and the member's mentor sees the scores in their session list.
+- **AI Coach.** The coach sees the start of the conversation as well as the latest messages. **New Session** lets the person choose what to talk about, using only what they share in that session. If the new opening fails, they can keep chatting where they were or try again. At the end, the person gets an **action card** with their goal, next step, timing, and support. It appears in the chat and on the Account page. An automatic opening can follow up on a card that is 8 hours to 60 days old.
+- **AI Coachee Lab.** Until the coach asks their first question or uses their own topic, a slim band above the message box offers "Want a different topic?": the coach describes the client's situation (up to 300 characters) and a new practice client is built around it. Topics asking for a client in crisis or self-harm are turned away with a reason, and the AI keeps every practice client within coaching. The score from each practice review is saved. The Account page shows the latest scores with an average, and the member's mentor sees the scores in their session list. A failed review can be regenerated from that practice's transcript on the Account page.
 - The admin sees neither action cards nor scores, in keeping with "the admin can't read conversations".
-- **Phone and laptop.** A session continues wherever the person signs in. If a tab left open elsewhere is out of date, its next message first shows the newer turns (the message stays in the box), so one device never overwrites the other.
+- **Phone and laptop.** Each mode has its own conversation. Switching modes resumes that conversation, and reopening the studio returns to the last mode used. New Session starts over in the current mode. If a tab left open elsewhere is out of date, its next message first shows the newer turns (the message stays in the box), so one device never overwrites the other.
 
 ## Configuration
 
@@ -107,7 +107,7 @@ python3 scripts/load_test.py --users 50 --messages 3
 
 ## Languages
 
-The app and the account pages share one language setting. On a first visit it follows the browser's language. Switching languages in the app, or with the link at the bottom of any account page, is remembered for both. A session reopened later is translated into the language the person uses now. Times on the account pages show in the reader's own time zone. Every page and message exists in English and Simplified Chinese, and the tests check that both sets of strings match.
+The app and the account pages share one language setting. On a first visit it follows the browser's language. Switching languages in the app, or with the link at the bottom of any account page, is remembered for both. Reopened sessions keep their language. Use Settings during a session to change its language. Times on the account pages show in the reader's own time zone. Every page and message exists in English and Simplified Chinese, and the tests check that both sets of strings match.
 
 ## Privacy and Safety
 

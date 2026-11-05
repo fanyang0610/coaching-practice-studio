@@ -1528,7 +1528,7 @@ class TestStoredSessions(unittest.TestCase):
                 self.assertEqual(outputs, (web_app.gr.skip(),) * web_app.NEW_SESSION_OUTPUT_COUNT)
                 self.assertEqual(store.get_session(current["id"]), before)
                 self.assertEqual(len(store.list_sessions(user["id"])), 1)
-                warning.assert_called_with(web_app.UI["en"]["new_coach_failed"])
+                warning.assert_called_with(web_app.UI["en"]["new_session_failed"])
                 if failure == "model":
                     list(web_app.respond("Here is my unsent draft.", [], current, "coach", "AI", "English", request))
                     self.assertEqual(store.get_session(current["id"])["user_turns"], 1)
@@ -1628,19 +1628,105 @@ class TestStoredSessions(unittest.TestCase):
         self.assertTrue(reloaded.pop("changed_elsewhere"))
         self.assertEqual(reloaded["agent"].context[-1]["content"], "PHONE")
 
-    def test_an_old_tab_asks_for_a_refresh_once_its_session_was_set_aside_elsewhere(self):
+    def test_modes_resume_independently_with_no_opening_call_even_when_allowance_is_used(self):
+        web_app, store, user, request = _signed_in()
+        coach = web_app._open_session(user, "coach", "template", "en")
+        list(web_app.respond("I want to sleep earlier.", [], coach, "coach", "Template", "English", request))
+        practice = web_app.select_module("coachee", "English", "Template", coach, request=request)[-1]
+        list(web_app.respond("What would you like from today?", [], practice, "coachee", "Template", "English", request))
+        web_app.next_stage([], practice, "coachee", "Template", "English", request)
+        before = {session["id"]: store.get_session(session["id"]) for session in (coach, practice)}
+        store.update_user(user["id"], daily_session_limit=0)
+
+        with patch.object(web_app, "_append_opening_prompt", side_effect=AssertionError("must resume")):
+            for module, expected in (("coach", coach), ("coachee", practice), ("coach", coach)):
+                resumed = web_app.select_module(module, "English", "AI", request=request)[-1]
+                reopened = web_app.initial_load(None, "coach", "AI", "English", request)[-1]
+                for session in (resumed, reopened):
+                    self.assertEqual(session["id"], expected["id"])
+                    self.assertEqual(session["agent"].context, expected["agent"].context)
+                    self.assertEqual(session["agent"].current_state, expected["agent"].current_state)
+                    self.assertEqual(store.get_session(session["id"]), before[session["id"]])
+
+    def test_replacing_one_mode_keeps_the_other_and_rejects_an_old_tab(self):
         import gradio as gr
 
         web_app, store, user, request = _signed_in()
         laptop = web_app._open_session(user, "coach", "template", "en")
         phone = web_app._restore_session(store.get_session(laptop["id"]), user)
-        practice = web_app.select_module("coachee", "English", "Template", phone, request)[-1]
+        practice = web_app.select_module("coachee", "English", "Template", phone, request=request)[-1]
+        saved_practice = store.get_session(practice["id"])
 
+        replaced = web_app.reset_session("English", "coach", "Template", phone, request)[-1]
         with self.assertRaises(gr.Error) as raised:
             list(web_app.respond("hello", [], laptop, "coach", "Template", "English", request))
 
         self.assertEqual(raised.exception.message, web_app.UI["en"]["session_moved"])
-        self.assertEqual(store.get_session(practice["id"])["status"], "active")  # the phone's new practice carries on
+        self.assertEqual(store.get_session(practice["id"]), saved_practice)
+        self.assertEqual(store.resumable_session(user["id"], "coach")["id"], replaced["id"])
+
+    def test_a_turn_saved_while_a_new_opening_is_generated_wins(self):
+        web_app, store, user, request = _signed_in()
+        old = web_app._open_session(user, "coachee", "template", "en")
+        other_tab = web_app._restore_session(store.get_session(old["id"]), user)
+        original_opening = web_app._append_opening_prompt
+
+        def racing_opening(agent):
+            other_tab["agent"].context.append({"role": "coach", "content": "Saved during the opening."})
+            web_app._save(other_tab)
+            return original_opening(agent)
+
+        with patch.object(web_app, "_append_opening_prompt", side_effect=racing_opening), patch.object(web_app.gr, "Warning"):
+            failed = web_app.reset_session("English", "coachee", "Template", old, request)
+        self.assertEqual(failed, (web_app.gr.skip(),) * web_app.NEW_SESSION_OUTPUT_COUNT)
+        row = store.resumable_session(user["id"], "coachee")
+        self.assertEqual(row["id"], old["id"])
+        self.assertEqual(json.loads(row["state"])["context"][-1]["content"], "Saved during the opening.")
+        self.assertEqual(len(store.list_sessions(user["id"])), 1)
+
+    def test_two_first_openings_in_one_mode_converge_on_one_session(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import tempfile
+        from threading import Barrier
+
+        import web_app
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = db.Store(f"sqlite:///{directory}/race.db")
+            self.addCleanup(store.engine.dispose)
+            web_app.set_store(store)
+            uid = store.create_user("race@example.test", "Race", "fake-hash")
+            user = store.get_user(uid)
+            barrier = Barrier(2)
+            opening = web_app._append_opening_prompt
+
+            def wait_for_other_tab(agent):
+                barrier.wait(timeout=5)
+                return opening(agent)
+
+            with patch.object(web_app, "_append_opening_prompt", side_effect=wait_for_other_tab):
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    opened = list(executor.map(lambda _: web_app._resume_mode(user, "coachee", "template", "en"), range(2)))
+            self.assertEqual(len(store.list_sessions(uid)), 1)
+            self.assertEqual(opened[0]["id"], opened[1]["id"])
+
+    def test_completed_mode_waits_for_the_new_session_button(self):
+        web_app, store, user, request = _signed_in()
+        practice = web_app._open_session(user, "coachee", "template", "en")
+        practice["agent"].current_state = CoachingState.CLOSING
+        web_app.next_stage([], practice, "coachee", "Template", "English", request)
+        coach = web_app.select_module("coach", "English", "Template", practice, request=request)[-1]
+        returned = web_app.select_module("coachee", "English", "Template", coach, request=request)[-1]
+        reopened = web_app.initial_load(None, "coach", "Template", "English", request)[-1]
+
+        self.assertEqual(returned["id"], practice["id"])
+        self.assertEqual(reopened["id"], practice["id"])
+        self.assertTrue(reopened["agent"].is_session_ended())
+        self.assertEqual(len(store.list_sessions(user["id"])), 2)
+        replacement = web_app.reset_session("English", "coachee", "Template", reopened, request)[-1]
+        self.assertNotEqual(replacement["id"], practice["id"])
+        self.assertEqual(store.get_session(practice["id"])["status"], "completed")
+        self.assertEqual(store.get_session(coach["id"])["status"], "active")
 
     def test_new_session_in_an_old_tab_leaves_a_session_finished_elsewhere_finished(self):
         web_app, store, user, request = _signed_in()
@@ -2312,6 +2398,136 @@ class TestAccountPages(unittest.TestCase):
         viewers = [entry["actor_id"] for entry in self.store.audit_entries() if entry["action"] == "session_viewed"]
         self.assertCountEqual(viewers, [trainer, trainer])
 
+    def test_failed_practice_review_retries_the_original_transcript_and_saves_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+        import gradio as gr
+        from coachee_agent import REVIEW_UNAVAILABLE
+
+        mentor = self._person("mentor@example.com", role="trainer")
+        uid = self._person("learner@example.com", trainer_id=mentor, daily_session_limit=1)
+        user = self.store.get_user(uid)
+        request = gr.Request(username=str(uid))
+        owner = self._sign_in("learner@example.com")
+        owner.cookies.set("erickson_lang", "zh")
+        trainer = self._sign_in("mentor@example.com")
+        path_calls = []
+        start = db.utcnow() - db.dt.timedelta(hours=1)
+        processing, release = Event(), Event()
+        replies = ["", "Sorry, the service is unavailable.", "", "暂时无法写出点评。", "会话结果：练习已保存。\n最后得分：42/100"]
+
+        def fake_client(key, on_usage=None):
+            client = _fake_llm_client(replies, path_calls)
+            create = client.chat.completions.create
+
+            def metered(**kw):
+                if len(replies) == 1:
+                    processing.set()
+                    if not release.wait(timeout=8):
+                        raise RuntimeError("test timed out")
+                response = create(**kw)
+                on_usage("fake", 100, 20)
+                return response
+
+            client.chat.completions.create = metered
+            return client
+
+        app = self.web_app
+        # Reopen a practice whose next send has to finish at the existing message limit.
+        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent.context = _conversation(agent, 100)
+        agent.current_state = CoachingState.ACTION
+        practice = self.store.create_session(uid, "coachee", "zh", "llm", "ACTION", agent.to_dict())
+        session = app._restore_session(self.store.get_session(practice), user)
+        detail = f"/sessions/{practice}"
+        retry = detail + "/retry-review"
+        token = {"csrf": self._csrf(owner)}
+
+        with patch.object(app, "_safe_key", return_value="fake"), patch("coachee_agent._build_client", side_effect=fake_client), \
+                patch.object(app, "_learn_from_session"), patch("coachee_agent.logger.warning"), patch.object(app.gr, "Info"):
+            list(app.respond("Finish at the limit.", [], session, "coachee", "AI", "中文", request))
+            failed = self.store.get_session(practice)
+            failed_state = json.loads(failed["state"])
+            self.assertTrue(failed_state["review_failed"])
+            self.assertEqual(failed_state["stopped_at_limit"], 100)
+            self.assertEqual(failed_state["context"][:-1], agent.context)
+            self.assertEqual(failed_state["context"][-1]["content"], REVIEW_UNAVAILABLE["zh"])
+            self.assertIn("重新生成点评", owner.get(detail).text)
+            self.assertNotIn("Regenerate review", trainer.get(detail).text)
+            self.assertEqual(trainer.post(retry, data={"csrf": self._csrf(trainer)}).status_code, 403)
+            self.assertEqual(owner.post(retry, data={"csrf": "wrong"}, follow_redirects=False).headers["location"],
+                             f"/login?next={detail}/retry-review")
+            self.assertIn("可以再试一次", owner.post(retry, data=token).text)
+            self.assertEqual(json.loads(self.store.get_session(practice)["state"]), failed_state)
+            self.assertEqual(self.store.session_results(uid, "coachee"), [])
+
+            second_tab = self._sign_in("learner@example.com")
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                first_request = executor.submit(owner.post, retry, data=token)
+                try:
+                    self.assertTrue(processing.wait(timeout=5))
+                    response = second_tab.post(retry, data={"csrf": self._csrf(second_tab)}, follow_redirects=False)
+                    self.assertIn("retry_busy", response.headers["location"])
+                finally:
+                    release.set()
+                self.assertIn("本次练习的点评已生成", first_request.result(timeout=8).text)
+
+            self.assertEqual(owner.post(retry, data=token).status_code, 403)
+
+        final = self.store.get_session(practice)
+        final_state = json.loads(final["state"])
+        self.assertEqual(final_state["context"][:-1], agent.context)
+        self.assertEqual(final["completed_at"], failed["completed_at"])
+        self.assertEqual(final["score"], 42)
+        self.assertEqual(self.store.ai_sessions_since(uid, start, "coachee", completed=True)[0], 1)
+        self.assertEqual([result["score"] for result in self.store.session_results(uid, "coachee")], [42])
+        self.assertEqual(len(path_calls), 5)
+        prompt = path_calls[-1]["messages"][0]["content"]
+        self.assertTrue(all(call["messages"][0]["content"] == prompt for call in path_calls))
+        self.assertIn("Coach: Message 50", prompt)
+        self.assertIn("used all 100 messages", prompt)
+        self.assertIn("Simplified Chinese", prompt)
+        self.assertNotIn(REVIEW_UNAVAILABLE["zh"], prompt)
+        self.assertEqual(self.store.tokens_since(uid, start), 600)
+        self.assertNotIn("重新生成点评", owner.get(detail).text)
+        for page in (owner.get(detail), owner.get("/account"), trainer.get(detail), trainer.get("/mentor")):
+            self.assertIn("42/100", page.text)
+
+    def test_only_recognizable_failed_completed_practice_can_regenerate(self):
+        from coachee_agent import REVIEW_UNAVAILABLE
+
+        uid = self._person("learner@example.com")
+        owner = self._sign_in("learner@example.com")
+        token = {"csrf": self._csrf(owner)}
+        for status, content, eligible in (
+            ("active", REVIEW_UNAVAILABLE["en"], False),
+            ("abandoned", REVIEW_UNAVAILABLE["en"], False),
+            ("completed", "Some old practice feedback with no score.", False),
+            ("completed", REVIEW_UNAVAILABLE["en"], True),
+            ("deleted", REVIEW_UNAVAILABLE["en"], False),
+        ):
+            with self.subTest(status=status, content=content):
+                agent = EricksonCoacheeAgent(mode="llm", language="en")
+                agent.session_complete = status == "completed"
+                agent.current_state = CoachingState.CLOSING
+                agent.context = [{"role": "coach", "content": "What would you like to take away?"},
+                                 {"role": "coachee", "content": content}]
+                state = agent.to_dict()
+                state.pop("review_failed")
+                state.pop("stopped_at_limit")
+                sid = self.store.create_session(uid, "coachee", "en", "llm", "CLOSING", state)
+                if status == "deleted":
+                    self.store.delete_session(sid)
+                else:
+                    self.store.set_session_status(sid, status)
+                url = f"/sessions/{sid}"
+                self.assertEqual("Regenerate review" in owner.get(url).text, eligible)
+                with patch.object(self.web_app, "_safe_key", return_value="fake"), \
+                        patch("coachee_agent._build_client", return_value=_fake_llm_client(
+                            ["Session Result: A clear question.\nScore: 7/100"], [])):
+                    response = owner.post(url + "/retry-review", data=token, follow_redirects=False)
+                self.assertEqual(response.status_code, 303 if eligible else 403)
+
     def test_admin_page_lists_sessions_without_opening_them(self):
         self._person("owner@example.com", role="admin")
         learner = self._person("learner@example.com")
@@ -2624,11 +2840,12 @@ class TestSessionTakeaways(unittest.TestCase):
         session = web_app._open_session(user, "coachee", "template", "en")
         session["agent"].context.append({"role": "coachee", "content": "Session Result: solid.\nScore: 74/100\nWhat worked: ..."})
 
-        web_app._finish_session(session, "")
+        session["agent"].session_complete = True
+        web_app._save(session)
 
         self.assertEqual(store.session_results(user["id"], "coachee")[0]["score"], 74)
-        self.assertEqual(web_app._review_score("会话结果：完整。\n最后得分：68/100"), 68)
-        self.assertIsNone(web_app._review_score("No score here."))
+        self.assertEqual(web_app.review_score("会话结果：完整。\n最后得分：68/100"), 68)
+        self.assertIsNone(web_app.review_score("No score here."))
 
     def test_new_ai_coach_session_follows_up_only_on_a_plan_from_earlier(self):
         import datetime as dt
@@ -2637,10 +2854,11 @@ class TestSessionTakeaways(unittest.TestCase):
         earlier = store.create_session(user["id"], "coach", "en", "llm", "CLOSING", {"context": []})
         store.save_session_result(earlier, user["id"], "coach", card={"goal": "Sleep better", "next_step": "No phone in bed"})
 
-        straight_after = web_app._open_session(user, "coach", "llm", "en")
+        straight_after = web_app._open_session(user, "coach", "llm", "en", expected=(earlier, store.get_session(earlier)["updated_at"]))
         with store.engine.begin() as conn:
             conn.execute(db.session_results.update().values(created_at=db.utcnow() - dt.timedelta(days=1)))
-        next_day = web_app._open_session(user, "coach", "llm", "en")
+        next_day = web_app._open_session(user, "coach", "llm", "en",
+                                        expected=(straight_after["id"], straight_after["version"]))
 
         self.assertIsNone(straight_after["agent"].last_card)
         self.assertEqual(next_day["agent"].last_card["next_step"], "No phone in bed")
@@ -2961,7 +3179,7 @@ class TestLanguageAndLocalisation(unittest.TestCase):
         self.assertEqual(outputs[-1]["agent"].language, "en")
         self.assertEqual(outputs[12]["value"], "English")
 
-    def test_reopened_session_follows_the_chosen_language(self):
+    def test_reopened_session_keeps_its_language_and_version(self):
         import gradio as gr
 
         web_app, _, user, request = _signed_in()
@@ -2971,9 +3189,10 @@ class TestLanguageAndLocalisation(unittest.TestCase):
         outputs = web_app.initial_load(None, "coach", "AI", "English", chinese_choice)
 
         self.assertEqual(outputs[-1]["id"], session["id"])
-        self.assertEqual(outputs[-1]["agent"].language, "zh")
-        self.assertEqual(outputs[12]["value"], "中文")
-        self.assertIn("教练练习室", outputs[2])
+        self.assertEqual(outputs[-1]["agent"].language, "en")
+        self.assertEqual(outputs[-1]["version"], session["version"])
+        self.assertEqual(outputs[12]["value"], "English")
+        self.assertIn("Coaching Practice Studio", outputs[2])
 
     def test_switching_language_in_the_app_is_remembered_for_the_pages(self):
         import web_app
@@ -3297,7 +3516,8 @@ class TestOwnPracticeTopic(unittest.TestCase):
         coaching = web_app._open_session(user, "coach", "template", "en")
         coaching["agent"].mode = "llm"
         self.assertFalse(web_app._topic_updates(coaching)[0]["visible"])
-        self.assertFalse(web_app._topic_updates(web_app._open_session(user, "coachee", "template", "en"))[0]["visible"])
+        practice["agent"].mode = "template"
+        self.assertFalse(web_app._topic_updates(practice)[0]["visible"])
 
         # Out of practice sessions for today: nothing to offer. The AI not answering: the band lets them try again.
         used_up = web_app._unavailable_session(user, "coachee", "en", "No more today.")
@@ -3490,17 +3710,21 @@ class TestOwnPracticeTopic(unittest.TestCase):
         self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
         self.assertEqual(agent.skipped_stages, set())
 
-    def test_a_topic_the_ai_cant_set_up_says_so_and_the_band_stays(self):
+    def test_a_topic_the_ai_cant_set_up_preserves_the_practice(self):
         web_app, store, user, request = _signed_in()
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
+        with patch.object(web_app, "_safe_key", return_value="server-key"), \
+                patch("coachee_agent._build_client", return_value=self._case_client([])):
+            current = web_app._open_session(user, "coachee", "llm", "en")
+        before = store.get_session(current["id"])
+        with patch.object(web_app, "_safe_key", return_value="server-key"), \
                 patch("coachee_agent._build_client", return_value=self._case_client([], payload="not json")), \
-                patch.object(web_app.logger, "exception"):
-            outputs = web_app.start_with_topic("moving abroad", "中文", "AI", None, request)
+                patch.object(web_app.logger, "exception"), patch.object(web_app.gr, "Warning") as warning:
+            outputs = web_app.start_with_topic("moving abroad", "English", "AI", current, request)
 
-        session = outputs[-1]
-        self.assertEqual(session["unavailable"], web_app.UI["zh"]["topic_failed"])
-        self.assertTrue(web_app._topic_updates(session)[0]["visible"])
-        self.assertEqual(store.list_sessions(user["id"]), [])
+        self.assertEqual(outputs, (web_app.gr.skip(),) * web_app.NEW_SESSION_OUTPUT_COUNT)
+        warning.assert_called_once_with(web_app.UI["en"]["topic_failed"])
+        self.assertEqual(store.get_session(current["id"]), before)
+        self.assertEqual(len(store.list_sessions(user["id"])), 1)
 
 
 class TestReadAloud(unittest.TestCase):

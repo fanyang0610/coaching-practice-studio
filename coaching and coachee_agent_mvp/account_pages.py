@@ -28,6 +28,7 @@ import accounts
 import db
 import quota
 from coaching_core import CoachingState
+from coachee_agent import can_retry_review
 from web_assets import STAGE_NAMES, tts_js
 
 
@@ -127,6 +128,10 @@ T = {
         "turns": "{n} messages",
         "turns_one": "1 message",
         "transcript": "Transcript",
+        "retry_review": "Regenerate review",
+        "retry_failed": "The AI still couldn’t write your review. You can try again.",
+        "retry_busy": "A review may already be in progress. Refresh in a moment.",
+        "retry_saved": "Your practice review is ready.",
         "owner": "Participant",
         "not_allowed": "You don't have access to this session.",
         "not_found": "That page doesn't exist.",
@@ -210,10 +215,10 @@ T = {
         "help_session_items": [
             "A session moves through five stages: {stages}. The numbered dots near the top show where you are; a dashed dot is a stage that was skipped.",
             "Type your reply and tap Send, or tap the microphone to speak.",
-            "Skip Ahead moves to the next stage. New Session starts over.",
-            "A session takes about 15 to 20 minutes. If you leave halfway, it is saved and reopens the next time you sign in.",
+            "Skip Ahead moves to the next stage. New Session starts over in the current mode.",
+            "Each mode saves its own conversation. Switch modes to pick up where you left off. When you return to the app, it opens the last mode you used.",
             "When an AI Coach session ends, you get an action card with your goal and next step. It is kept on your Account page, and next time the coach asks how it went.",
-            "Your AI Coachee Lab scores are kept on your Account page, so you can see your progress.",
+            "Your AI Coachee Lab scores are kept on your Account page. If a review fails, open that practice record and choose Regenerate review.",
             "Tap 👍 or 👎 under a reply to say whether it helped.",
             "Change the language or the reading voice under Settings.",
         ],
@@ -356,6 +361,10 @@ T = {
         "turns": "{n} 条消息",
         "turns_one": "1 条消息",
         "transcript": "对话记录",
+        "retry_review": "重新生成点评",
+        "retry_failed": "AI 暂时还是没能写出点评，可以再试一次。",
+        "retry_busy": "可能正在生成点评，请稍后刷新。",
+        "retry_saved": "本次练习的点评已生成。",
         "owner": "参与者",
         "not_allowed": "你没有权限查看此会话。",
         "not_found": "页面不存在。",
@@ -439,10 +448,10 @@ T = {
         "help_session_items": [
             "一次会话会经历五个阶段：{stages}。页面上方带数字的圆点显示你当前所在的阶段，虚线圆点表示跳过的阶段。",
             "输入回复后点击“发送”，或点击麦克风用语音输入。",
-            "“跳到下一阶段”会进入下一个阶段；“新会话”会重新开始。",
-            "一次会话大约 15 到 20 分钟。中途离开也没关系，会话会被保存，下次登录时自动打开。",
+            "“跳到下一阶段”会进入下一个阶段。“新会话”会在当前模式重新开始。",
+            "两种模式各自保存对话，切回去就能接着聊。重新打开练习室时，会先进入上次使用的模式。",
             "AI教练 会话结束时，你会得到一张写有目标和下一步的行动卡。它会保存在账户页面，下次教练会问你进展如何。",
-            "你的 AI学员陪练 得分会保存在账户页面，方便你看到自己的进步。",
+            "AI 学员陪练的得分会保存在账户页面。如果点评生成失败，打开那次练习记录，点“重新生成点评”。",
             "在回复下方点 👍 或 👎，告诉我们这条回复是否有帮助。",
             "在“设置”里可以切换语言和朗读声音。",
         ],
@@ -677,7 +686,8 @@ def _safe_next(target: str | None) -> str:
     return target if target and target.startswith("/") and not target.startswith("//") else "/"
 
 
-def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> APIRouter:
+def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
+                 retry_review: Callable[[dict, dict, dict], str] | None = None) -> APIRouter:
     router = APIRouter()
     throttle = accounts.LoginThrottle()
     # The address in the first throttle comes from X-Forwarded-For, which a caller can change on every try, so failed
@@ -1304,6 +1314,21 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
 
     # Transcript review ----------------------------------------------------------
 
+    @router.post("/sessions/{session_id}/retry-review")
+    def regenerate_review(request: Request, session_id: str, csrf: str = Form("")):
+        user = checked_user(request, csrf)
+        if not user:
+            return login_redirect(request)
+        lang = page_lang(request)
+        row = get_store().get_session(session_id)
+        if not retry_review or not row or row["user_id"] != user["id"]:
+            return forbidden(request, lang, user)
+        state = json.loads(row["state"])
+        if not can_retry_review(row, state):
+            return forbidden(request, lang, user)
+        result = retry_review(row, state, user)
+        return RedirectResponse(f"/sessions/{quote(session_id, safe='')}?review={result}", status_code=303)
+
     @router.get("/sessions/{session_id}")
     def transcript(request: Request, session_id: str):
         user = checked_user(request)
@@ -1330,10 +1355,19 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings) -> A
             mark = f' <span class="pill{" gold" if verdict == "dislike" else ""}">{"👍" if verdict == "like" else "👎"}</span>' if verdict else ""
             bubbles.append(f'<div class="msg {"ai" if is_ai else "human"}"><span class="who">{_e(ai_label if is_ai else human_label)}{mark}</span>{_e(message.get("content"))}</div>')
         owner_line = f'{_e(T[lang]["owner"])}: {_e(owner["display_name"])} · ' if owner and owner["id"] != user["id"] else ""
+        retry_form = ""
+        flash = None
+        if user["id"] == row["user_id"]:
+            if retry_review and can_retry_review(row, state):
+                retry_form = f"""<form method="post" action="/sessions/{_e(session_id)}/retry-review">
+{csrf_field(request)}<button class="button primary" type="submit">{_e(T[lang]["retry_review"])}</button></form>"""
+            outcome = request.query_params.get("review")
+            if outcome in ("retry_failed", "retry_busy", "retry_saved"):
+                flash = ("error" if outcome == "retry_failed" else "info", T[lang][outcome])
         body = f"""<div class="card"><div class="eyebrow">{_e(T[lang]['transcript'])}</div>
-{session_row(lang, row, link=False)}<p class="muted">{owner_line}{_time(row['updated_at'])}</p>
-<div class="transcript">{''.join(bubbles) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'}</div></div>"""
-        return render(request, lang, T[lang]["transcript"], body, user=user)
+{session_row(lang, row, link=False, results=is_practice)}<p class="muted">{owner_line}{_time(row['updated_at'])}</p>
+{retry_form}<div class="transcript">{''.join(bubbles) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'}</div></div>"""
+        return render(request, lang, T[lang]["transcript"], body, user=user, flash=flash)
 
     # Mentor (role key "trainer") -----------------------------------------------------
 

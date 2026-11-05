@@ -36,6 +36,23 @@ REVIEW_UNAVAILABLE = {
 }
 
 
+def review_score(review: str) -> int | None:
+    match = re.search(r"(\d{1,3})\s*/\s*100", review or "")
+    return min(int(match.group(1)), 100) if match else None
+
+
+def can_retry_review(row: dict, state: dict) -> bool:
+    if (row["module"] != "coachee" or row["status"] != "completed" or row["mode"] != "llm"
+            or row.get("score") is not None or not state.get("session_complete")):
+        return False
+    context = state.get("context", [])
+    if not context or context[-1].get("role") != "coachee":
+        return False
+    # Old sessions have no failure flag. The exact final notice identifies those failures.
+    failed = state.get("review_failed")
+    return failed if failed is not None else context[-1].get("content") in REVIEW_UNAVAILABLE.values()
+
+
 # A coach's plain invitation to keep talking ("Tell me more.", "能多说一说吗？", "还有呢？"), the whole message.
 _INVITES_MORE_RE = re.compile(
     r"(?:(?:can|could|would) you )?(?:please )?(?:tell me|say) (?:a (?:bit|little) )?more(?: about (?:that|this|it))?"
@@ -96,8 +113,9 @@ class EricksonCoacheeAgent:
         self.held_stage: CoachingState | None = None
         # This turn only: the coach is analysing or solving before any contracting, so the client stays guarded.
         self.rushed = False
-        # This request only: the practice ended because the coach used every message a conversation allows.
+        # The reason for stopping is needed if the review has to be generated again.
         self.stopped_at_limit: int | None = None
+        self.review_failed = False
 
     def set_mode(self, mode: str) -> bool:
         if mode in ("template", "llm"):
@@ -142,6 +160,8 @@ class EricksonCoacheeAgent:
             "skipped": sorted(self.skipped_stages),
             "topic": self.topic,
             "contract_done": self.contract_done,
+            "stopped_at_limit": self.stopped_at_limit,
+            "review_failed": self.review_failed,
         }
 
     @classmethod
@@ -171,6 +191,10 @@ class EricksonCoacheeAgent:
         agent.topic = data.get("topic", "")
         # Sessions saved before the contract-first rule carry on as they were once past the first stage.
         agent.contract_done = data.get("contract_done", agent.current_state != CoachingState.CONTRACT)
+        agent.stopped_at_limit = data.get("stopped_at_limit")
+        agent.review_failed = data.get("review_failed", bool(
+            agent.session_complete and agent.context and agent.context[-1].get("role") == agent.assistant_role
+            and agent.context[-1].get("content") in REVIEW_UNAVAILABLE.values()))
         return agent
 
     def translate_history(self, new_lang: str, api_key: str | None = None) -> bool:
@@ -729,15 +753,21 @@ class EricksonCoacheeAgent:
             raise Exception(f"LLM error: {exc}")
 
     def _build_final_review(self, api_key: str | None = None) -> str:
-        if self.mode == "llm" and api_key:
-            # The template review scores from counts that AI mode doesn't keep, so it would give a misleading score.
-            for attempt in range(2):
-                try:
-                    return self._build_llm_final_review(api_key)
-                except Exception:
-                    logger.warning("Writing the practice review failed", exc_info=True)
+        if self.mode == "llm":
+            # The template review uses counts that AI mode doesn't keep.
+            if api_key:
+                for _ in range(2):
+                    try:
+                        review = self._build_llm_final_review(api_key)
+                        if review_score(review) is None:
+                            raise ValueError("Practice review did not contain a score.")
+                        self.review_failed = False
+                        return review
+                    except Exception:
+                        logger.warning("Writing the practice review failed", exc_info=True)
+            self.review_failed = True
             return REVIEW_UNAVAILABLE[self.language]
-        
+
         # In template mode, if evidence is low, use the specific insufficient template
         if self._has_insufficient_evidence():
             return self._build_incomplete_review()
