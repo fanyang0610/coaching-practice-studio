@@ -39,3 +39,4 @@ python -m pip install -r requirements.txt
 - [架构与开发检查](./coaching%20and%20coachee_agent_mvp/docs/ARCHITECTURE.md)
 - [配置与部署](./coaching%20and%20coachee_agent_mvp/docs/DEPLOYMENT.md)
 - [维护交接](./coaching%20and%20coachee_agent_mvp/docs/HANDOFF.md)
+- [版本历史与自动发布规则](./docs/RELEASES.md)
