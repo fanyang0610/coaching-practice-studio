@@ -305,26 +305,21 @@ class TestCoachAgent(unittest.TestCase):
         self.assertEqual(self.agent.current_state, CoachingState.EXPERIENCE)
 
     def test_llm_opening_prompt_includes_session_variation(self):
-        captured_messages = []
+        calls = []
+        reply = "What would be most useful to explore today?"
+        with patch("coach_agent._build_client", return_value=_fake_llm_client([reply] * 9, calls)):
+            for seed in range(8):
+                agent = CoachAgent(mode="llm", language="en", fresh_start=True)
+                agent.opening_variation_seed = f"{seed:08x}"
+                agent._get_llm_opening_response("server-key")
+            # A retry after restoring the same session keeps its writing direction.
+            CoachAgent.from_dict(agent.to_dict())._get_llm_opening_response("server-key")
 
-        class FakeCompletions:
-            def create(self, **kwargs):
-                captured_messages.extend(kwargs["messages"])
-                message = type("Message", (), {"content": "What would be most useful to explore today?"})()
-                choice = type("Choice", (), {"message": message})()
-                return type("Response", (), {"choices": [choice]})()
-
-        class FakeClient:
-            chat = type("Chat", (), {"completions": FakeCompletions()})()
-
-        agent = CoachAgent(mode="llm", language="en")
-        with patch("coach_agent._build_client", return_value=FakeClient()):
-            agent._get_llm_opening_response("server-key")
-
-        prompt = captured_messages[0]["content"]
-        self.assertIn("Session variation seed:", prompt)
-        self.assertIn(agent.opening_variation_seed, prompt)
-        self.assertIn("avoid repeating common default openings", prompt)
+        prompts = [call["messages"][0]["content"] for call in calls]
+        # The instructions themselves must change, not just a random number sent to the model.
+        self.assertGreaterEqual(len(set(prompts[:8])), 3)
+        self.assertEqual(prompts[-1], prompts[-2])
+        self.assertTrue(all("Session variation seed:" not in prompt for prompt in prompts))
 
     def test_force_next_state(self):
         self.assertEqual(self.agent.current_state, CoachingState.CONTRACT)

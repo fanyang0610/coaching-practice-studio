@@ -21,6 +21,24 @@ ACTION_CARD_FIELDS = ("goal", "next_step", "by_when", "support")
 # After this many client turns in one stage, the AI coach is asked to sum up and move on.
 STAGE_NUDGE_TURNS = 5
 
+# These are writing directions, not canned lines. An opaque random seed alone gave the model almost identical openings.
+OPENING_APPROACHES = {"en": (
+    "Go straight into a relaxed invitation to choose where to begin. No greeting or introductory sentence this time.",
+    "Start with a short, casual welcome, then invite whatever is on their mind. Keep it like spoken conversation.",
+    "Briefly make room for thoughts that aren't sorted out yet, then invite a starting point. Don't require a clear goal.",
+    "Invite something they would enjoy having space to talk through. It needn't be a problem to solve. Skip the greeting.",
+    "Open with curiosity about what they would like to get out of talking together, without asking for a formal goal "
+    "or measurable result. Use an easy, conversational question.",
+    "Offer a brief, unhurried welcome and let them pick up whichever thread they choose. Don't tell them how they feel.",
+), "zh": (
+    "直接用一句自然的问话，邀请对方选一个起点，不加招呼或铺垫。",
+    "先简短、随意地打个招呼，再好奇地问问对方此刻想说些什么，像刚碰面时聊天。",
+    "先用一句口语让对方知道，想法还没整理好也可以说，再问一个轻松的开放问题。",
+    "邀请对方讲一件想找人聊聊的事，不必是烦恼或需要解决的问题，不加招呼。",
+    "好奇地问问对方希望这段聊天带来什么，不要求明确目标，语气轻松，不像填表。",
+    "先用一句简短的话留一点从容的空间，再让对方自己选从哪儿说起，不猜测对方的心情。",
+)}
+
 # What a good coach works on in each stage, for the AI coach's own instructions.
 STAGE_FOCUS = {
     CoachingState.CONTRACT: "goal: agree what they want from this conversation, why it matters to them, and how they will "
@@ -446,30 +464,30 @@ Never mention the marker in the reply itself."""
     def _get_llm_opening_response(self, api_key: str) -> str:
         client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
-        stage_desc = STAGE_DESCRIPTIONS[self.current_state]
+        approaches = OPENING_APPROACHES[self.language]
+        approach = approaches[int(self.opening_variation_seed, 16) % len(approaches)]
         opening_lens = (
             "The client chose to start a new conversation. Invite them to choose whatever they would like to talk about "
             "today. Leave the topic entirely open. Do not suggest a topic or ask how a previous conversation or plan "
-            "went. Keep the opening brief. A greeting is optional."
+            "went."
             if self.fresh_start else
             "Choose a fresh entry point among clarity, desired outcome, useful focus, what matters most today, or "
             "what would make this time worthwhile. This is the start of the session: ask what they want from it, "
             "not yet about actions or steps."
         )
-        system_prompt = f"""You are a professional solution-focused coach guiding a five-stage coaching conversation (contract, reality, possibilities, commitment, closing).
-Current stage: **{self.current_state.name}** ({stage_desc})
-Sub-phase: OPEN
+        system_prompt = f"""You are a thoughtful coach starting a conversation with someone who hasn't spoken yet.
+Make contact as a person, with an easy, attentive tone, before trying to establish a goal.
 
-Generate the first coaching prompt for this stage.
-	Guidelines:
-	1. Ask ONE concise, open-ended question, in warm, everyday words, like a person starting a chat, not a textbook (no coaching jargon).
-	2. Do NOT provide advice.
-	3. Do NOT mention the stage name.
-	4. Use the session variation seed to vary wording, angle, and emotional entry point; avoid repeating common default openings across sessions.
-	5. Respond only in {lang_instr}. {_language_output_rule(self.language)}
+Follow this writing direction for this opening: {approach}
+Session boundary: {opening_lens}
 
-Session variation seed: {self.opening_variation_seed}
-Variation lens: {opening_lens}"""
+Write one or two short sentences, including just ONE open-ended question. Follow the chosen direction in both sentence shape and tone, rather than falling back on your usual opening.
+Leave the subject to them. Don't assume their mood, problems, physical surroundings, or shared history. No advice, coaching jargon, service slogans, or exaggerated intimacy.
+Respond only in {lang_instr}. {_language_output_rule(self.language)}
+In Chinese, speak naturally using 你; avoid formal, translated-sounding language and forced 呢 or 呀 endings.
+Output only ONE finished opening addressed to the person, without quotation marks, alternatives, or commentary."""
+        if self.current_state != CoachingState.CONTRACT:
+            system_prompt += f"\nCurrent focus: {STAGE_DESCRIPTIONS[self.current_state]}"
         follow_up = self.last_card if not self.fresh_start else None
         if follow_up:
             notes = "; ".join(f"{key.replace('_', ' ')}: {value}" for key, value in follow_up.items() if value)
