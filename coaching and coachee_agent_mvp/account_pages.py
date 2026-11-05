@@ -29,12 +29,11 @@ import db
 import quota
 from coaching_core import CoachingState
 from coachee_agent import can_retry_review
+from studio_config import LANG_COOKIE, LEGACY_LANG_COOKIE
 from web_assets import STAGE_NAMES, tts_js
 
 
 ROOT = Path(__file__).resolve().parent
-LANG_COOKIE = "erickson_lang"
-
 T = {
     "en": {
         "brand": "Coaching Practice Studio",
@@ -606,7 +605,7 @@ class PageSettings:
     data_locations: str = ""
     # Dollars left on the AI account, or None when unknown; shown on the Admin page.
     ai_credit: Callable[[], float | None] | None = None
-    # Who to tell about a problem or an idea, e.g. "Fan, WeChat ID fan-coach" (ERICKSON_CONTACT); shown on the Help page.
+    # Who to tell about a problem or an idea, e.g. "Fan, WeChat ID fan-coach" (STUDIO_CONTACT); shown on the Help page.
     contact: str = ""
 
 
@@ -634,7 +633,8 @@ LOW_CREDIT_DOLLARS = 2.0
 
 def preferred_language(cookies, headers, fallback: str | None = "en") -> str | None:
     """The language a person last picked (shared by the app and these pages), else their browser's first language."""
-    chosen = (cookies or {}).get(LANG_COOKIE)
+    cookies = cookies or {}
+    chosen = cookies.get(LANG_COOKIE, cookies.get(LEGACY_LANG_COOKIE))
     if chosen in ("en", "zh"):
         return chosen
     accept = ((headers or {}).get("accept-language") or "").strip().lower()
@@ -649,7 +649,7 @@ def page_lang(request: Request) -> str:
 
 
 def current_user(request: Request, store: db.Store, secret: str) -> dict | None:
-    return accounts.read_session_cookie(request.cookies.get(accounts.SESSION_COOKIE), secret, store.get_user)
+    return accounts.read_session_cookie(accounts.session_cookie_value(request.cookies), secret, store.get_user)
 
 
 def _e(value) -> str:
@@ -679,7 +679,7 @@ def _send_quietly(mailer, to: str, subject: str, body: str) -> None:
     try:
         mailer(to, subject, body)
     except Exception:
-        logging.getLogger("erickson_coach").exception("Sending email failed")
+        logging.getLogger("coaching_studio").exception("Sending email failed")
 
 
 def _safe_next(target: str | None) -> str:
@@ -736,17 +736,22 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         response.set_cookie(accounts.SESSION_COOKIE, accounts.make_session_cookie(user, settings.secret),
                             max_age=accounts.SESSION_DAYS * 86400, httponly=True, samesite="lax",
                             secure=settings.secure_cookies)
+        response.delete_cookie(accounts.LEGACY_SESSION_COOKIE, secure=settings.secure_cookies, httponly=True)
         return response
 
+    def clear_login(response: Response) -> None:
+        response.delete_cookie(accounts.SESSION_COOKIE, secure=settings.secure_cookies, httponly=True)
+        response.delete_cookie(accounts.LEGACY_SESSION_COOKIE, secure=settings.secure_cookies, httponly=True)
+
     def csrf_field(request: Request) -> str:
-        token = accounts.csrf_token(request.cookies.get(accounts.SESSION_COOKIE, ""), settings.secret)
+        token = accounts.csrf_token(accounts.session_cookie_value(request.cookies), settings.secret)
         return f'<input type="hidden" name="csrf" value="{token}">'
 
     def checked_user(request: Request, csrf: str | None = None, roles: tuple[str, ...] = ()) -> dict | None:
         user = current_user(request, get_store(), settings.secret)
         if not user or (roles and user["role"] not in roles):
             return None
-        if csrf is not None and not accounts.csrf_ok(request.cookies.get(accounts.SESSION_COOKIE), settings.secret, csrf):
+        if csrf is not None and not accounts.csrf_ok(accounts.session_cookie_value(request.cookies), settings.secret, csrf):
             return None
         return user
 
@@ -825,7 +830,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
     def logout(request: Request, csrf: str = Form("")):
         response = RedirectResponse("/login", status_code=303)
         if checked_user(request, csrf):
-            response.delete_cookie(accounts.SESSION_COOKIE)
+            clear_login(response)
         return response
 
     # First admin (local only) -------------------------------------------------
@@ -1309,7 +1314,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         store.delete_user(user["id"])
         store.log(user["id"], "account_deleted", target_user_id=user["id"])
         response = RedirectResponse("/login", status_code=303)
-        response.delete_cookie(accounts.SESSION_COOKIE)
+        clear_login(response)
         return response
 
     # Transcript review ----------------------------------------------------------

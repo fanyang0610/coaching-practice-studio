@@ -96,7 +96,7 @@ LIMIT_GOODBYE = {
 }
 
 
-class EricksonCoachingAgent:
+class CoachAgent:
     assistant_role = "coach"
     user_role = "client"
 
@@ -152,7 +152,7 @@ class EricksonCoachingAgent:
         }
 
     @classmethod
-    def from_dict(cls, data: dict, user_profile=None) -> "EricksonCoachingAgent":
+    def from_dict(cls, data: dict, user_profile=None) -> "CoachAgent":
         agent = cls(mode=data["mode"], language=data["language"], user_profile=user_profile,
                     fresh_start=data.get("fresh_start", False))
         agent.current_state = CoachingState[data["state"]]
@@ -329,7 +329,7 @@ class EricksonCoachingAgent:
             try:
                 texts = _translate_texts(api_key, [text for _, text in llm_items], new_lang, on_usage=self.on_usage)
             except Exception:
-                logging.getLogger("erickson_coach").warning("Translating the conversation failed", exc_info=True)
+                logging.getLogger("coaching_studio").warning("Translating the conversation failed", exc_info=True)
                 return False
             updates.update({idx: text for (idx, _), text in zip(llm_items, texts)})
 

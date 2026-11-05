@@ -197,7 +197,7 @@ async def _capture_mobile_async(url: str, output: Path, width: int, height: int,
 
 
 async def _capture_chrome_async(url: str, output: Path, width: int, height: int, mobile: bool, cookie: str | None = None):
-    with tempfile.TemporaryDirectory(prefix="erickson-chrome-") as profile:
+    with tempfile.TemporaryDirectory(prefix="studio-chrome-") as profile:
         cmd = _chrome_base_cmd(profile) + [
             "--remote-debugging-port=0",
             "about:blank",
@@ -308,10 +308,10 @@ def main():
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
-    capture(args.url, out_dir / "erickson-desktop.png", 1440, 1200, cookie=args.cookie)
-    capture(args.url, out_dir / "erickson-mobile.png", 390, 844, mobile=True, cookie=args.cookie)
-    print(out_dir / "erickson-desktop.png")
-    print(out_dir / "erickson-mobile.png")
+    capture(args.url, out_dir / "studio-desktop.png", 1440, 1200, cookie=args.cookie)
+    capture(args.url, out_dir / "studio-mobile.png", 390, 844, mobile=True, cookie=args.cookie)
+    print(out_dir / "studio-desktop.png")
+    print(out_dir / "studio-mobile.png")
 
 
 if __name__ == "__main__":

@@ -165,9 +165,9 @@ def start_app(app_dir: Path, port: int, llm_port: int, database_url: str) -> sub
         "OPENAI_BASE_URL": f"http://127.0.0.1:{llm_port}/v1",
         "OPENAI_MODEL": "fake",
         "GRADIO_SERVER_PORT": str(port),
-        "ERICKSON_INBROWSER": "0",
+        "STUDIO_INBROWSER": "0",
         "DATABASE_URL": database_url,
-        "ERICKSON_SECRET_KEY": secrets.token_hex(32),
+        "STUDIO_SECRET_KEY": secrets.token_hex(32),
     })
     proc = subprocess.Popen([sys.executable, "web_app.py"], cwd=app_dir, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + 60
@@ -252,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8790)
     args = parser.parse_args(argv)
 
-    workdir = tempfile.mkdtemp(prefix="erickson-load-")
+    workdir = tempfile.mkdtemp(prefix="studio-load-")
     database_url = f"sqlite:///{workdir}/load.db"
     emails = create_accounts(args.app_dir.resolve(), database_url, args.users)
     llm = start_fake_llm(args.latency)

@@ -1,9 +1,0 @@
-.env
-.DS_Store
-__pycache__/
-*.pyc
-user_profile.json
-Coaching Practice Studio.app/
-erickson.db
-erickson.db-*
-.erickson_secret

@@ -18,8 +18,10 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.pool import StaticPool
 
+from studio_config import LEGACY_NAME, local_path
 
-DEFAULT_SQLITE_PATH = Path(__file__).resolve().parent / "erickson.db"
+
+DEFAULT_SQLITE_PATH = Path(__file__).resolve().parent / "studio.db"
 
 metadata = sa.MetaData()
 
@@ -186,7 +188,9 @@ def database_url(env: dict[str, str] | None = None) -> str:
         url = "postgresql+psycopg://" + url.removeprefix("postgres://")
     elif url.startswith("postgresql://"):
         url = "postgresql+psycopg://" + url.removeprefix("postgresql://")
-    return url or f"sqlite:///{DEFAULT_SQLITE_PATH}"
+    if url:
+        return url
+    return f"sqlite:///{local_path(DEFAULT_SQLITE_PATH, f'{LEGACY_NAME}.db')}"
 
 
 def _hash_token(token: str) -> str:

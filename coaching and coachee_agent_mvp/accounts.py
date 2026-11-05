@@ -10,10 +10,13 @@ import secrets
 import threading
 import time
 
+from studio_config import LEGACY_NAME
+
 
 ROLES = ("user", "trainer", "admin")
 MIN_PASSWORD_LENGTH = 10
-SESSION_COOKIE = "erickson_session"
+SESSION_COOKIE = "studio_session"
+LEGACY_SESSION_COOKIE = f"{LEGACY_NAME}_session"
 SESSION_DAYS = 14
 
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
@@ -54,6 +57,10 @@ def make_session_cookie(user: dict, secret: str, now: float | None = None) -> st
     expires = int((now or time.time()) + SESSION_DAYS * 86400)
     payload = f"{user['id']}.{expires}"
     return f"{payload}.{_sign(secret, payload + '.' + user['password_hash'][-24:])}"
+
+
+def session_cookie_value(cookies: dict[str, str]) -> str:
+    return cookies.get(SESSION_COOKIE, cookies.get(LEGACY_SESSION_COOKIE, ""))
 
 
 def read_session_cookie(value: str | None, secret: str, get_user, now: float | None = None) -> dict | None:

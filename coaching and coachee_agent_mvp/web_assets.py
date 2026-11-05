@@ -1,4 +1,5 @@
 from coaching_core import CoachingState
+from studio_config import LANG_COOKIE
 
 STAGE_NAMES = {
     "en": {
@@ -2767,10 +2768,10 @@ space_status_js = """(() => {
 
 
 # Remember the chosen language for the account pages and the next visit (read by account_pages.preferred_language).
-remember_lang_js = """(lang) => {
+remember_lang_js = f"""(lang) => {{
     const code = lang === "中文" ? "zh" : "en";
-    document.cookie = "erickson_lang=" + code + "; path=/; max-age=31536000; samesite=lax";
-}"""
+    document.cookie = "{LANG_COOKIE}=" + code + "; path=/; max-age=31536000; samesite=lax";
+}}"""
 
 
 global_viewport_style = """

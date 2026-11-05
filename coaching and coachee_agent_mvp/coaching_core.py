@@ -97,7 +97,7 @@ def _report_usage(on_usage, create_kwargs: dict, usage, output_text: str) -> Non
     try:
         on_usage(create_kwargs.get("model", ""), prompt_tokens, completion_tokens)
     except Exception:
-        logging.getLogger("erickson_coach").exception("Recording model usage failed")
+        logging.getLogger("coaching_studio").exception("Recording model usage failed")
 
 
 class _MeteredClient:
@@ -122,7 +122,7 @@ def _create_with_busy_retry(create, **create_kwargs):
             if delay is None or not _is_brief_outage(exc):
                 _report_failure(exc)
                 raise
-            logging.getLogger("erickson_coach").warning("AI service busy (%s); trying again in %.1f s", type(exc).__name__, delay)
+            logging.getLogger("coaching_studio").warning("AI service busy (%s); trying again in %.1f s", type(exc).__name__, delay)
             time.sleep(delay)
 
 
@@ -132,7 +132,7 @@ def _report_failure(exc: Exception) -> None:
     try:
         on_request_failure(exc)
     except Exception:
-        logging.getLogger("erickson_coach").exception("Recording a failed AI request failed")
+        logging.getLogger("coaching_studio").exception("Recording a failed AI request failed")
 
 
 def failure_summary(exc: Exception) -> str:
@@ -160,7 +160,7 @@ def openrouter_credit_left(api_key: str, base_url: str | None = None, timeout: f
             data = json.load(response).get("data", {})
         return float(data["total_credits"]) - float(data["total_usage"])
     except Exception:
-        logging.getLogger("erickson_coach").warning("Reading the OpenRouter balance failed", exc_info=True)
+        logging.getLogger("coaching_studio").warning("Reading the OpenRouter balance failed", exc_info=True)
         return None
 
 

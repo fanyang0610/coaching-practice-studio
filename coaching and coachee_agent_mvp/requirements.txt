@@ -1,4 +1,10 @@
 gradio==6.30.0
+fastapi>=0.115.2,<1
+starlette>=1.0.1,<2
+uvicorn>=0.14
+python-multipart>=0.0.18,<1
+httpx>=0.24.1,<1
+huggingface-hub>=1.16,<3
 openai>=2.24,<3
 python-dotenv>=1.2,<2
 websockets>=16,<17

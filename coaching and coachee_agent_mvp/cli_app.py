@@ -1,6 +1,6 @@
 import os
 
-from coach_agent import EricksonCoachingAgent
+from coach_agent import CoachAgent
 from coaching_core import CoachingState
 
 
@@ -9,7 +9,7 @@ def main():
     print("Type 'quit' to exit, 'next' to manually force next stage, 'mode llm' or 'mode template' to swap modes.")
     print("Type 'key <API_KEY>' to set the API key for CLI LLM mode.")
 
-    agent = EricksonCoachingAgent(mode="template")
+    agent = CoachAgent(mode="template")
     api_key = os.environ.get("OPENAI_API_KEY", "")
 
     print(f"\n[Coach - {agent.current_state.name} ({agent.mode})]: {agent.generate_response('')}")

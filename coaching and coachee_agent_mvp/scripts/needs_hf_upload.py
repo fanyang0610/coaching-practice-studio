@@ -15,44 +15,6 @@ import deploy_hf_space
 
 ROOT = Path(__file__).resolve().parents[1]
 
-LOCAL_VERIFICATION_TOOLING = {
-    "manual_ui_probe.py",
-    "tests.py",
-    "scripts/check_project.py",
-    "scripts/needs_hf_upload.py",
-    "scripts/load_test.py",
-    "scripts/manage.py",
-    "scripts/dev_server.py",
-    "scripts/pg_test.py",
-    "Coaching Practice Studio Launcher.applescript",
-    "Coaching Practice Studio.app",
-    "cli_app.py",
-}
-
-HOSTED_RUNTIME_FILES = {
-    ".hfignore",
-    "README.md",
-    "requirements.txt",
-    "site.webmanifest",
-    "coach_agent.py",
-    "coachee_agent.py",
-    "coaching_core.py",
-    "coach_data.py",
-    "coachee_data.py",
-    "memory.py",
-    "web_assets.py",
-    "db.py",
-    "accounts.py",
-    "account_pages.py",
-    "quota.py",
-    "safety.py",
-    "mailer.py",
-    deploy_hf_space.LOCAL_ENTRYPOINT_SOURCE,
-}
-
-HOSTED_RUNTIME_PREFIXES = ("assets/",)
-
-
 class ChangeReason(NamedTuple):
     path: Path
     reason: str
@@ -114,40 +76,17 @@ def _git_changed_paths(root: Path) -> list[Path]:
     return _parse_git_status(result.stdout, prefix)
 
 
-def _remote_path_for(path: Path, patterns: list[str]) -> Path | None:
-    path_text = path.as_posix()
-    if path_text == deploy_hf_space.LOCAL_ENTRYPOINT_SOURCE:
-        return Path(deploy_hf_space.REMOTE_ENTRYPOINT)
-    if path_text in deploy_hf_space.EXPLICIT_LOCAL_ONLY:
-        return None
-    if deploy_hf_space._is_ignored(path, False, patterns):
-        return None
-    if path_text in HOSTED_RUNTIME_FILES or path_text.startswith(HOSTED_RUNTIME_PREFIXES):
-        return path
-    return None
-
-
-def _local_only_reason(path: Path) -> str:
-    path_text = path.as_posix()
-    if path_text == deploy_hf_space.REMOTE_ENTRYPOINT:
-        return "local wrapper app.py; deploy_hf_space.py uploads web_app.py as the Space entrypoint instead"
-    if path_text in LOCAL_VERIFICATION_TOOLING:
-        return "local verification tooling; it does not change hosted Space runtime behavior"
-    return "not part of the hosted Space runtime boundary"
-
-
-def decide_upload_need(root: Path, changed_paths: list[Path]) -> UploadDecision:
+def decide_upload_need(changed_paths: list[Path]) -> UploadDecision:
     deploy_worthy: list[ChangeReason] = []
     local_only: list[ChangeReason] = []
-    patterns = deploy_hf_space._load_hfignore(root)
 
     for path in sorted({_relative(path) for path in changed_paths}, key=lambda item: item.as_posix()):
-        remote_path = _remote_path_for(path, patterns)
+        remote_path = deploy_hf_space.SPACE_FILES.get(path)
         if remote_path is None:
-            local_only.append(ChangeReason(path=path, reason=_local_only_reason(path)))
+            local_only.append(ChangeReason(path, "not in the Space release list"))
             continue
 
-        if path.as_posix() == deploy_hf_space.LOCAL_ENTRYPOINT_SOURCE:
+        if path == deploy_hf_space.LOCAL_ENTRYPOINT_SOURCE:
             reason = (
                 f"hosted Space entrypoint source; deploy_hf_space.py stages it as remote "
                 f"{deploy_hf_space.REMOTE_ENTRYPOINT}"
@@ -193,7 +132,7 @@ def _print_decision(decision: UploadDecision) -> None:
 def main() -> int:
     args = _parse_args()
     changed_paths = args.paths or _git_changed_paths(ROOT)
-    decision = decide_upload_need(ROOT, changed_paths)
+    decision = decide_upload_need(changed_paths)
     _print_decision(decision)
     return 0
 

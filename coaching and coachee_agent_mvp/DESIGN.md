@@ -226,7 +226,7 @@ Every UI/UX change must preserve the phone browser contract:
 - Work with the actual Gradio DOM structure first. Prefer direct `Row` children for equal-width controls, and avoid fixing width bugs by piling on fallback selectors.
 - Paired controls must fill their row: use two equal tracks such as `repeat(2, minmax(0, 1fr))`, allow children to shrink with `min-width: 0`, and avoid partial-width floating buttons.
 - Keep one viewport on phones. The document shell should stay bounded with `100dvh` and safe-area insets; only the chat transcript should scroll internally.
-- Verify the sandbox path without opening the normal Chrome profile: run with `ERICKSON_INBROWSER=0` and use `manual_ui_probe.py`, which captures with an isolated temporary browser profile.
+- Verify the sandbox path without opening the normal Chrome profile: run with `STUDIO_INBROWSER=0` and use `manual_ui_probe.py`, which captures with an isolated temporary browser profile.
 - Before reporting UI completion, check both `1440x1200` desktop and `390x844` mobile screenshots. The phone view must show module controls, settings, tracker, chat, composer, mic/send, and skip/reset with no horizontal clipping.
 - During a conversation the chat should get at least half of a `390x844` screen (about 56% today; 44% on a `375x667` iPhone SE). The compact phone layout keeps every band but shrinks it: one-line mode card (name and allowance), one-row stage bar (stage name plus dots), and a composer with the message box, mic and Send on one row and Skip Ahead / New Session on a slim row below.
 - Keep the message box text at 16px on phones. Smaller text makes iPhones zoom the page when the box is tapped.

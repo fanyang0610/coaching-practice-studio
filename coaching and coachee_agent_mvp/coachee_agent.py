@@ -23,7 +23,7 @@ from coachee_data import (
 )
 
 
-logger = logging.getLogger("erickson_coach")
+logger = logging.getLogger("coaching_studio")
 
 # Room for a practice case's JSON (see _ensure_llm_scenario).
 CASE_MAX_TOKENS = 2000
@@ -82,7 +82,7 @@ RUSHED_NOTE = {
 _LATER_STAGE_SIGNALS = ("REALITY", "OPTIONS", "COMMITMENT", "CLOSING", "NEXT")
 
 
-class EricksonCoacheeAgent:
+class CoacheeAgent:
     assistant_role = "coachee"
     user_role = "coach"
 
@@ -165,7 +165,7 @@ class EricksonCoacheeAgent:
         }
 
     @classmethod
-    def from_dict(cls, data: dict, user_profile=None) -> "EricksonCoacheeAgent":
+    def from_dict(cls, data: dict, user_profile=None) -> "CoacheeAgent":
         agent = cls(mode=data["mode"], language=data["language"], user_profile=user_profile)
         agent.current_state = CoachingState[data["state"]]
         agent.current_sub_phase = CoachingSubPhase[data["sub_phase"]]

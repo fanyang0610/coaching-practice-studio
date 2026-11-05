@@ -23,15 +23,16 @@ from starlette.concurrency import run_in_threadpool
 
 import accounts
 import account_pages
-from coach_agent import ACTION_CARD_FIELDS, EricksonCoachingAgent
+from coach_agent import ACTION_CARD_FIELDS, CoachAgent
 import coaching_core
 from coaching_core import CoachingState
-from coachee_agent import EricksonCoacheeAgent, review_score
+from coachee_agent import CoacheeAgent, review_score
 import db
 import mailer
 from memory import UserProfile, merge_analysis
 import quota
 import safety
+from studio_config import LEGACY_NAME, local_path, studio_env
 from web_assets import (
     MODE_OPTIONS,
     STAGE_NAMES,
@@ -53,7 +54,7 @@ ROOT = Path(__file__).resolve().parent
 # Served publicly by account_pages so the header doesn't carry a 50 KB base64 image on every reply.
 HEADER_ICON_SRC = "/icons/studio-icon-192.png"
 
-logger = logging.getLogger("erickson_coach")
+logger = logging.getLogger("coaching_studio")
 
 
 def _load_dotenv():
@@ -90,10 +91,7 @@ def _is_public(env: dict[str, str] | None = None) -> bool:
 
 def _launch_inbrowser(env: dict[str, str] | None = None) -> bool:
     env = os.environ if env is None else env
-    if "ERICKSON_INBROWSER" in env:
-        value = env.get("ERICKSON_INBROWSER", "1").strip().lower()
-        return value in ("1", "true", "yes", "on")
-    return False
+    return studio_env(env, "INBROWSER").strip().lower() in ("1", "true", "yes", "on")
 
 
 default_mode = "llm"
@@ -216,8 +214,8 @@ def _mode_context_html(session: dict) -> str:
 
 def _build_agent(module: str, mode: str, language: str, user_profile=None):
     if module == "coachee":
-        return EricksonCoacheeAgent(mode=mode, language=language, user_profile=user_profile)
-    return EricksonCoachingAgent(mode=mode, language=language, user_profile=user_profile)
+        return CoacheeAgent(mode=mode, language=language, user_profile=user_profile)
+    return CoachAgent(mode=mode, language=language, user_profile=user_profile)
 
 
 def _new_session(module: str = default_module, mode: str = default_mode, language: str = default_lang, user_profile=None) -> dict:
@@ -582,7 +580,7 @@ def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str, 
 
 def _restore_session(row: dict, user: dict) -> dict | None:
     """Reopen a stored session; an unreadable active session can be set aside if it hasn't changed."""
-    agent_class = EricksonCoacheeAgent if row["module"] == "coachee" else EricksonCoachingAgent
+    agent_class = CoacheeAgent if row["module"] == "coachee" else CoachAgent
     try:
         agent = agent_class.from_dict(json.loads(row["state"]), user_profile=_load_profile(user["id"], row["module"]))
     except (KeyError, TypeError, ValueError):
@@ -626,7 +624,7 @@ def _append_opening_prompt(agent):
     """The AI's next prompt (a session's opening, or the next stage after Skip Ahead). Raises if the AI can't answer."""
     api_key = _safe_key()
     if agent.mode == "llm" and not api_key and not (
-            isinstance(agent, EricksonCoacheeAgent) and agent.is_session_ended()):
+            isinstance(agent, CoacheeAgent) and agent.is_session_ended()):
         prompt = _llm_config_message(agent.language)
     else:
         prompt = agent.get_stage_prompt(api_key=api_key or None)
@@ -766,7 +764,7 @@ def retry_practice_review(row: dict, state: dict, user: dict) -> str:
         return "retry_busy"
 
     store = get_store()
-    agent = EricksonCoacheeAgent.from_dict(state)
+    agent = CoacheeAgent.from_dict(state)
     _attach({"id": row["id"], "module": "coachee", "agent": agent}, user)
     original = {key: value for key, value in state.items() if key != "review_retry_until"}
     # A crashed worker leaves a retry available again after the model's request window.
@@ -1462,7 +1460,7 @@ with gr.Blocks(
     demo.queue(max_size=100)
 
 
-LOCAL_SECRET_FILE = ROOT / ".erickson_secret"
+LOCAL_SECRET_FILE = ROOT / ".studio_secret"
 
 # A failing AI service fails every request; one note a minute in the audit log is plenty for the Admin page.
 AI_FAILURE_LOG_EVERY = 60
@@ -1498,30 +1496,31 @@ def _ai_credit_left() -> float | None:
 
 
 def _secret_key(env: dict[str, str] | None = None) -> str:
-    """Signs sign-in cookies. Public deployments must set ERICKSON_SECRET_KEY; a local run keeps one in .erickson_secret."""
+    """Signs sign-in cookies. Public deployments must set STUDIO_SECRET_KEY; a local run keeps one in .studio_secret."""
     env = os.environ if env is None else env
-    key = env.get("ERICKSON_SECRET_KEY", "").strip()
+    key = studio_env(env, "SECRET_KEY").strip()
     if key:
         return key
     if _is_public(env):
-        raise SystemExit("ERICKSON_SECRET_KEY is not set. Generate one (python3 -c \"import secrets; print(secrets.token_hex(32))\") and add it as a secret.")
-    if not LOCAL_SECRET_FILE.exists():
-        LOCAL_SECRET_FILE.write_text(secrets.token_hex(32), encoding="utf-8")
-        LOCAL_SECRET_FILE.chmod(0o600)
-    return LOCAL_SECRET_FILE.read_text(encoding="utf-8").strip()
+        raise SystemExit("STUDIO_SECRET_KEY is not set. Generate one (python3 -c \"import secrets; print(secrets.token_hex(32))\") and add it as a secret.")
+    secret_file = local_path(LOCAL_SECRET_FILE, f".{LEGACY_NAME}_secret")
+    if not secret_file.exists():
+        secret_file.write_text(secrets.token_hex(32), encoding="utf-8")
+        secret_file.chmod(0o600)
+    return secret_file.read_text(encoding="utf-8").strip()
 
 
 def _bootstrap_admin(store: db.Store, env: dict[str, str]) -> None:
-    """Create the first admin from ERICKSON_ADMIN_EMAIL / ERICKSON_ADMIN_PASSWORD when no admin exists yet."""
-    email = env.get("ERICKSON_ADMIN_EMAIL", "").strip()
-    password = env.get("ERICKSON_ADMIN_PASSWORD", "")
+    """Create the first admin from STUDIO_ADMIN_EMAIL / STUDIO_ADMIN_PASSWORD when no admin exists yet."""
+    email = studio_env(env, "ADMIN_EMAIL").strip()
+    password = studio_env(env, "ADMIN_PASSWORD")
     if not email or not password or store.count_admins() > 0 or store.get_user_by_email(email):
         return
     if accounts.password_problem(password):
-        logger.error("ERICKSON_ADMIN_PASSWORD needs at least %s characters; no admin was created.", accounts.MIN_PASSWORD_LENGTH)
+        logger.error("STUDIO_ADMIN_PASSWORD needs at least %s characters; no admin was created.", accounts.MIN_PASSWORD_LENGTH)
         return
     user_id = store.create_user(email, email.split("@")[0], accounts.hash_password(password), role="admin", consented=True)
-    store.log(user_id, "account_created", target_user_id=user_id, detail="admin from ERICKSON_ADMIN_EMAIL")
+    store.log(user_id, "account_created", target_user_id=user_id, detail="admin from STUDIO_ADMIN_EMAIL")
 
 
 def create_app(store: db.Store | None = None, env: dict[str, str] | None = None) -> FastAPI:
@@ -1536,18 +1535,18 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
     if public and store.is_sqlite:
         logger.warning("DATABASE_URL is not set: accounts and sessions live in a local SQLite file that a restart may erase.")
     if public and store.count_admins() == 0:
-        logger.error("No admin account exists. Set ERICKSON_ADMIN_EMAIL and ERICKSON_ADMIN_PASSWORD, then restart.")
+        logger.error("No admin account exists. Set STUDIO_ADMIN_EMAIL and STUDIO_ADMIN_PASSWORD, then restart.")
 
     settings = account_pages.PageSettings(
         secret=secret,
         secure_cookies=public,
         allow_local_setup=not public,
-        public_url=env.get("ERICKSON_PUBLIC_URL", "").strip(),
+        public_url=studio_env(env, "PUBLIC_URL").strip(),
         storage_warning=public and store.is_sqlite,
         mailer=mailer.smtp_sender(env),
-        data_locations=env.get("ERICKSON_DATA_LOCATIONS", "").strip(),
+        data_locations=studio_env(env, "DATA_LOCATIONS").strip(),
         ai_credit=_ai_credit_left,
-        contact=env.get("ERICKSON_CONTACT", "").strip(),
+        contact=studio_env(env, "CONTACT").strip(),
     )
     coaching_core.on_request_failure = _record_ai_failure
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)

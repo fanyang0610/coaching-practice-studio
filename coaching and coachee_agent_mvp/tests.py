@@ -3,6 +3,7 @@ import json
 import os
 import re
 from pathlib import Path
+import shutil
 import tempfile
 import time
 import unittest
@@ -14,8 +15,8 @@ os.environ["OPENAI_API_KEY"] = ""
 import accounts  # noqa: E402
 import db  # noqa: E402
 
-from coach_agent import EricksonCoachingAgent
-from coachee_agent import EricksonCoacheeAgent
+from coach_agent import CoachAgent
+from coachee_agent import CoacheeAgent
 from coaching_core import CoachingState, _clean_response_language, _response_text
 from memory import MAX_PROFILE_ITEMS, UserProfile, merge_analysis
 
@@ -42,22 +43,6 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
 
         self.assertTrue(callable(cli_app.main))
 
-    def test_hfignore_excludes_local_secrets_and_runtime_artifacts(self):
-        root = Path(__file__).resolve().parent
-        ignore_text = (root / ".hfignore").read_text(encoding="utf-8")
-
-        for pattern in (
-            ".env",
-            ".DS_Store",
-            "docs/",
-            "AGENTS.md",
-            "__pycache__/",
-            "*.pyc",
-            "user_profile.json",
-            "Coaching Practice Studio.app/",
-        ):
-            self.assertIn(pattern, ignore_text)
-
     def test_space_runs_the_gradio_version_tested_here(self):
         # Unpinned, the Space installed whatever Gradio was newest (6.30 while this Mac had 6.8), so the hosted app ran
         # a version never checked here; the China loading fix and the layout rules depend on Gradio's internals.
@@ -80,13 +65,26 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
         spec.loader.exec_module(deploy_hf_space)
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            staged_files = deploy_hf_space.stage_space(root, Path(temp_dir))
-            staged_root = Path(temp_dir)
+            fixture = Path(temp_dir) / "source"
+            for path in (*deploy_hf_space.SPACE_FILES, Path("app.py")):
+                target = fixture / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(root / path, target)
+
+            extras = (".env", ".env.local", ".venv/bin/python", "scratch.db", "user_profile.json",
+                      "docs/HANDOFF.md", "tests.py", "assets/icons/local-note.txt")
+            for name in extras:
+                path = fixture / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("local-only fixture", encoding="utf-8")
+
+            staged_root = Path(temp_dir) / "stage"
+            staged_files = deploy_hf_space.stage_space(fixture, staged_root)
 
             self.assertIn(Path("app.py"), staged_files)
             self.assertNotIn(Path("web_app.py"), staged_files)
-            self.assertNotIn(Path(".env"), staged_files)
-            self.assertNotIn(Path("user_profile.json"), staged_files)
+            for name in extras:
+                self.assertFalse((staged_root / name).exists(), name)
             self.assertEqual(
                 (staged_root / "app.py").read_bytes(),
                 (root / "web_app.py").read_bytes(),
@@ -103,15 +101,11 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
         needs_hf_upload = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(needs_hf_upload)
 
-        decision = needs_hf_upload.decide_upload_need(
-            root,
-            [Path("manual_ui_probe.py"), Path("tests.py")],
-        )
+        decision = needs_hf_upload.decide_upload_need([Path("manual_ui_probe.py"), Path("tests.py")])
 
         self.assertFalse(decision.needs_upload)
         self.assertEqual(decision.deploy_worthy, [])
         self.assertEqual([item.path for item in decision.local_only], [Path("manual_ui_probe.py"), Path("tests.py")])
-        self.assertTrue(all("local verification" in item.reason for item in decision.local_only))
 
     def test_hf_upload_decision_uses_deploy_entrypoint_mapping(self):
         root = Path(__file__).resolve().parent
@@ -125,15 +119,14 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
         needs_hf_upload = importlib.util.module_from_spec(helper_spec)
         helper_spec.loader.exec_module(needs_hf_upload)
 
-        decision = needs_hf_upload.decide_upload_need(root, [Path("web_app.py"), Path("app.py")])
+        decision = needs_hf_upload.decide_upload_need([Path("web_app.py"), Path("app.py")])
 
         self.assertTrue(decision.needs_upload)
         self.assertEqual(len(decision.deploy_worthy), 1)
         self.assertEqual(decision.deploy_worthy[0].path, Path("web_app.py"))
-        self.assertEqual(decision.deploy_worthy[0].remote_path, Path(deploy_hf_space.REMOTE_ENTRYPOINT))
+        self.assertEqual(decision.deploy_worthy[0].remote_path, deploy_hf_space.REMOTE_ENTRYPOINT)
         self.assertIn("Space entrypoint", decision.deploy_worthy[0].reason)
-        self.assertEqual(decision.local_only[0].path, Path("app.py"))
-        self.assertIn("local wrapper", decision.local_only[0].reason)
+        self.assertEqual([item.path for item in decision.local_only], [Path("app.py")])
 
     def test_hf_upload_decision_strips_repo_prefix_from_git_paths(self):
         root = Path(__file__).resolve().parent
@@ -147,30 +140,33 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
             [
                 f" M {prefix}web_app.py",
                 f"?? {prefix}tests.py",
-                f"R  {prefix}assets/new.css",
-                f"{prefix}assets/old.css",
+                f"R  {prefix}assets/icons/studio-icon-180.png",
+                f"{prefix}assets/icons/previous-icon.png",
                 " M README.md",
                 "",
             ]
         )
 
         changed_paths = needs_hf_upload._parse_git_status(status_output, prefix)
-        decision = needs_hf_upload.decide_upload_need(root, changed_paths)
+        decision = needs_hf_upload.decide_upload_need(changed_paths)
 
         self.assertEqual(
             changed_paths,
-            [Path("web_app.py"), Path("tests.py"), Path("assets/new.css"), Path("assets/old.css")],
+            [Path("web_app.py"), Path("tests.py"), Path("assets/icons/studio-icon-180.png"),
+             Path("assets/icons/previous-icon.png")],
         )
         self.assertTrue(decision.needs_upload)
         self.assertIn(Path("web_app.py"), [item.path for item in decision.deploy_worthy])
         self.assertNotIn(Path("README.md"), [item.path for item in decision.deploy_worthy])
-        self.assertEqual([item.path for item in decision.local_only], [Path("tests.py")])
+        self.assertIn(Path("assets/icons/studio-icon-180.png"), [item.path for item in decision.deploy_worthy])
+        self.assertEqual([item.path for item in decision.local_only],
+                         [Path("assets/icons/previous-icon.png"), Path("tests.py")])
 
     def test_macos_launcher_disables_default_browser_auto_open(self):
         root = Path(__file__).resolve().parent
         launcher_text = (root / "Coaching Practice Studio Launcher.applescript").read_text(encoding="utf-8")
 
-        self.assertIn("ERICKSON_INBROWSER=0", launcher_text)
+        self.assertIn("STUDIO_INBROWSER=0", launcher_text)
 
     def test_macos_launcher_opens_ui_through_project_launcher(self):
         root = Path(__file__).resolve().parent
@@ -181,9 +177,12 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
     def test_mac_launcher_uses_isolated_chrome_profile(self):
         import mac_launcher
 
-        cmd = mac_launcher.chrome_command("http://127.0.0.1:7860")
+        with tempfile.TemporaryDirectory() as folder:
+            profile = Path(folder) / "studio-coach-chrome-profile"
+            with patch.object(mac_launcher, "CHROME_PROFILE", profile):
+                cmd = mac_launcher.chrome_command("http://127.0.0.1:7860")
 
-        self.assertIn("--user-data-dir=/private/tmp/erickson-coach-chrome-profile", cmd)
+        self.assertIn(f"--user-data-dir={profile}", cmd)
         self.assertIn("--no-first-run", cmd)
         self.assertIn("http://127.0.0.1:7860", cmd)
 
@@ -216,9 +215,65 @@ class TestEntrypointsAndDeploymentIgnores(unittest.TestCase):
         self.assertTrue(callable(check_project.compile_launcher))
 
 
-class TestEricksonCoachingAgent(unittest.TestCase):
+class TestExistingInstallation(unittest.TestCase):
+    def test_existing_local_database_and_signing_file_are_used_in_place(self):
+        import web_app
+        from studio_config import LEGACY_NAME
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            old_db = root / f"{LEGACY_NAME}.db"
+            old_secret = root / f".{LEGACY_NAME}_secret"
+            old_secret.write_text("existing-local-secret", encoding="utf-8")
+            store = db.Store(f"sqlite:///{old_db}")
+            user_id = store.create_user("owner@example.test", "Owner", accounts.hash_password("existing-password"),
+                                        role="admin", consented=True)
+            session_id = store.create_session(user_id, "coach", "zh", "template", "CONTRACT", {"context": []})
+            store.engine.dispose()
+
+            with patch.object(db, "DEFAULT_SQLITE_PATH", root / "studio.db"), \
+                    patch.object(web_app, "LOCAL_SECRET_FILE", root / ".studio_secret"):
+                upgraded_store = db.Store(db.database_url({}))
+                try:
+                    self.assertEqual(upgraded_store.get_session(session_id)["user_id"], user_id)
+                    self.assertEqual(web_app._secret_key({}), "existing-local-secret")
+                finally:
+                    upgraded_store.engine.dispose()
+
+            self.assertFalse((root / "studio.db").exists())
+            self.assertFalse((root / ".studio_secret").exists())
+
+    def test_old_hosted_settings_and_cookies_keep_login_and_csrf_working(self):
+        from fastapi.testclient import TestClient
+        from studio_config import LEGACY_NAME
+        import web_app
+
+        secret = "existing-hosted-secret"
+        email = "owner@example.test"
+        old_prefix = LEGACY_NAME.upper()
+        env = {"SPACE_ID": "test", f"{old_prefix}_SECRET_KEY": secret,
+               f"{old_prefix}_ADMIN_EMAIL": email, f"{old_prefix}_ADMIN_PASSWORD": "existing-password"}
+        self.assertEqual(web_app._secret_key(dict(env, STUDIO_SECRET_KEY="new-secret")), "new-secret")
+        store = db.Store("sqlite://")
+        app = web_app.create_app(store=store, env=env)
+        with TestClient(app, base_url="https://studio.example.test") as client:
+            value = accounts.make_session_cookie(store.get_user_by_email(email), secret)
+            client.cookies.set(f"{LEGACY_NAME}_session", value, domain="studio.example.test")
+            client.cookies.set(f"{LEGACY_NAME}_lang", "zh", domain="studio.example.test")
+            csrf = accounts.csrf_token(value, secret)
+            page = client.get("/account", follow_redirects=False)
+            self.assertEqual(page.status_code, 200)
+            self.assertIn('<html lang="zh', page.text)
+            self.assertIn(f'name="csrf" value="{csrf}"', page.text)
+
+            response = client.post("/logout", data={"csrf": csrf}, follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(client.get("/account", follow_redirects=False).status_code, 303)
+
+
+class TestCoachAgent(unittest.TestCase):
     def setUp(self):
-        self.agent = EricksonCoachingAgent(mode="template")
+        self.agent = CoachAgent(mode="template")
 
     def test_initial_state(self):
         self.assertEqual(self.agent.current_state, CoachingState.CONTRACT)
@@ -262,7 +317,7 @@ class TestEricksonCoachingAgent(unittest.TestCase):
         class FakeClient:
             chat = type("Chat", (), {"completions": FakeCompletions()})()
 
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         with patch("coach_agent._build_client", return_value=FakeClient()):
             agent._get_llm_opening_response("server-key")
 
@@ -288,7 +343,7 @@ class TestEricksonCoachingAgent(unittest.TestCase):
         self.assertEqual(self.agent.current_state, CoachingState.CLOSING)
 
     def test_translate_history_handles_bridge_messages(self):
-        agent = EricksonCoachingAgent(mode="template", language="zh")
+        agent = CoachAgent(mode="template", language="zh")
         agent.generate_response("")
         agent.generate_response("目标是改善时间管理")
         agent.generate_response("我经常拖延")
@@ -302,7 +357,7 @@ class TestEricksonCoachingAgent(unittest.TestCase):
         self.assertTrue(any("Now that we have a clear focus" in msg for msg in coach_messages))
 
     def test_get_stage_prompt_requires_key_in_llm_mode(self):
-        agent = EricksonCoachingAgent(mode="llm")
+        agent = CoachAgent(mode="llm")
         with self.assertRaises(ValueError):
             agent.get_stage_prompt()
 
@@ -319,7 +374,7 @@ class TestEricksonCoachingAgent(unittest.TestCase):
 
     def test_empty_ai_reply_is_tried_once_more_then_reported_not_replaced(self):
         # No canned stand-in: the web app keeps the client's message and asks them to send it again.
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What brings you here?"}]
         empty = ValueError("Model returned no text content.")
 
@@ -355,7 +410,7 @@ class TestWebAppLayout(unittest.TestCase):
         self.assertIn("initial-scale=1", head)
         self.assertIn("interactive-widget=resizes-content", head)
         with patch.object(web_app.gr, "mount_gradio_app") as mount:
-            web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "test-secret"})
+            web_app.create_app(store=db.Store("sqlite://"), env={"STUDIO_SECRET_KEY": "test-secret"})
         self.assertEqual(web_app.head, mount.call_args.kwargs["head"])
     def test_mobile_css_uses_real_mobile_layout_not_viewport_clamps(self):
         from web_app import css
@@ -461,7 +516,7 @@ class TestWebAppLayout(unittest.TestCase):
         import web_app
 
         with patch.object(web_app.gr, "mount_gradio_app", wraps=gr.mount_gradio_app) as mount:
-            web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "x" * 64, "GRADIO_SSR_MODE": "true"})
+            web_app.create_app(store=db.Store("sqlite://"), env={"STUDIO_SECRET_KEY": "x" * 64, "GRADIO_SSR_MODE": "true"})
 
         self.assertIs(mount.call_args.kwargs["ssr_mode"], False)
 
@@ -532,8 +587,6 @@ class TestWebAppLayout(unittest.TestCase):
                 self.assertEqual(int.from_bytes(image_file.read(4), "big"), expected_size)
                 self.assertEqual(int.from_bytes(image_file.read(4), "big"), expected_size)
 
-        self.assertTrue((root / "Coaching Practice Studio.app" / "Contents" / "Resources" / "applet.icns").exists())
-
         self.assertIn('rel="apple-touch-icon"', web_app.head)
         self.assertIn('rel="manifest"', web_app.head)
         self.assertIn('rel="icon"', web_app.head)
@@ -572,12 +625,12 @@ class TestWebAppLayout(unittest.TestCase):
     def test_browser_auto_open_can_be_disabled_for_screenshot_runs(self):
         from web_app import _launch_inbrowser
 
-        self.assertFalse(_launch_inbrowser({"ERICKSON_INBROWSER": "0"}))
-        self.assertFalse(_launch_inbrowser({"ERICKSON_INBROWSER": "false"}))
+        self.assertFalse(_launch_inbrowser({"STUDIO_INBROWSER": "0"}))
+        self.assertFalse(_launch_inbrowser({"STUDIO_INBROWSER": "false"}))
         self.assertFalse(_launch_inbrowser({"CODEX_SANDBOX": "seatbelt"}))
         self.assertFalse(_launch_inbrowser({"CODEX_CI": "1"}))
-        self.assertTrue(_launch_inbrowser({"CODEX_SANDBOX": "seatbelt", "ERICKSON_INBROWSER": "1"}))
-        self.assertTrue(_launch_inbrowser({"ERICKSON_INBROWSER": "1"}))
+        self.assertTrue(_launch_inbrowser({"CODEX_SANDBOX": "seatbelt", "STUDIO_INBROWSER": "1"}))
+        self.assertTrue(_launch_inbrowser({"STUDIO_INBROWSER": "1"}))
         self.assertFalse(_launch_inbrowser({}))
 
 
@@ -690,7 +743,7 @@ class TestWebAppServerConfig(unittest.TestCase):
         web_app, store, user, _ = _signed_in()
 
         with patch.dict(os.environ, {"OPENAI_API_KEY": "server-key"}), \
-                patch.object(EricksonCoachingAgent, "_get_llm_opening_response",
+                patch.object(CoachAgent, "_get_llm_opening_response",
                              side_effect=ValueError("Model returned no text content.")), \
                 patch.object(web_app.logger, "exception"):
             session = web_app._open_session(user, "coach", "llm", "zh")
@@ -741,9 +794,9 @@ class TestWebAppServerConfig(unittest.TestCase):
         self.assertIn("height: 100dvh", web_app.css)
         self.assertIn("overflow: hidden", web_app.css)
 
-class TestEricksonCoacheeAgent(unittest.TestCase):
+class TestCoacheeAgent(unittest.TestCase):
     def setUp(self):
-        self.agent = EricksonCoacheeAgent(mode="template", language="en")
+        self.agent = CoacheeAgent(mode="template", language="en")
 
     def test_opening_prompt_comes_from_ai_coachee(self):
         opening = self.agent.get_stage_prompt()
@@ -771,7 +824,7 @@ class TestEricksonCoacheeAgent(unittest.TestCase):
         class FakeClient:
             chat = type("Chat", (), {"completions": FakeCompletions()})()
 
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         with patch("coachee_agent._build_client", return_value=FakeClient()):
             agent._ensure_llm_scenario("server-key")
 
@@ -822,7 +875,7 @@ class TestEricksonCoacheeAgent(unittest.TestCase):
         self.assertEqual(self.agent.current_state, CoachingState.EXPERIENCE)
 
     def test_closing_is_practised_before_the_review(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.current_state = CoachingState.VALUE
         agent.contract_done = True
@@ -840,7 +893,7 @@ class TestEricksonCoacheeAgent(unittest.TestCase):
         self.assertTrue(review.startswith("Session Result: ok"))
 
     def test_skip_ahead_from_closing_ends_the_practice(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent.current_state = CoachingState.VALUE
         self.assertTrue(agent.force_next_state())
         self.assertEqual((agent.current_state, agent.is_session_ended()), (CoachingState.CLOSING, False))
@@ -933,14 +986,14 @@ def _coach_labels(*signals):
     def label(agent, api_key, result):
         result["signal"] = queue.pop(0)
 
-    return patch.object(EricksonCoacheeAgent, "_label_coach_message", label)
+    return patch.object(CoacheeAgent, "_label_coach_message", label)
 
 
 class TestSingleCallStageDecisions(unittest.TestCase):
     def _deepening_coach(self):
         from coaching_core import CoachingSubPhase
 
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [
             {"role": "coach", "content": "What would you like to focus on?"},
             {"role": "client", "content": "My time management."},
@@ -993,7 +1046,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(agent.context[-1]["stage"], 1)
 
     def test_coach_stage_follows_the_client_forward_but_never_back(self):
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What would you like from today?"}]
         replies = ["[[OPTIONS]] You already know mornings work. What could you try first?", "[[GOAL]] What do you want?",
                    "[[CLOSING]] What will you take away from today?", "[[END]] A timer and Monday. Good luck!"]
@@ -1012,7 +1065,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
 
         self.assertTrue(agent.is_session_ended())
         self.assertEqual(agent.context[-1], {"role": "coach", "content": "A timer and Monday. Good luck!", "stage": "END"})
-        restored = EricksonCoachingAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
+        restored = CoachAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
         self.assertEqual((restored.is_session_ended(), restored.skipped_stages), (True, {2, 4}))
 
     def test_a_reply_that_runs_past_its_question_is_cut_there(self):
@@ -1043,7 +1096,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(agent.context[2]["content"], "Time management. What matters most about it?")
 
     def test_skip_ahead_reaches_closing_before_ending_the_session(self):
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.current_state = CoachingState.VALUE
         agent.context = [{"role": "coach", "content": "When will you start?"}]
         calls = []
@@ -1060,7 +1113,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
     def test_template_mode_finishes_a_whole_session(self):
         # It used to stop at the end of the commitment stage: there were no closing questions to hand over to.
         for language in ("en", "zh"):
-            agent = EricksonCoachingAgent(mode="template", language=language)
+            agent = CoachAgent(mode="template", language=language)
             agent.context.append({"role": "coach", "content": agent.get_stage_prompt()})
             for turn in range(30):
                 reply = agent.generate_response(f"answer {turn}")
@@ -1119,7 +1172,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(agent.current_state, CoachingState.EXPERIENCE)
 
     def test_reply_in_the_wrong_language_is_tried_once_more(self):
-        agent = EricksonCoachingAgent(mode="llm", language="zh")
+        agent = CoachAgent(mode="llm", language="zh")
         agent.context = [{"role": "coach", "content": "你今天想聚焦什么？"}]
         calls = []
         client = _fake_llm_client(["What would help most this week?", "[[GOAL]] 这周什么最能帮到你？"], calls)
@@ -1132,7 +1185,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(agent.context[-1]["content"], partials[-1])
 
     def test_practice_turn_the_ai_cannot_answer_is_undone(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
         empty = ValueError("Model returned no text content.")
@@ -1146,7 +1199,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertEqual(agent.current_state, CoachingState.CONTRACT)
 
     def test_coach_goodbye_brings_the_review_without_showing_a_reply(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
         calls = []
@@ -1162,7 +1215,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
 
     def test_coach_message_is_labelled_by_a_short_request_of_its_own(self):
         # Labelling the coach while playing the client, the model mostly repeated its own previous label.
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent.context = [{"role": "coachee", "content": "I keep putting it off."},
                          {"role": "coach", "content": "What have you tried so far?"}]
         calls, result = [], {}
@@ -1176,7 +1229,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertIn("The conversation has reached [[GOAL]]", calls[0]["messages"][0]["content"])
 
     def test_coachee_follows_the_stage_the_coach_is_asking_about(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.contract_done = True  # after contracting the tracker follows the coach (see TestOwnPracticeTopic)
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
@@ -1199,7 +1252,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertNotIn("[[", prompt)  # the client's reply carries no stage marker any more
 
     def test_history_translation_is_one_call(self):
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [
             {"role": "coach", "content": "What brings you here?"},
             {"role": "client", "content": "Stress."},
@@ -1256,7 +1309,7 @@ class TestHostedAccessAndLimits(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 web_app.create_app(store=db.Store("sqlite://"), env={"SPACE_ID": "fanyang0610/Coaching-Practice-Studio"})
             mount.assert_not_called()
-            web_app.create_app(store=db.Store("sqlite://"), env={"SPACE_ID": "x", "ERICKSON_SECRET_KEY": "k" * 64})
+            web_app.create_app(store=db.Store("sqlite://"), env={"SPACE_ID": "x", "STUDIO_SECRET_KEY": "k" * 64})
 
         kwargs = mount.call_args.kwargs
         self.assertIsNotNone(kwargs["auth_dependency"])
@@ -1290,8 +1343,8 @@ class TestHostedAccessAndLimits(unittest.TestCase):
         import web_app
 
         store = db.Store("sqlite://")
-        env = {"SPACE_ID": "x", "ERICKSON_SECRET_KEY": "k" * 64, "ERICKSON_ADMIN_EMAIL": "Owner@Example.com",
-               "ERICKSON_ADMIN_PASSWORD": "a-long-password"}
+        env = {"SPACE_ID": "x", "STUDIO_SECRET_KEY": "k" * 64, "STUDIO_ADMIN_EMAIL": "Owner@Example.com",
+               "STUDIO_ADMIN_PASSWORD": "a-long-password"}
         with patch.object(web_app.gr, "mount_gradio_app"):
             web_app.create_app(store=store, env=env)
             web_app.create_app(store=store, env=env)
@@ -1844,22 +1897,22 @@ class TestStoredSessions(unittest.TestCase):
 
 class TestAgentPersistence(unittest.TestCase):
     def test_coach_agent_round_trips_through_json(self):
-        agent = EricksonCoachingAgent(mode="template", language="en")
+        agent = CoachAgent(mode="template", language="en")
         for text in ("", "I want calmer mornings.", "It matters for my family.", "I'd feel rested."):
             agent.generate_response(text)
 
-        restored = EricksonCoachingAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
+        restored = CoachAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
 
         self.assertEqual(restored.to_dict(), agent.to_dict())
         self.assertTrue(restored.generate_response("Let's keep going."))
 
     def test_coachee_agent_round_trips_through_json(self):
-        agent = EricksonCoacheeAgent(mode="template", language="en")
+        agent = CoacheeAgent(mode="template", language="en")
         agent.context.append({"role": agent.assistant_role, "content": agent.get_stage_prompt()})
         for text in ("What would you like to achieve today?", "Why does that matter now?", "How will you know it worked?"):
             agent.generate_response(text)
 
-        restored = EricksonCoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
+        restored = CoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
 
         self.assertEqual(restored.to_dict(), agent.to_dict())
         self.assertEqual(restored.metrics.stage_questions, agent.metrics.stage_questions)
@@ -2273,7 +2326,7 @@ class TestAccountPages(unittest.TestCase):
 
         cls.web_app = web_app
         cls.secret = "test-secret"
-        cls.app = web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": cls.secret})
+        cls.app = web_app.create_app(store=db.Store("sqlite://"), env={"STUDIO_SECRET_KEY": cls.secret})
 
     def setUp(self):
         from fastapi.testclient import TestClient
@@ -2409,7 +2462,7 @@ class TestAccountPages(unittest.TestCase):
         user = self.store.get_user(uid)
         request = gr.Request(username=str(uid))
         owner = self._sign_in("learner@example.com")
-        owner.cookies.set("erickson_lang", "zh")
+        owner.cookies.set("studio_lang", "zh")
         trainer = self._sign_in("mentor@example.com")
         path_calls = []
         start = db.utcnow() - db.dt.timedelta(hours=1)
@@ -2434,7 +2487,7 @@ class TestAccountPages(unittest.TestCase):
 
         app = self.web_app
         # Reopen a practice whose next send has to finish at the existing message limit.
-        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent = CoacheeAgent(mode="llm", language="zh")
         agent.context = _conversation(agent, 100)
         agent.current_state = CoachingState.ACTION
         practice = self.store.create_session(uid, "coachee", "zh", "llm", "ACTION", agent.to_dict())
@@ -2507,7 +2560,7 @@ class TestAccountPages(unittest.TestCase):
             ("deleted", REVIEW_UNAVAILABLE["en"], False),
         ):
             with self.subTest(status=status, content=content):
-                agent = EricksonCoacheeAgent(mode="llm", language="en")
+                agent = CoacheeAgent(mode="llm", language="en")
                 agent.session_complete = status == "completed"
                 agent.current_state = CoachingState.CLOSING
                 agent.context = [{"role": "coach", "content": "What would you like to take away?"},
@@ -2763,7 +2816,7 @@ class TestSessionTakeaways(unittest.TestCase):
         from coaching_core import CoachingSubPhase
 
         calls = []
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What would you like to focus on?"},
                          {"role": "client", "content": "My goal is to run a half marathon in May."}]
         agent.context += [{"role": "coach" if i % 2 == 0 else "client", "content": f"turn {i}"} for i in range(30)]
@@ -2777,7 +2830,7 @@ class TestSessionTakeaways(unittest.TestCase):
 
     def test_action_card_reads_the_plan_and_skips_sessions_without_one(self):
         calls = []
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [{"role": "client", "content": "I'll call my sister on Sunday."}]
         replies = [json.dumps({"goal": "Reconnect with my sister", "next_step": "Call her", "by_when": "Sunday", "support": ""}),
                    json.dumps({"goal": "", "next_step": ""})]
@@ -2791,7 +2844,7 @@ class TestSessionTakeaways(unittest.TestCase):
 
     def test_opening_follows_up_on_the_last_plan(self):
         calls = []
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.last_card = {"goal": "Sleep better", "next_step": "Phone out of the bedroom", "by_when": "tonight", "support": ""}
         with patch("coach_agent._build_client", return_value=_fake_llm_client(["How did it go?"], calls)):
             agent._get_llm_opening_response("server-key")
@@ -2802,7 +2855,7 @@ class TestSessionTakeaways(unittest.TestCase):
 
     def test_skipping_to_the_end_closes_with_a_real_summary(self):
         calls = []
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What matters here?"}, {"role": "client", "content": "Time with my family."}]
         agent.current_state = CoachingState.VALUE
         agent.force_next_state()
@@ -2913,7 +2966,7 @@ class TestSessionTakeaways(unittest.TestCase):
         def timeout(**kwargs):
             raise openai.APITimeoutError(request=request)
 
-        with patch("coaching_core.time.sleep") as sleep, self.assertLogs("erickson_coach", level="WARNING"):
+        with patch("coaching_core.time.sleep") as sleep, self.assertLogs("coaching_studio", level="WARNING"):
             self.assertEqual(_create_with_busy_retry(busy_twice, model="m"), "reply")
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [1.5, 3.0])
         with patch("coaching_core.time.sleep") as sleep, self.assertRaises(openai.APITimeoutError):
@@ -2921,9 +2974,9 @@ class TestSessionTakeaways(unittest.TestCase):
         sleep.assert_not_called()
 
     def test_failed_translation_changes_nothing(self):
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What would you most like to focus on today?"}]
-        with patch("coach_agent._translate_texts", side_effect=RuntimeError("busy")), self.assertLogs("erickson_coach", level="WARNING"):
+        with patch("coach_agent._translate_texts", side_effect=RuntimeError("busy")), self.assertLogs("coaching_studio", level="WARNING"):
             self.assertFalse(agent.translate_history("zh", api_key="server-key"))
 
         self.assertEqual(agent.language, "en")
@@ -2939,7 +2992,7 @@ class TestSessionTakeaways(unittest.TestCase):
         agent.mode = "llm"
         agent.context = [{"role": "coachee", "content": "我最近感到很迷茫。"}]
         web_app._save(session)
-        english_phone = gr.Request(username=str(user["id"]), headers={"accept-language": "en-US"}, cookies={"erickson_lang": "en"})
+        english_phone = gr.Request(username=str(user["id"]), headers={"accept-language": "en-US"}, cookies={"studio_lang": "en"})
 
         with patch.object(web_app, "_safe_key", return_value="server-key"), \
                 patch("coachee_agent._translate_texts", side_effect=RuntimeError("busy")), \
@@ -3007,7 +3060,7 @@ class TestSessionRating(unittest.TestCase):
         from fastapi.testclient import TestClient
         import web_app
 
-        app = web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "test-secret"})
+        app = web_app.create_app(store=db.Store("sqlite://"), env={"STUDIO_SECRET_KEY": "test-secret"})
         store = web_app.get_store()
         admin = store.create_user("owner@example.com", "Owner", accounts.hash_password("a-long-password"), role="admin")
         session_id = store.create_session(admin, "coach", "en", "llm", "CLOSING", {"context": []})
@@ -3066,7 +3119,7 @@ class TestStructuredReplies(unittest.TestCase):
     def test_practice_session_opens_with_a_built_in_case_when_the_ai_case_is_unusable(self):
         import coachee_agent
 
-        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent = CoacheeAgent(mode="llm", language="zh")
         built_in = agent.scenario
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(["{broken", "{still broken"], [])), \
                 patch.object(coachee_agent.logger, "warning"):
@@ -3088,7 +3141,7 @@ class TestStructuredReplies(unittest.TestCase):
 
     def test_practice_review_scores_each_stage(self):
         calls = []
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What would you like from today?"}]
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Score: 40/100"], calls)):
             agent._build_llm_final_review("server-key")
@@ -3100,7 +3153,7 @@ class TestStructuredReplies(unittest.TestCase):
 
     def test_a_practice_ended_at_the_limit_is_reviewed_whole_and_says_why_it_stopped(self):
         calls = []
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent.current_state = CoachingState.ACTION
         agent.context = _conversation(agent, 100)
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Score: 40/100"], calls)):
@@ -3113,7 +3166,7 @@ class TestStructuredReplies(unittest.TestCase):
         self.assertEqual(agent.context[-1]["content"], review)
 
     def test_practice_scores_are_held_to_the_ceiling_for_short_sessions(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent = CoacheeAgent(mode="llm", language="zh")
         agent.context = [{"role": "coach", "content": f"问题 {i}"} for i in range(5)]
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(["会话结果：不错。\n最后得分：70/100"], [])):
             review = agent._build_llm_final_review("server-key")
@@ -3138,7 +3191,7 @@ class TestStructuredReplies(unittest.TestCase):
 
     def test_coach_can_close_between_stage_decisions(self):
         calls = []
-        agent = EricksonCoachingAgent(mode="llm", language="en")
+        agent = CoachAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What would you like to focus on?"}]
         with patch("coach_agent._build_client", return_value=_fake_llm_client(["[[END]] Take care, and well done today."], calls)):
             reply = agent.generate_response("That's all for today, I need to go.", "server-key")
@@ -3148,7 +3201,7 @@ class TestStructuredReplies(unittest.TestCase):
         self.assertIn("A thank-you on its own is not a request to finish", calls[0]["messages"][0]["content"])
 
     def test_practice_client_closes_when_the_coach_says_goodbye_between_stage_decisions(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Thanks!", "Score: 6/100"], [])), \
@@ -3163,7 +3216,7 @@ class TestLanguageAndLocalisation(unittest.TestCase):
     def test_language_preference_cookie_then_browser(self):
         import account_pages
 
-        self.assertEqual(account_pages.preferred_language({"erickson_lang": "zh"}, {"accept-language": "en-US"}), "zh")
+        self.assertEqual(account_pages.preferred_language({"studio_lang": "zh"}, {"accept-language": "en-US"}), "zh")
         self.assertEqual(account_pages.preferred_language({}, {"accept-language": "zh-CN,zh;q=0.9"}), "zh")
         self.assertEqual(account_pages.preferred_language({}, {"accept-language": "en-GB,zh;q=0.5"}), "en")
         self.assertEqual(account_pages.preferred_language({}, {}, fallback="zh"), "zh")
@@ -3184,7 +3237,7 @@ class TestLanguageAndLocalisation(unittest.TestCase):
 
         web_app, _, user, request = _signed_in()
         session = web_app._open_session(user, "coach", "template", "en")
-        chinese_choice = gr.Request(username=str(user["id"]), headers={"accept-language": "en-US"}, cookies={"erickson_lang": "zh"})
+        chinese_choice = gr.Request(username=str(user["id"]), headers={"accept-language": "en-US"}, cookies={"studio_lang": "zh"})
 
         outputs = web_app.initial_load(None, "coach", "AI", "English", chinese_choice)
 
@@ -3197,7 +3250,7 @@ class TestLanguageAndLocalisation(unittest.TestCase):
     def test_switching_language_in_the_app_is_remembered_for_the_pages(self):
         import web_app
 
-        self.assertIn("erickson_lang=", web_app.remember_lang_js)
+        self.assertIn("studio_lang=", web_app.remember_lang_js)
         language_events = [fn for fn in web_app.demo.fns.values() if fn.fn is None and fn.js == web_app.remember_lang_js]
         self.assertEqual(len(language_events), 1)
 
@@ -3231,7 +3284,7 @@ class TestSelfServiceAndAdminControls(unittest.TestCase):
         self.sent = []
         self.store = db.Store("sqlite://")
         with patch.object(web_app.mailer, "smtp_sender", return_value=lambda *args: self.sent.append(args)):
-            app = web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret", "SMTP_HOST": "smtp.example.com"})
+            app = web_app.create_app(store=self.store, env={"STUDIO_SECRET_KEY": "test-secret", "SMTP_HOST": "smtp.example.com"})
         self.client = TestClient(app)
         self.secret = "test-secret"
 
@@ -3267,7 +3320,7 @@ class TestSelfServiceAndAdminControls(unittest.TestCase):
         self._person("owner@example.com", role="admin")
         self.assertIn('href="/forgot"', self.client.get("/login").text)
 
-        without_email = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret"}))
+        without_email = TestClient(web_app.create_app(store=self.store, env={"STUDIO_SECRET_KEY": "test-secret"}))
         self.assertNotIn('href="/forgot"', without_email.get("/login").text)
         self.assertEqual(without_email.get("/forgot", follow_redirects=False).status_code, 303)
 
@@ -3325,7 +3378,7 @@ class TestSelfServiceAndAdminControls(unittest.TestCase):
         for credit, expected in ((3.78, "Credit left on the AI account (OpenRouter): $3.78."),
                                  (1.25, "AI credit is running low: $1.25 left.")):
             with patch.object(web_app, "_ai_credit_left", return_value=credit):
-                client = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": self.secret}))
+                client = TestClient(web_app.create_app(store=self.store, env={"STUDIO_SECRET_KEY": self.secret}))
             client.post("/login", data={"email": "owner@example.com", "password": "a-long-password"})
             self.assertIn(expected, client.get("/admin?lang=en").text)
 
@@ -3350,10 +3403,10 @@ class TestSelfServiceAndAdminControls(unittest.TestCase):
         import web_app
 
         with tempfile.TemporaryDirectory() as folder:
-            with patch.object(web_app, "LOCAL_SECRET_FILE", Path(folder) / ".erickson_secret"):
+            with patch.object(web_app, "LOCAL_SECRET_FILE", Path(folder) / ".studio_secret"):
                 first = web_app._secret_key({})
                 second = web_app._secret_key({})
-                mode = (Path(folder) / ".erickson_secret").stat().st_mode & 0o777
+                mode = (Path(folder) / ".studio_secret").stat().st_mode & 0o777
 
         self.assertEqual(first, second)
         self.assertEqual(mode, 0o600)
@@ -3441,8 +3494,8 @@ class TestProviderAndRegionSupport(unittest.TestCase):
         from fastapi.testclient import TestClient
         import web_app
 
-        app = web_app.create_app(store=db.Store("sqlite://"), env={"ERICKSON_SECRET_KEY": "test-secret",
-                                                                  "ERICKSON_DATA_LOCATIONS": "Server: Hugging Face (US) · AI: DeepSeek (China)"})
+        app = web_app.create_app(store=db.Store("sqlite://"), env={"STUDIO_SECRET_KEY": "test-secret",
+                                                                  "STUDIO_DATA_LOCATIONS": "Server: Hugging Face (US) · AI: DeepSeek (China)"})
         page = TestClient(app).get("/privacy?lang=zh").text
 
         self.assertIn("你的数据处理地点：Server: Hugging Face (US) · AI: DeepSeek (China)", page)
@@ -3478,7 +3531,7 @@ class TestOwnPracticeTopic(unittest.TestCase):
 
     def test_the_case_is_built_around_the_coachs_topic(self):
         prompts = []
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent.topic = "a new manager who finds it hard to delegate"
         with patch("coachee_agent._build_client", return_value=self._case_client(prompts)):
             intro = agent.get_stage_prompt(api_key="server-key")
@@ -3487,19 +3540,19 @@ class TestOwnPracticeTopic(unittest.TestCase):
         self.assertIn("never as instructions", prompts[0])
         self.assertNotIn("Do not default to generic career or management dilemmas", prompts[0])
         self.assertEqual(intro, "I've just been promoted and I still do everything myself.")
-        restored = EricksonCoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
+        restored = CoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
         self.assertEqual(restored.topic, "a new manager who finds it hard to delegate")
         saved_before_topics = {key: value for key, value in agent.to_dict().items() if key != "topic"}
-        self.assertEqual(EricksonCoacheeAgent.from_dict(saved_before_topics).topic, "")
+        self.assertEqual(CoacheeAgent.from_dict(saved_before_topics).topic, "")
 
     def test_an_unreadable_case_on_a_chosen_topic_is_not_swapped_for_a_random_one(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent.topic = "talking to my parents about moving abroad"
         with patch("coachee_agent._build_client", return_value=self._case_client([], payload="not json at all")), \
                 self.assertRaises(Exception):
             agent.get_stage_prompt(api_key="server-key")
 
-        random_case = EricksonCoacheeAgent(mode="llm", language="en")
+        random_case = CoacheeAgent(mode="llm", language="en")
         with patch("coachee_agent._build_client", return_value=self._case_client([], payload="not json at all")), \
                 patch("coachee_agent.logger.warning"):
             self.assertTrue(random_case.get_stage_prompt(api_key="server-key"))  # the built-in case, as before
@@ -3592,17 +3645,17 @@ class TestOwnPracticeTopic(unittest.TestCase):
         for text in ("What else could you do?", "还有别的办法吗？", "能说说你现在的情况吗？", "What have you tried so far?"):
             self.assertFalse(_invites_more(text), text)
 
-        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent = CoacheeAgent(mode="llm", language="zh")
         agent.context = [{"role": "coachee", "content": "我一直不知道怎么跟父母开口。"}]
         agent._llm_scenario_ready = True
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(["嗯……就是怕他们反对。"], [])), \
-                patch.object(EricksonCoacheeAgent, "_label_coach_message", side_effect=AssertionError("no labelling request")):
+                patch.object(CoacheeAgent, "_label_coach_message", side_effect=AssertionError("no labelling request")):
             agent.generate_response("能多说一说吗？", api_key="server-key")
         self.assertEqual(agent.current_state, CoachingState.CONTRACT)
 
     def _practice_turns(self, *turns):
         """A practice session in AI mode, the coach asking each question in turn; labels are the stage of each."""
-        agent = EricksonCoacheeAgent(mode="llm", language="zh")
+        agent = CoacheeAgent(mode="llm", language="zh")
         agent._llm_scenario_ready = True
         agent.context = [{"role": "coachee", "content": "团队中有个成员总是质疑我的决定，让我感到很无力。"}]
         questions, labels = zip(*turns)
@@ -3632,7 +3685,7 @@ class TestOwnPracticeTopic(unittest.TestCase):
 
     def test_the_client_opens_up_as_trust_grows_and_the_review_watches_pace(self):
         calls = []
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.context = [{"role": "coachee", "content": "A colleague keeps questioning my decisions."}]
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Maybe because I'm young."], calls)), \
@@ -3648,7 +3701,7 @@ class TestOwnPracticeTopic(unittest.TestCase):
         for labels, questions in ((("GOAL",), ["What would you like from today?"]),
                                   (("GOAL", "REALITY"), ["What would you like from today?", "Why does he do that?"])):
             calls.clear()
-            fresh = EricksonCoacheeAgent(mode="llm", language="en")
+            fresh = CoacheeAgent(mode="llm", language="en")
             fresh._llm_scenario_ready = True
             fresh.context = [{"role": "coachee", "content": "A colleague keeps questioning my decisions."}]
             with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Mm."] * len(questions), calls)), \
@@ -3674,7 +3727,7 @@ class TestOwnPracticeTopic(unittest.TestCase):
         self.assertTrue(agent.contract_done)
         self.assertIsNone(agent.held_stage)
         self.assertEqual(agent.skipped_stages, set())
-        restored = EricksonCoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
+        restored = CoacheeAgent.from_dict(json.loads(json.dumps(agent.to_dict())))
         self.assertTrue(restored.contract_done)
 
         # A jump over a later stage still shows as skipped, and the note says so.
@@ -3700,10 +3753,10 @@ class TestOwnPracticeTopic(unittest.TestCase):
                          (CoachingState.EXPERIENCE, set(), True))
 
     def test_sessions_saved_before_the_contract_rule_carry_on(self):
-        agent = EricksonCoacheeAgent(mode="llm", language="en")
+        agent = CoacheeAgent(mode="llm", language="en")
         saved = {key: value for key, value in agent.to_dict().items() if key != "contract_done"}
-        self.assertFalse(EricksonCoacheeAgent.from_dict(saved).contract_done)
-        self.assertTrue(EricksonCoacheeAgent.from_dict({**saved, "state": "EXPERIENCE"}).contract_done)
+        self.assertFalse(CoacheeAgent.from_dict(saved).contract_done)
+        self.assertTrue(CoacheeAgent.from_dict({**saved, "state": "EXPERIENCE"}).contract_done)
 
     def test_a_stage_with_its_own_question_is_not_skipped(self):
         agent = self._practice_turns(("今天这次谈话，你希望有什么收获？", "GOAL"), ("为什么你会觉得他不服你？", "REALITY"))
@@ -3901,18 +3954,16 @@ setTimeout(() => console.log(JSON.stringify(note.textContent)), 50);
 
 
 class TestIndependentBranding(unittest.TestCase):
-    # Internal names users never see (code identifiers, settings, cookies, files) may keep the old prefix.
-    INTERNAL = re.compile(r"Erickson(Coaching|Coachee)Agent|ERICKSON_\w+|erickson_(session|lang|coach)|\.erickson_secret|"
-                          r"erickson\.db|erickson-[a-z-]+|Erickson-Coach-App|erickson-coach-app")
-
     def _visible_text(self, path):
-        return self.INTERNAL.sub("", (Path(__file__).parent / path).read_text(encoding="utf-8"))
+        return (Path(__file__).parent / path).read_text(encoding="utf-8")
 
     def test_no_coaching_school_name_in_what_users_see_or_the_ai_is_told(self):
+        from studio_config import LEGACY_NAME
+
         for path in ("web_assets.py", "account_pages.py", "web_app.py", "coach_agent.py", "coachee_agent.py",
                      "coach_data.py", "coachee_data.py", "coaching_core.py", "safety.py", "site.webmanifest", "cli_app.py"):
             text = self._visible_text(path)
-            for term in ("erickson", "埃里克森", "arrow model"):
+            for term in (LEGACY_NAME, "埃里克森", "arrow model"):
                 self.assertNotIn(term, text.lower(), f"{term!r} in {path}")
 
     def test_no_certification_bodys_competency_names_in_what_the_ai_is_told(self):
@@ -3939,7 +3990,7 @@ class TestHelpPage(unittest.TestCase):
         import web_app
 
         self.store = db.Store("sqlite://")
-        self.client = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret"}))
+        self.client = TestClient(web_app.create_app(store=self.store, env={"STUDIO_SECRET_KEY": "test-secret"}))
 
     def test_help_is_public_and_bilingual(self):
         english = self.client.get("/help?lang=en")
@@ -4005,8 +4056,8 @@ class TestHelpPage(unittest.TestCase):
         import web_app
 
         self.assertNotIn("Get in touch", self.client.get("/help?lang=en").text)
-        client = TestClient(web_app.create_app(store=self.store, env={"ERICKSON_SECRET_KEY": "test-secret",
-                                                                       "ERICKSON_CONTACT": "Fan, WeChat ID fan-coach"}))
+        client = TestClient(web_app.create_app(store=self.store, env={"STUDIO_SECRET_KEY": "test-secret",
+                                                                       "STUDIO_CONTACT": "Fan, WeChat ID fan-coach"}))
         self.assertIn("Get in touch: Fan, WeChat ID fan-coach.", client.get("/help?lang=en").text)
         self.assertIn("请联系：Fan, WeChat ID fan-coach。", client.get("/help?lang=zh").text)
 

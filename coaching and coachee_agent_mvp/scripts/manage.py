@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Account administration from a shell, against the database in DATABASE_URL (default: local erickson.db).
+"""Account administration from a shell, against the database in DATABASE_URL (default: local studio.db).
 
     python3 scripts/manage.py create-admin you@example.com --name "Your Name"
     python3 scripts/manage.py invite --role trainer --email coach@example.com --base-url https://your-app

@@ -32,7 +32,9 @@ PYTHON_FILES = [
     "web_app.py",
     "tests.py",
     "manual_ui_probe.py",
+    "studio_config.py",
     "scripts/deploy_hf_space.py",
+    "scripts/needs_hf_upload.py",
     "scripts/check_project.py",
     "scripts/load_test.py",
     "scripts/manage.py",
@@ -79,15 +81,16 @@ def probe_login(database_url: str, secret: str) -> str:
 
 
 def run_browser_check(port: int) -> None:
-    workdir = tempfile.mkdtemp(prefix="erickson-check-")
+    workdir = tempfile.mkdtemp(prefix="studio-check-")
     env = os.environ.copy()
     # An empty key stops web_app from loading the real one from .env, so screenshots never call (or use up) the model.
     env["OPENAI_API_KEY"] = ""
-    env["ERICKSON_INBROWSER"] = "0"
+    env["STUDIO_INBROWSER"] = "0"
+    env["GRADIO_SERVER_NAME"] = "127.0.0.1"
     env["GRADIO_SERVER_PORT"] = str(port)
     env["DATABASE_URL"] = f"sqlite:///{workdir}/check.db"
-    env["ERICKSON_SECRET_KEY"] = secrets.token_hex(32)
-    cookie = probe_login(env["DATABASE_URL"], env["ERICKSON_SECRET_KEY"])
+    env["STUDIO_SECRET_KEY"] = secrets.token_hex(32)
+    cookie = probe_login(env["DATABASE_URL"], env["STUDIO_SECRET_KEY"])
     proc = subprocess.Popen(
         [sys.executable, "web_app.py"],
         cwd=ROOT,
@@ -99,7 +102,7 @@ def run_browser_check(port: int) -> None:
     try:
         url = f"http://127.0.0.1:{port}"
         wait_for_url(url)
-        run([sys.executable, "manual_ui_probe.py", "--url", url, "--out-dir", "/private/tmp/erickson-check", "--cookie", cookie])
+        run([sys.executable, "manual_ui_probe.py", "--url", url, "--out-dir", "/private/tmp/studio-check", "--cookie", cookie])
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -122,7 +125,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8787, help="Port for browser checks.")
     args = parser.parse_args(argv)
 
-    # The launcher first: the tests check its icon, and a fresh checkout has no launcher until it is built.
     if args.launcher:
         compile_launcher()
 

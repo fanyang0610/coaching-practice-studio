@@ -1,6 +1,6 @@
 # Always-on deployment for Render, Fly.io, Railway, Cloud Run or any Docker host.
 # Configure with environment variables (see README): OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL,
-# DATABASE_URL (Postgres), ERICKSON_SECRET_KEY, ERICKSON_ADMIN_EMAIL, ERICKSON_ADMIN_PASSWORD.
+# DATABASE_URL (Postgres), STUDIO_SECRET_KEY, STUDIO_ADMIN_EMAIL, STUDIO_ADMIN_PASSWORD.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \

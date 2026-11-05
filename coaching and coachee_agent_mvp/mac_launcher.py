@@ -5,16 +5,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+from studio_config import LEGACY_NAME, local_path
+
 
 CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-CHROME_PROFILE = "/private/tmp/erickson-coach-chrome-profile"
+CHROME_PROFILE = Path("/private/tmp/studio-coach-chrome-profile")
 LOCAL_URL_RE = re.compile(r"Running on local URL:\s+(https?://\S+)")
 
 
 def chrome_command(url: str) -> list[str]:
+    profile = local_path(CHROME_PROFILE, f"{LEGACY_NAME}-coach-chrome-profile")
     return [
         str(CHROME),
-        f"--user-data-dir={CHROME_PROFILE}",
+        f"--user-data-dir={profile}",
         "--no-first-run",
         "--no-default-browser-check",
         url,
@@ -31,7 +34,7 @@ def open_browser(url: str) -> None:
 
 def launch() -> int:
     env = os.environ.copy()
-    env["ERICKSON_INBROWSER"] = "0"
+    env["STUDIO_INBROWSER"] = "0"
 
     proc = subprocess.Popen(
         [sys.executable, "-u", "app.py"],
