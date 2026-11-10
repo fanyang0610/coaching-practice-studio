@@ -3073,6 +3073,213 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertEqual(again[15], "")
 
 
+class TestInsightControls(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.web, self.store, self.user, self.request = _signed_in()
+        self.secret = "insight-test-secret"
+        self.client = TestClient(self.web.create_app(store=self.store, env={"STUDIO_SECRET_KEY": self.secret}))
+        self.client.cookies.set(accounts.SESSION_COOKIE, accounts.make_session_cookie(self.user, self.secret))
+        # The pre-existing format, without correction metadata or a last-updated stamp.
+        self.legacy = {"strengths": ["Patient", "Curious"], "growth_areas": ["Always avoids silence"],
+                       "coaching_style_insights": "Needs constant direction", "learning_patterns": "Learns by doing"}
+        for module in ("coach", "coachee"):
+            self.store.save_profile(self.user["id"], module, self.legacy)
+
+    def form(self, module="coach", field="strengths", index=0, **extra):
+        from memory import profile_version
+
+        return {"csrf": accounts.csrf_token(self.client.cookies.get(accounts.SESSION_COOKIE), self.secret),
+                "module": module, "field": field, "index": index, "action": "save", "value": "Listens carefully",
+                "version": profile_version(self.store.get_profile(self.user["id"], module)), **extra}
+
+    def test_bilingual_single_edits_removals_refresh_and_history(self):
+        for module, lang, edited in (("coach", "zh", "能耐心听完"), ("coachee", "en", "Listens without interrupting")):
+            with self.subTest(module=module):
+                self.client.cookies.set("studio_lang", lang)
+                session = self.web._open_session(self.user, module, "template", lang)
+                self.store.save_session_result(session["id"], self.user["id"], module,
+                                               card={"next_step": "Keep the original plan"} if module == "coach" else None,
+                                               score=42 if module == "coachee" else None)
+                results = self.store.session_results(self.user["id"], module)
+                before = self.store.get_session(session["id"])
+                editor = self.client.get(f"/account/profile/{module}/strengths/0")
+                self.assertIn("Patient", editor.text)
+                response = self.client.post("/account/profile/item", data=self.form(module, value=edited))
+                self.assertIn(edited, response.text)
+                self.assertIn("洞察已更新" if lang == "zh" else "Insight updated", response.text)
+                self.client.post("/account/profile/item", data=self.form(module, "growth_areas", action="remove"))
+                data = self.store.get_profile(self.user["id"], module)
+                self.assertEqual(data["strengths"], [edited, "Curious"])
+                self.assertEqual(data["growth_areas"], [])
+                page = self.client.get("/account").text
+                self.assertIn(edited, page)
+                # The other role still has its independent, unchanged observations.
+                self.assertEqual(page.count("Always avoids silence"), int(module == "coach"))
+                self.assertEqual(page.count("Patient"), int(module == "coach"))
+                reopened = self.web._restore_session(self.store.get_session(session["id"]), self.user)
+                self.assertEqual(reopened["agent"].user_profile.strengths, [edited, "Curious"])
+                self.assertIn(edited, self.web._memory_ui_updates(reopened["agent"], lang)[0])
+                self.assertEqual(self.store.get_session(session["id"]), before)
+                self.assertEqual(self.store.session_results(self.user["id"], module), results)
+
+    def test_warm_coach_uses_current_profile_in_the_actual_request(self):
+        session = self.web._open_session(self.user, "coach", "template", "zh")
+        self.client.post("/account/profile/item", data=self.form(value="尊重来访者节奏"))
+        self.client.post("/account/profile/item", data=self.form(field="growth_areas", action="remove"))
+        self.client.post("/account/profile/item", data=self.form(field="coaching_style_insights", value="自行决定方向"))
+        current = self.web._ensure_session(session, self.user, "coach", "AI", "中文")
+        current["agent"].mode = "llm"
+        calls = []
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["你想从哪里开始？"], calls)):
+            current["agent"].get_stage_prompt("isolated-fake")
+        prompt = calls[0]["messages"][0]["content"]
+        for text in ("尊重来访者节奏", "自行决定方向", "Curious"):
+            self.assertIn(text, prompt)
+        for text in ("Patient", "Always avoids silence", "Needs constant direction", "Learns by doing"):
+            self.assertNotIn(text, prompt)
+        self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), self.legacy)
+        # Explicitly fresh AI Coach sessions retain their existing topic-only boundary.
+        current["agent"].fresh_start = True
+        with patch("coach_agent._build_client", return_value=_fake_llm_client(["今天聊什么？"], calls)):
+            current["agent"].get_stage_prompt("isolated-fake")
+        self.assertNotIn("尊重来访者节奏", calls[-1]["messages"][0]["content"])
+
+    def test_next_practice_case_uses_current_profile_without_rewriting_the_old_case(self):
+        session = self.web._open_session(self.user, "coachee", "template", "en")
+        old_case = session["agent"].scenario
+        self.client.post("/account/profile/item", data=self.form("coachee", value="Invites reflection"))
+        self.client.post("/account/profile/item", data=self.form("coachee", "growth_areas", action="remove"))
+        session = self.web._ensure_session(session, self.user, "coachee", "AI", "English")
+        self.assertIs(session["agent"].scenario, old_case)
+        # Capture the real case-generation input; a fake JSON completion avoids any model call.
+        agent = CoacheeAgent(mode="llm", language="en", user_profile=self.web._load_profile(self.user["id"], "coachee"))
+        with patch("coachee_agent._build_client"), patch("coachee_agent._json_completion", return_value={}) as completion, \
+                patch("coachee_agent.logger.warning"):
+            agent._ensure_llm_scenario("isolated-fake")
+        prompt = completion.call_args.kwargs["messages"][0]["content"]
+        self.assertIn("Invites reflection", prompt)
+        self.assertNotIn("Patient", prompt)
+        self.assertNotIn("Always avoids silence", prompt)
+        self.assertNotIn("Needs constant direction", prompt)
+
+    def test_later_analysis_keeps_owner_corrections_without_semantic_matching(self):
+        self.client.post("/account/profile/item", data=self.form(value="Waits before reflecting"))
+        self.client.post("/account/profile/item", data=self.form(field="growth_areas", action="remove"))
+        self.client.post("/account/profile/item", data=self.form(field="coaching_style_insights", action="remove"))
+        session = self.web._open_session(self.user, "coach", "template", "en")
+        analysis = {"strengths": ["PATIENT"] + [f"New {i}" for i in range(12)],
+                    "growth_areas": ["Always avoids silence", "Could leave more pauses"], "coaching_style": "Old summary again"}
+        with patch.object(session["agent"], "analyze_session_for_memory", return_value=analysis):
+            self.web._learn_from_session(session, "isolated-fake")
+        data = self.store.get_profile(self.user["id"], "coach")
+        self.assertIn("Waits before reflecting", data["strengths"])
+        self.assertEqual(len(data["strengths"]), MAX_PROFILE_ITEMS)
+        self.assertNotIn("PATIENT", data["strengths"])
+        self.assertEqual(data["growth_areas"], ["Could leave more pauses"])
+        self.assertEqual(data["coaching_style_insights"], "")
+        # Editing then removing a previous replacement must not leave a hidden pinned item.
+        index = data["strengths"].index("Waits before reflecting")
+        self.client.post("/account/profile/item", data=self.form(index=index, value="Checks understanding"))
+        self.client.post("/account/profile/item", data=self.form(index=index, action="remove"))
+        profile = UserProfile.from_dict(self.store.get_profile(self.user["id"], "coach"))
+        merged = merge_analysis(profile, {"strengths": ["Patient", "Waits before reflecting", "Checks understanding"]})
+        self.assertTrue(all(item not in merged.strengths for item in ("Patient", "Waits before reflecting", "Checks understanding")))
+
+    def test_stale_forms_and_late_background_writes_cannot_overwrite_owner(self):
+        stale = self.form()
+        snapshot = self.store.get_profile(self.user["id"], "coach")
+        self.client.post("/account/profile/item", data=self.form(value="Owner's current version"))
+        response = self.client.post("/account/profile/item", data={**stale, "action": "remove"})
+        self.assertIn("changed elsewhere", response.text)
+        from memory import profile_version
+        self.assertFalse(self.store.save_profile(self.user["id"], "coach", snapshot, expected_version=profile_version(snapshot)))
+        self.assertEqual(self.store.get_profile(self.user["id"], "coach")["strengths"][0], "Owner's current version")
+
+    def test_first_profile_insert_reports_success_and_rejects_a_stale_insert(self):
+        from memory import profile_version
+
+        self.store.delete_profiles(self.user["id"])
+        version = profile_version(None)
+        self.assertTrue(self.store.save_profile(self.user["id"], "coach", self.legacy, expected_version=version))
+        self.assertFalse(self.store.save_profile(self.user["id"], "coach", {}, expected_version=version))
+        self.assertEqual(self.store.get_profile(self.user["id"], "coach"), self.legacy)
+
+    def test_race_between_background_read_and_save_keeps_owner_change(self):
+        session = self.web._open_session(self.user, "coach", "template", "en")
+        real_save = self.store.save_profile
+
+        def raced_save(*args, **kwargs):
+            if "expected_version" in kwargs:
+                with patch.object(self.store, "save_profile", side_effect=real_save):
+                    self.client.post("/account/profile/item", data=self.form(value="Owner wins"))
+            return real_save(*args, **kwargs)
+
+        with patch.object(session["agent"], "analyze_session_for_memory", return_value={"strengths": ["Late analysis"]}), \
+                patch.object(self.store, "save_profile", side_effect=raced_save):
+            self.web._learn_from_session(session, "isolated-fake")
+        self.assertEqual(session["agent"].user_profile.strengths, ["Owner wins", "Curious"])
+        self.assertNotIn("Late analysis", self.client.get("/account").text)
+
+    def test_save_failure_keeps_saved_content_and_the_unsaved_edit(self):
+        from sqlalchemy.exc import OperationalError
+
+        before = self.store.get_profile(self.user["id"], "coach")
+        for action in ("save", "remove"):
+            with self.subTest(action=action), patch.object(self.store, "save_profile", side_effect=OperationalError("isolated failure", {}, None)), \
+                    self.assertLogs("coaching_studio", level="ERROR"):
+                response = self.client.post("/account/profile/item", data=self.form(action=action, value="Unsaved draft"))
+            self.assertIn("Could not save", response.text)
+            self.assertNotIn("Insight updated.", response.text)
+            self.assertIn("Unsaved draft" if action == "save" else "Patient", response.text)
+            self.assertEqual(self.store.get_profile(self.user["id"], "coach"), before)
+
+    def test_account_role_form_and_content_validation(self):
+        from fastapi.testclient import TestClient
+
+        before = self.store.get_profile(self.user["id"], "coach")
+        for form in (self.form(csrf="wrong"), self.form(module="invalid"), self.form(field="session_count"),
+                     self.form(index=-1), self.form(index=99), self.form(value=" "), self.form(value="x" * 2001),
+                     self.form(value="Curious"), self.form(field="learning_patterns")):
+            response = self.client.post("/account/profile/item", data=form)
+            self.assertEqual(self.store.get_profile(self.user["id"], "coach"), before)
+        for role in ("user", "trainer", "admin"):
+            uid = self.store.create_user(f"{role}@other.test", "Other", "x", role=role)
+            client = TestClient(self.client.app)
+            client.cookies.set(accounts.SESSION_COOKIE, accounts.make_session_cookie(self.store.get_user(uid), self.secret))
+            response = client.get("/account/profile/coach/strengths/0")
+            self.assertEqual(response.status_code, 403)
+            client.post("/account/profile/item", data=self.form())
+            self.assertEqual(self.store.get_profile(self.user["id"], "coach"), before)
+        anonymous = TestClient(self.client.app)
+        self.assertEqual(anonymous.get("/account/profile/coach/strengths/0", follow_redirects=False).status_code, 303)
+        self.client.post("/account/profile/item", data=self.form(value='<script>alert("x")</script>'))
+        self.assertIn("&lt;script&gt;", self.client.get("/account").text)
+
+    def test_transaction_failure_rolls_back_without_a_success_notice(self):
+        before = self.store.get_profile(self.user["id"], "coach")
+        with self.store.engine.begin() as conn:
+            conn.exec_driver_sql("CREATE TRIGGER reject_profile BEFORE UPDATE ON profiles "
+                                 "BEGIN SELECT RAISE(ABORT, 'isolated save failure'); END")
+        with self.assertLogs("coaching_studio", level="ERROR"):
+            response = self.client.post("/account/profile/item", data=self.form(value="Unsaved draft"))
+        self.assertIn("Could not save", response.text)
+        self.assertIn("Unsaved draft", response.text)
+        self.assertEqual(self.store.get_profile(self.user["id"], "coach"), before)
+
+    def test_clear_all_is_versioned_and_does_not_resurrect_removed_wording(self):
+        form = self.form()
+        response = self.client.post("/account/profile/reset", data=form)
+        self.assertIn("Insights cleared", response.text)
+        profile = UserProfile.from_dict(self.store.get_profile(self.user["id"], "coach"))
+        merged = merge_analysis(profile, {"strengths": ["Patient", "Curious"], "growth_areas": ["Always avoids silence"],
+                                          "coaching_style": "Needs constant direction"})
+        self.assertEqual((merged.strengths, merged.growth_areas, merged.coaching_style_insights), ([], [], ""))
+        self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), self.legacy)
+        self.assertIn("changed elsewhere", self.client.post("/account/profile/reset", data=form).text)
+
+
 class TestActionCardRecovery(unittest.TestCase):
     """Missing cards recover from an immutable dialogue, with owner and version checks."""
 

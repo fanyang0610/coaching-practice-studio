@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from sqlalchemy.exc import SQLAlchemyError
 
 import accounts
 import db
@@ -31,6 +32,7 @@ from coaching_core import CoachingState
 from coachee_agent import can_retry_review
 from coach_agent import ACTION_CARD_FIELDS, can_recover_action_card
 from studio_config import LANG_COOKIE, LEGACY_LANG_COOKIE
+from memory import MAX_INSIGHT_CHARS, PROFILE_FIELDS, UserProfile, change_insight, profile_items, profile_version
 from web_assets import STAGE_NAMES, tts_js
 
 
@@ -110,6 +112,18 @@ T = {
         "growth": "Areas for challenge",
         "reset_insights": "Clear these insights",
         "insights_cleared": "Insights cleared.",
+        "edit_insight": "Edit insight",
+        "remove_insight": "Remove",
+        "insight_saved": "Insight updated.",
+        "insight_removed": "Insight removed.",
+        "insight_failed": "Could not save this change. Your saved insights are unchanged. Please try again.",
+        "insight_conflict": "These insights changed elsewhere. Check the current content before trying again.",
+        "insight_invalid": "Use a non-empty insight of up to 2,000 characters, different from the other items in this section.",
+        "insight_hint": "Your edits are kept for future practice. Removed wording won't be added back automatically; similar wording may still appear as a new observation.",
+        "coaching_style_insights": "Approach",
+        "learning_patterns": "Learning patterns",
+        "growth_areas": "Areas for challenge",
+        "cancel_insight": "Back to insights",
         "change_password": "Change password",
         "your_data": "Your data",
         "export": "Download my data (JSON)",
@@ -353,6 +367,18 @@ T = {
         "growth": "建议挑战的领域",
         "reset_insights": "清除这些洞察",
         "insights_cleared": "洞察已清除。",
+        "edit_insight": "编辑洞察",
+        "remove_insight": "移除",
+        "insight_saved": "洞察已更新。",
+        "insight_removed": "洞察已移除。",
+        "insight_failed": "未能保存这次修改，已保存的洞察保持不变，请重试。",
+        "insight_conflict": "洞察已在别处改动，请核对当前内容后重试。",
+        "insight_invalid": "请输入不超过 2,000 字符的非空洞察，且不要与同类其他条目重复。",
+        "insight_hint": "你的修改会保留供后续练习使用。已移除的原文不会自动加回，近义表述仍可能作为新观察出现。",
+        "coaching_style_insights": "思考方式",
+        "learning_patterns": "学习方式",
+        "growth_areas": "挑战方向",
+        "cancel_insight": "返回洞察",
         "change_password": "修改密码",
         "your_data": "你的数据",
         "export": "下载我的数据（JSON）",
@@ -553,10 +579,11 @@ h2 { font-size:18px; font-weight:800; line-height:1.25; margin:0 0 12px; }
 .eyebrow { font-size:12px; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:4px; }
 .muted, .hint { color:var(--muted); font-size:14px; }
 label { display:block; font-weight:700; font-size:14px; margin:12px 0 6px; }
-input[type=text], input[type=email], input[type=password], input[type=number], select {
+input[type=text], input[type=email], input[type=password], input[type=number], select, textarea {
   width:100%; min-height:44px; padding:10px 14px; border:1px solid var(--border); border-radius:14px; font:inherit;
   background:var(--paper); color:var(--ink); }
-input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline:3px solid rgba(25,121,186,0.35); outline-offset:2px; }
+textarea { resize:vertical; min-height:130px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline:3px solid rgba(25,121,186,0.35); outline-offset:2px; }
 .check { display:flex; gap:10px; align-items:flex-start; font-weight:500; }
 .check input { margin-top:4px; width:18px; height:18px; flex:0 0 auto; }
 button, .button { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 18px;
@@ -1171,15 +1198,42 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 
     def profile_block(lang: str, module: str, data: dict | None, request: Request) -> str:
         heading = T[lang]["module_coachee" if module == "coachee" else "module_coach"]
-        if not data or not (data.get("strengths") or data.get("growth_areas")):
+        profile = UserProfile.from_dict(data)
+        sections = []
+        for name in PROFILE_FIELDS[module]:
+            rows = []
+            for index, item in enumerate(profile_items(profile, name)):
+                hidden = profile_form_fields(request, module, name, index, data)
+                rows.append(f'''<div class="row"><div class="main title">{_e(item)}</div><div class="actions">
+<a class="button secondary" href="/account/profile/{module}/{name}/{index}">{_e(T[lang]['edit_insight'])}</a>
+<form method="post" action="/account/profile/item" class="inline">{hidden}
+<button class="quiet danger" name="action" value="remove" type="submit">{_e(T[lang]['remove_insight'])}</button></form></div></div>''')
+            if rows:
+                sections.append(f'<h3>{_e(T[lang][name])}</h3><div class="list">{"".join(rows)}</div>')
+        if not sections:
             return f'<div><div class="eyebrow">{_e(heading)}</div><p class="muted">{_e(T[lang]["no_insights"])}</p></div>'
-        strengths = "".join(f"<li>{_e(item)}</li>" for item in data.get("strengths", []))
-        growth = "".join(f"<li>{_e(item)}</li>" for item in data.get("growth_areas", []))
         return f"""<div><div class="eyebrow">{_e(heading)}</div>
-<b>{_e(T[lang]['strengths'])}</b><ul class="tight">{strengths}</ul>
-<b>{_e(T[lang]['growth'])}</b><ul class="tight">{growth}</ul>
+{''.join(sections)}
 <form method="post" action="/account/profile/reset" class="inline">{csrf_field(request)}<input type="hidden" name="module" value="{module}">
+<input type="hidden" name="version" value="{profile_version(data)}">
 <button class="quiet" type="submit">{_e(T[lang]['reset_insights'])}</button></form></div>"""
+
+    def profile_form_fields(request, module, name, index, data):
+        return f'''{csrf_field(request)}<input type="hidden" name="module" value="{module}">
+<input type="hidden" name="field" value="{name}"><input type="hidden" name="index" value="{index}">
+<input type="hidden" name="version" value="{profile_version(data)}">'''
+
+    def profile_editor(request, user, module, name, index, data, value, flash=None):
+        lang = page_lang(request)
+        heading = T[lang]["module_coachee" if module == "coachee" else "module_coach"]
+        body = f'''<div class="card narrow"><div class="eyebrow">{_e(heading)}</div><h1>{_e(T[lang]['edit_insight'])}</h1>
+<form method="post" action="/account/profile/item">{profile_form_fields(request, module, name, index, data)}
+<label for="insight-value">{_e(T[lang][name])}</label>
+<textarea id="insight-value" name="value" maxlength="{MAX_INSIGHT_CHARS}" required>{_e(value)}</textarea>
+<div class="actions"><button name="action" value="save" type="submit">{_e(T[lang]['save'])}</button>
+<button class="quiet danger" name="action" value="remove" type="submit" formnovalidate>{_e(T[lang]['remove_insight'])}</button>
+<a class="button secondary" href="/account#insights">{_e(T[lang]['cancel_insight'])}</a></div></form></div>'''
+        return render(request, lang, T[lang]["edit_insight"], body, user=user, flash=flash, current="account")
 
     def progress_cards(lang: str, user_id: int) -> str:
         """Recent action cards and practice scores: what someone takes away from their sessions."""
@@ -1235,7 +1289,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
 {progress_cards(lang, user["id"])}
 <div class="card"><h2>{_e(T[lang]['my_sessions'])}</h2><div class="list">{sessions_html}</div></div>
-<div class="card"><h2>{_e(T[lang]['insights'])}</h2><div class="grid2">
+<div class="card" id="insights"><h2>{_e(T[lang]['insights'])}</h2><p class="hint">{_e(T[lang]['insight_hint'])}</p><div class="grid2">
 {profile_block(lang, 'coach', store.get_profile(user['id'], 'coach'), request)}
 {profile_block(lang, 'coachee', store.get_profile(user['id'], 'coachee'), request)}</div></div>
 <div class="grid2"><div class="card"><h2>{_e(T[lang]['change_password'])}</h2>
@@ -1259,7 +1313,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         if not user:
             return login_redirect(request)
         flash_key = request.query_params.get("done")
-        flash = ("ok", T[page_lang(request)][flash_key]) if flash_key in ("password_changed", "insights_cleared", "session_deleted") else None
+        flash = ("ok", T[page_lang(request)][flash_key]) if flash_key in ("password_changed", "insights_cleared", "session_deleted", "insight_saved", "insight_removed") else None
         return account_page(request, user, flash)
 
     @router.post("/account/password")
@@ -1278,14 +1332,76 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         store.log(user["id"], "password_changed", target_user_id=user["id"])
         return set_login(RedirectResponse("/account?done=password_changed", status_code=303), store.get_user(user["id"]))
 
-    @router.post("/account/profile/reset")
-    def reset_profile(request: Request, csrf: str = Form(""), module: str = Form("")):
+    @router.get("/account/profile/{module}/{field}/{index}")
+    def edit_profile_item(request: Request, module: str, field: str, index: int):
+        user = checked_user(request)
+        if not user:
+            return login_redirect(request)
+        if field not in PROFILE_FIELDS.get(module, ()):
+            return forbidden(request, page_lang(request), user)
+        data = get_store().get_profile(user["id"], module)
+        items = profile_items(UserProfile.from_dict(data), field)
+        if not 0 <= index < len(items):
+            return forbidden(request, page_lang(request), user)
+        return profile_editor(request, user, module, field, index, data, items[index])
+
+    @router.post("/account/profile/item")
+    def save_profile_item(request: Request, csrf: str = Form(""), module: str = Form(""), field: str = Form(""),
+                          index: int = Form(-1), version: str = Form(""), value: str = Form(""), action: str = Form("")):
         user = checked_user(request, csrf)
         if not user:
             return login_redirect(request)
-        if module in ("coach", "coachee"):
-            get_store().save_profile(user["id"], module, {})
-        return RedirectResponse("/account?done=insights_cleared", status_code=303)
+        lang = page_lang(request)
+        if field not in PROFILE_FIELDS.get(module, ()) or action not in ("save", "remove"):
+            return forbidden(request, lang, user)
+        store = get_store()
+        data = store.get_profile(user["id"], module)
+        profile = UserProfile.from_dict(data)
+        items = profile_items(profile, field)
+        if version != profile_version(data):
+            return account_page(request, user, ("error", T[lang]["insight_conflict"]))
+        if not 0 <= index < len(items):
+            return forbidden(request, lang, user)
+        value = value.strip()
+        if action == "save" and (not value or len(value) > MAX_INSIGHT_CHARS or any(
+                other.casefold() == value.casefold() for i, other in enumerate(items) if i != index)):
+            return profile_editor(request, user, module, field, index, data, value, ("error", T[lang]["insight_invalid"]))
+        updated = change_insight(profile, field, index, value if action == "save" else "")
+        try:
+            saved = store.save_profile(user["id"], module, updated.to_dict(), expected_version=version)
+        except SQLAlchemyError:
+            logging.getLogger("coaching_studio").exception("Saving an owner insight change failed")
+            return profile_editor(request, user, module, field, index, data, value if action == "save" else items[index],
+                                  ("error", T[lang]["insight_failed"]))
+        if not saved:
+            return account_page(request, user, ("error", T[lang]["insight_conflict"]))
+        done = "insight_saved" if action == "save" else "insight_removed"
+        return RedirectResponse(f"/account?done={done}#insights", status_code=303)
+
+    @router.post("/account/profile/reset")
+    def reset_profile(request: Request, csrf: str = Form(""), module: str = Form(""), version: str = Form("")):
+        user = checked_user(request, csrf)
+        if not user:
+            return login_redirect(request)
+        lang = page_lang(request)
+        if module not in PROFILE_FIELDS:
+            return forbidden(request, lang, user)
+        store = get_store()
+        data = store.get_profile(user["id"], module)
+        if version != profile_version(data):
+            return account_page(request, user, ("error", T[lang]["insight_conflict"]))
+        profile = UserProfile.from_dict(data)
+        for name in PROFILE_FIELDS[module]:
+            for index in reversed(range(len(profile_items(profile, name)))):
+                profile = change_insight(profile, name, index, "")
+        try:
+            saved = store.save_profile(user["id"], module, profile.to_dict(), expected_version=version)
+        except SQLAlchemyError:
+            logging.getLogger("coaching_studio").exception("Clearing owner insights failed")
+            return account_page(request, user, ("error", T[lang]["insight_failed"]))
+        if not saved:
+            return account_page(request, user, ("error", T[lang]["insight_conflict"]))
+        return RedirectResponse("/account?done=insights_cleared#insights", status_code=303)
 
     @router.post("/account/sessions/{session_id}/share")
     def share_session(request: Request, session_id: str, csrf: str = Form(""), shared: str = Form("")):

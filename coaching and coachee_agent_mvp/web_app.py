@@ -29,7 +29,7 @@ from coaching_core import CoachingState
 from coachee_agent import CoacheeAgent, review_score
 import db
 import mailer
-from memory import UserProfile, merge_analysis
+from memory import UserProfile, merge_analysis, profile_version
 import quota
 import safety
 from studio_config import LEGACY_NAME, local_path, studio_env
@@ -119,7 +119,6 @@ LLM_EVENT = {"concurrency_id": "llm", "concurrency_limit": LLM_CONCURRENCY, "api
 
 _agent_locks: "weakref.WeakKeyDictionary[object, threading.Lock]" = weakref.WeakKeyDictionary()
 _agent_locks_guard = threading.Lock()
-_profile_lock = threading.Lock()
 _message_limiter = quota.MessageRateLimiter()
 
 _store: db.Store | None = None
@@ -301,7 +300,7 @@ def _chat_history_from_context(agent, session_id: str | None = None) -> list[dic
 def _memory_ui_updates(agent, lang_code: str):
     s = UI[lang_code]
     p = agent.user_profile
-    if not p or not p.last_updated:
+    if not p or not (p.last_updated or p.strengths or p.growth_areas or p.coaching_style_insights or p.learning_patterns):
         return (
             f"**{s['memory_strengths']}**\n\n{s['memory_no_data']}",
             f"**{s['memory_growth']}**\n\n- ",
@@ -311,10 +310,12 @@ def _memory_ui_updates(agent, lang_code: str):
     strengths = "\n".join([f"- {i}" for i in p.strengths]) if p.strengths else "- "
     growth = "\n".join([f"- {i}" for i in p.growth_areas]) if p.growth_areas else "- "
     
+    summary = p.coaching_style_insights if isinstance(agent, CoachAgent) else p.learning_patterns
     return (
-        f"**{s['memory_strengths']}**\n\n{strengths}",
+        (f"{summary}\n\n" if summary else "") + f"**{s['memory_strengths']}**\n\n{strengths}",
         f"**{s['memory_growth']}**\n\n{growth}",
-        f"*{s['memory_last_sync']}: {p.last_updated}*"
+        f"*{s['memory_last_sync']}: {p.last_updated or s['memory_never']}* · [" +
+        ("管理洞察" if lang_code == "zh" else "Manage insights") + "](/account#insights)"
     )
 
 
@@ -634,7 +635,9 @@ def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel:
         return _resume_mode(user, _safe_module(module_sel), _safe_mode(mode_sel), _safe_lang(lang_sel))
     if not session.get("id"):
         return session
-    return _reload_if_changed(session, user, session["agent"].language)
+    session = _reload_if_changed(session, user, session["agent"].language)
+    session["agent"].user_profile = _load_profile(user["id"], session["module"])
+    return session
 
 
 def _append_opening_prompt(agent):
@@ -763,10 +766,11 @@ def _learn_from_session(session: dict, api_key: str):
         if not analysis:
             return
         store = get_store()
-        with _profile_lock:
-            profile = merge_analysis(_load_profile(session["user_id"], session["module"]), analysis)
-            store.save_profile(session["user_id"], session["module"], profile.to_dict())
-        agent.user_profile = profile
+        data = store.get_profile(session["user_id"], session["module"])
+        profile = merge_analysis(UserProfile.from_dict(data), analysis)
+        # A concurrent owner edit wins; a late analysis must never replace it.
+        store.save_profile(session["user_id"], session["module"], profile.to_dict(), expected_version=profile_version(data))
+        agent.user_profile = _load_profile(session["user_id"], session["module"])
     except Exception:
         logger.exception("Updating the user profile from a finished session failed")
 

@@ -570,13 +570,28 @@ class Store:
         row = self._one(sa.select(profiles).where(profiles.c.user_id == user_id, profiles.c.module == module))
         return json.loads(row["data"]) if row else None
 
-    def save_profile(self, user_id: int, module: str, data: dict) -> None:
+    def save_profile(self, user_id: int, module: str, data: dict, *, expected_version: str | None = None) -> bool:
+        from memory import profile_version
+
         payload = json.dumps(data, ensure_ascii=False)
         with self.engine.begin() as conn:
+            scope = (profiles.c.user_id == user_id, profiles.c.module == module)
+            if expected_version is not None:
+                row = conn.execute(sa.select(profiles.c.data).where(*scope)).first()
+                if profile_version(json.loads(row.data) if row else None) != expected_version:
+                    return False
+                if row:
+                    return conn.execute(profiles.update().where(*scope, profiles.c.data == row.data)
+                                        .values(data=payload, updated_at=utcnow())).rowcount == 1
+                insert = sqlite.insert if self.is_sqlite else postgresql.insert
+                return conn.execute(insert(profiles).values(user_id=user_id, module=module, data=payload, updated_at=utcnow())
+                                    .on_conflict_do_nothing(index_elements=[profiles.c.user_id, profiles.c.module])
+                                    .returning(profiles.c.user_id)).scalar_one_or_none() is not None
             updated = conn.execute(profiles.update().where(profiles.c.user_id == user_id, profiles.c.module == module)
                                    .values(data=payload, updated_at=utcnow())).rowcount
             if not updated:
                 conn.execute(profiles.insert().values(user_id=user_id, module=module, data=payload, updated_at=utcnow()))
+            return True
 
     def delete_profiles(self, user_id: int) -> None:
         with self.engine.begin() as conn:
