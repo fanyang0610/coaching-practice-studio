@@ -43,6 +43,7 @@ T = {
         "independent": "An independent, free practice tool. Not affiliated with any coaching school or certification body.",
         "back_to_app": "Back to coaching",
         "account": "Account",
+        "account_settings": "Account settings",
         "trainer": "Mentor",
         "admin": "Admin",
         "privacy": "Privacy",
@@ -264,7 +265,7 @@ T = {
         "help_faq_title": "Questions",
         "voices_link": "Read-aloud voices: hear the voice your device will use",
         "voices_title": "Read-aloud voices",
-        "voices_intro": "Read-aloud uses the voices your browser and device already have, so there is nothing to install. For each setting, the app picks the most natural one. Tap Listen to hear it.",
+        "voices_intro": "Read-aloud uses the voices your browser and device already have, so there is nothing to install. The app picks a voice for the conversation language. Tap Listen to hear it.",
         "voices_iphone": "On iPhone and iPad, websites can only use Apple's basic voices (voices downloaded in the Settings app aren't available to them), so read-aloud sounds plain there.",
         "voices_online_note": "Online voice. If it can't be reached (in mainland China without a VPN, for one), the device's own voice is used.",
         "voices_choice": "The voices on this device",
@@ -275,12 +276,11 @@ T = {
         "voices_online": "online",
         "voices_default": "the browser's default voice",
         "voices_loading": "Checking…",
-        "voices_no_male": "No natural male voice on this device, so a female voice is used.",
         "help_faq": [
             ["I forgot my password.", "Ask the person who invited you to send you a reset link."],
             ["Who can see my conversations?", "Only you. If you have a mentor, they can see your AI Coachee Lab practice, plus any AI Coach session you choose to share. The app admin can't open your conversations. The privacy page has the details."],
             ["The microphone doesn't work.", "Voice input depends on your browser. Safari works well. In some regions Chrome's voice service is blocked. You can always type instead."],
-            ["The read-aloud voice sounds robotic.", "Read-aloud uses the voices your browser offers, and the app picks the best one. On iPhone and iPad, browsers only let websites use Apple's basic voices (voices you download in the device's Settings app aren't available to websites), so read-aloud sounds plain there. On a computer, Chrome has Google's more natural voices (they don't work in mainland China without a VPN; the app then uses the computer's own voice). If a device has no natural male voice for the language, a female voice is used. The Read-aloud voices page below lets you hear the voice your device will use."],
+            ["The read-aloud voice sounds robotic.", "Read-aloud uses the voices your browser offers, and the app picks the best one. On iPhone and iPad, browsers only let websites use Apple's basic voices (voices you download in the device's Settings app aren't available to websites), so read-aloud sounds plain there. On a computer, Chrome has Google's more natural voices (they don't work in mainland China without a VPN; the app then uses the computer's own voice). The Read-aloud voices page below lets you hear the voice your device will use."],
             ["The page won't load.", "The server may be waking up: wait a minute, then refresh. If it still won't open, your network may be blocking the server. Try another network or a VPN."],
             ["Is this therapy?", "No. This is a coaching practice tool. If you are in crisis, call your local emergency number. In mainland China, call 12356 (the national psychological help line), or 120 or 110 in an emergency. Elsewhere, findahelpline.com lists free helplines."],
         ],
@@ -310,6 +310,7 @@ T = {
         "independent": "独立、免费的教练练习工具，与任何教练学校或认证机构均无关联。",
         "back_to_app": "返回教练对话",
         "account": "账户",
+        "account_settings": "账户设置",
         "trainer": "导师",
         "admin": "管理",
         "privacy": "隐私",
@@ -531,7 +532,7 @@ T = {
         "help_faq_title": "常见问题",
         "voices_link": "朗读声音：试听你的设备会用的声音",
         "voices_title": "朗读声音",
-        "voices_intro": "朗读使用的是浏览器和设备自带的声音，不需要安装任何东西。每种设置下，应用会自动选出最自然的一个。点“试听”可以听一听。",
+        "voices_intro": "朗读使用的是浏览器和设备自带的声音，不需要安装任何东西。应用会按对话语言自动选择声音。点“试听”可以听一听。",
         "voices_iphone": "在 iPhone 和 iPad 上，网页只能使用苹果的基础声音（在“设置”App 里下载的声音，网页用不了），所以朗读听起来比较平淡。",
         "voices_online_note": "在线声音。连不上时（例如在中国大陆不用 VPN），会改用设备自带的声音。",
         "voices_choice": "这台设备会用的声音",
@@ -542,12 +543,11 @@ T = {
         "voices_online": "在线",
         "voices_default": "浏览器默认声音",
         "voices_loading": "检查中…",
-        "voices_no_male": "这台设备没有自然的男声，改用女声",
         "help_faq": [
             ["忘记密码怎么办？", "请联系邀请你的人，让对方给你发送重置链接。"],
             ["谁能看到我的对话？", "只有你本人。如果你有导师，导师可以看到你的 AI学员陪练 练习，以及你主动分享的 AI教练 会话。应用管理员无法打开你的对话。详情见隐私页面。"],
             ["麦克风用不了。", "语音输入取决于你的浏览器。Safari 效果很好；在部分地区，Chrome 的语音服务无法使用。你随时可以改为打字。"],
-            ["朗读的声音很机械。", "朗读使用的是浏览器提供的声音，应用会自动选出其中最好的一个。在 iPhone 和 iPad 上，浏览器只允许网页使用苹果的基础声音（在手机“设置”App 里下载的声音，网页用不了），所以朗读听起来比较平淡。电脑上的 Chrome 带有 Google 的声音，听起来更自然（在中国大陆不用 VPN 时无法使用，应用会自动改用电脑自带的声音）。如果设备上没有这种语言的自然男声，会用女声朗读。下面的“朗读声音”页面可以试听你的设备会用的声音。"],
+            ["朗读的声音很机械。", "朗读使用的是浏览器提供的声音，应用会自动选出其中最好的一个。在 iPhone 和 iPad 上，浏览器只允许网页使用苹果的基础声音（在手机“设置”App 里下载的声音，网页用不了），所以朗读听起来比较平淡。电脑上的 Chrome 带有 Google 的声音，听起来更自然（在中国大陆不用 VPN 时无法使用，应用会自动改用电脑自带的声音）。下面的“朗读声音”页面可以试听你的设备会用的声音。"],
             ["页面打不开。", "服务器可能正在唤醒：请等一分钟后刷新。如果仍然打不开，可能是你的网络无法访问服务器，请换一个网络或使用 VPN。"],
             ["这是心理治疗吗？", "不是。这是一个教练练习工具。如果你正处于危机中，请拨打当地紧急电话。在中国大陆，可拨打全国统一心理援助热线 12356，紧急情况请拨打 120 或 110。其他国家和地区可在 findahelpline.com 找到免费求助热线。"],
         ],
@@ -597,6 +597,15 @@ nav a { color:var(--deep); text-decoration:none; font-weight:700; font-size:14px
   background:var(--mist); border:1px solid var(--border); }
 nav a.current { background:var(--tint); border-color:#b9d3ea; }
 .card { background:var(--paper); border-radius:20px; padding:20px; box-shadow:0 16px 36px rgba(17,73,119,0.10); margin-bottom:16px; }
+.card.disclosure { padding:0; }
+.disclosure > summary { padding:18px 20px; min-height:56px; cursor:pointer; color:var(--deep); border-radius:20px; }
+.disclosure > summary::marker { color:var(--muted); font-size:14px; }
+.disclosure > summary h2 { display:inline; margin:0; color:var(--ink); }
+.disclosure > summary:hover { background:var(--mist); }
+.disclosure > summary:focus-visible { outline:3px solid rgba(25,121,186,0.35); outline-offset:2px; }
+.disclosure-body { padding:0 20px 20px; }
+.disclosure-body > :last-child { margin-bottom:0; }
+.grid2:has(> .disclosure) { align-items:start; }
 .narrow { max-width:460px; margin:4vh auto 0; }
 h1 { font-size:24px; font-weight:800; letter-spacing:-0.01em; line-height:1.2; margin:0 0 6px; }
 h2 { font-size:18px; font-weight:800; line-height:1.25; margin:0 0 12px; }
@@ -656,12 +665,36 @@ ul.tight { margin:6px 0 0; padding-left:1.2em; }
 @media (max-width: 767px) {
   .shell { padding:12px 12px max(20px, env(safe-area-inset-bottom)); }
   .card { padding:16px; border-radius:18px; }
+  .disclosure > summary { padding:16px; border-radius:18px; }
+  .disclosure-body { padding:0 16px 16px; }
   .grid2 { grid-template-columns:minmax(0, 1fr); }
   .fields { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .fields.three { grid-template-columns:minmax(0, 1fr); }
   .transcript .msg { max-width:92%; }
 }
 """
+
+
+DISCLOSURE_JS = """<script>
+(() => {
+  const reveal = () => {
+    const target = document.getElementById(location.hash.slice(1));
+    if (!target) return;
+    for (let node = target; node; node = node.parentElement) {
+      if (node.tagName === "DETAILS") node.open = true;
+    }
+    target.scrollIntoView({block: "start"});
+  };
+  window.addEventListener("hashchange", reveal);
+  reveal();
+})();
+</script>"""
+
+
+def disclosure(title: str, body: str, *, element_id: str, opened: bool = False) -> str:
+    return (f'<details class="card disclosure" id="{_e(element_id)}"{" open" if opened else ""}>'
+            f'<summary><h2 id="{_e(element_id)}-label">{_e(title)}</h2></summary>'
+            f'<div class="disclosure-body">{body}</div></details>')
 
 
 @dataclass
@@ -796,7 +829,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <link rel="icon" type="image/png" href="/icons/studio-icon-192.png"><link rel="apple-touch-icon" href="/icons/studio-icon-180.png">
 <style>{CSS}</style></head><body><main class="shell">
 <header class="bar"><a class="brand" href="/"><img src="/icons/studio-icon-192.png" alt="">{_e(T[lang]['brand'])}</a>{nav}</header>
-{flash_html}{body}{switch}</main>{LOCAL_TIME_JS}</body></html>"""
+{flash_html}{body}{switch}</main>{LOCAL_TIME_JS}{DISCLOSURE_JS}</body></html>"""
         response = HTMLResponse(page, status_code=status_code)
         if request.query_params.get("lang") in ("en", "zh"):
             response.set_cookie(LANG_COOKIE, lang, max_age=365 * 86400, samesite="lax", secure=settings.secure_cookies)
@@ -1102,14 +1135,14 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 
     @router.get("/voices")
     def voices_page(request: Request):
-        """The voice the app uses on this device for each setting, with a Listen button, and why it sounds as it does.
+        """The voice the app uses on this device for each language, with a Listen button, and why it sounds as it does.
         Public, like Help: it shows only the visitor's own browser. ?details=1 also lists every voice the browser offers,
         for troubleshooting (built when Fan heard no change on an iPhone; too technical to show everyone)."""
         lang = page_lang(request)
         user = current_user(request, get_store(), settings.secret)
         details = request.query_params.get("details") == "1"
         words = {key: T[lang][key] for key in ("voices_listen", "voices_none", "voices_device", "voices_online",
-                                                "voices_default", "voices_all", "voices_no_male", "voices_online_note")}
+                                                "voices_default", "voices_all", "voices_online_note")}
         body = f"""<div class="card"><h1>{_e(T[lang]['voices_title'])}</h1><p class="hint">{_e(T[lang]['voices_intro'])}</p>
 <p class="hint" id="voice-iphone" hidden>{_e(T[lang]['voices_iphone'])}</p>
 <h2>{_e(T[lang]['voices_choice'])}</h2><div id="voice-choice" class="list"><p class="muted">{_e(T[lang]['voices_loading'])}</p></div></div>
@@ -1119,8 +1152,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
   const words = {json.dumps(words, ensure_ascii=False)};
   const tts = ({tts_js});
   const synth = window.speechSynthesis;
-  const settings = [["中文", "女声", "中文 · 女声"], ["中文", "男声", "中文 · 男声"], ["English", "Female", "English · Female"],
-                    ["English", "Male", "English · Male"]];
+  const languages = ["中文", "English"];
   const samples = {{"中文": "你好。今天这次谈话，你最希望有什么收获？", "English": "Hi. What would you like to get from our conversation today?"}};
   const escape = (text) => String(text).replace(/[&<>"]/g, (c) => ({{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}})[c]);
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1134,39 +1166,37 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
   if (!synth) {{ choice.innerHTML = '<p class="muted">' + escape(words.voices_none) + "</p>"; return; }}
 
   // Which voice the app's own read-aloud code would use: run it with speaking switched off.
-  const pick = async (langLabel, preference) => {{
+  const pick = async (langLabel) => {{
     const speak = synth.speak, cancel = synth.cancel;
     let chosen;
-    window.__ttsVoiceIsMale = false;
     synth.speak = (utterance) => {{ if (chosen === undefined) chosen = utterance.voice || null; }};
     synth.cancel = () => {{}};
     window.__ttsFallbackMs = 600000;
-    tts("check" + Math.random() + "|||" + samples[langLabel], true, preference, langLabel);
+    tts("check" + Math.random() + "|||" + samples[langLabel], true, langLabel);
     await sleep(250);
     window.__ttsRun = null;
     delete window.__ttsFallbackMs;
     synth.speak = speak;
     synth.cancel = cancel;
-    return {{ voice: chosen, male: window.__ttsVoiceIsMale }};
+    return chosen;
   }};
 
   (async () => {{
     let voices = synth.getVoices();
     for (let i = 0; i < 20 && !voices.length; i++) {{ await sleep(150); voices = synth.getVoices(); }}
     const rows = [];
-    for (const [langLabel, preference, label] of settings) {{
-      const {{ voice, male }} = await pick(langLabel, preference);
+    for (const langLabel of languages) {{
+      const voice = await pick(langLabel);
       let name = voice ? escape(voice.name) : escape(words.voices_default);
       if (details && voice) name += ' <span class="pill">' + escape(voice.lang) + " · " + escape(where(voice)) + "</span>";
-      if (/男|Male/.test(preference) && !male) name += '<br><span class="hint">' + escape(words.voices_no_male) + "</span>";
       if (voice && !voice.localService) name += '<br><span class="hint">' + escape(words.voices_online_note) + "</span>";
-      rows.push('<div class="row"><div class="main"><div class="title">' + escape(label) + '</div><div class="meta">' + name +
+      rows.push('<div class="row"><div class="main"><div class="title">' + escape(langLabel) + '</div><div class="meta">' + name +
                 '</div></div><div class="actions"><button class="quiet" type="button" data-lang="' + escape(langLabel) +
-                '" data-preference="' + escape(preference) + '">' + escape(words.voices_listen) + "</button></div></div>");
+                '">' + escape(words.voices_listen) + "</button></div></div>");
     }}
     choice.innerHTML = rows.join("");
     choice.querySelectorAll("button[data-lang]").forEach((button) => button.addEventListener("click", () => {{
-      tts(Date.now() + "|||" + samples[button.dataset.lang], true, button.dataset.preference, button.dataset.lang);
+      tts(Date.now() + "|||" + samples[button.dataset.lang], true, button.dataset.lang);
     }}));
     if (!details) return;
     const ours = voices.filter((voice) => /^(zh|en|yue)/i.test(voice.lang || ""))
@@ -1277,8 +1307,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             scores_html = f'<p class="muted">{_e(summary)}</p><div class="list">{score_rows}</div>'
         else:
             scores_html = f'<p class="muted">{_e(T[lang]["no_scores"])}</p>'
-        return f"""<div class="grid2"><div class="card"><h2>{_e(T[lang]['action_cards'])}</h2><div class="list">{cards_html}</div></div>
-<div class="card"><h2>{_e(T[lang]['practice_scores'])}</h2>{scores_html}</div></div>"""
+        return ('<div class="grid2">'
+                + disclosure(T[lang]['action_cards'], f'<div class="list">{cards_html}</div>', element_id="action-cards")
+                + disclosure(T[lang]['practice_scores'], scores_html, element_id="practice-scores") + '</div>')
 
     def practice_goal_block(request, data, draft=None, error=None):
         lang = page_lang(request)
@@ -1292,15 +1323,15 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <option value="">{_e(T[lang]['practice_goal_manual'])}</option>{options}</select>'''
         feedback = f'<div class="flash error" role="status">{_e(error)}</div>' if error else ""
         value = profile.next_practice_goal if draft is None else draft
-        return f'''<div class="card" id="practice-goal"><h2 id="practice-goal-label">{_e(T[lang]['practice_goal'])}</h2>
-<p class="hint">{_e(T[lang]['practice_goal_hint'])}</p>{feedback}
+        body = f'''<p class="hint">{_e(T[lang]['practice_goal_hint'])}</p>{feedback}
 <div class="row"><div class="main"><div class="meta">{_e(T[lang]['practice_goal_current'])}</div>
 <div class="title">{_e(profile.next_practice_goal or T[lang]['practice_goal_empty'])}</div></div></div>
 <form method="post" action="/account/practice-goal#practice-goal">{csrf_field(request)}
 <input type="hidden" name="version" value="{profile_version(data)}">{choose}
 <textarea id="practice-goal-value" name="value" maxlength="{MAX_PRACTICE_GOAL_CHARS}" aria-labelledby="practice-goal-label">{_e(value)}</textarea>
 <div class="actions"><button name="action" value="save" type="submit">{_e(T[lang]['save'])}</button>
-<button class="secondary" name="action" value="clear" type="submit" formnovalidate>{_e(T[lang]['practice_goal_clear'])}</button></div></form></div>'''
+<button class="secondary" name="action" value="clear" type="submit" formnovalidate>{_e(T[lang]['practice_goal_clear'])}</button></div></form>'''
+        return disclosure(T[lang]['practice_goal'], body, element_id="practice-goal", opened=bool(error))
 
     def practice_goal_error(request, user, data, draft, key):
         # A failed write may also mean further reads fail. Keep the known saved content and draft available.
@@ -1336,25 +1367,27 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
                            f'<button class="quiet danger" type="submit">{_e(T[lang]["delete_session"])}</button></form>')
             rows.append(session_row(lang, row, share_form=share_form, results=True))
         sessions_html = "".join(rows) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'
-        body = f"""<div class="card"><div class="eyebrow">{_e(ROLE_LABELS[lang][user['role']])}</div><h1>{_e(user['display_name'])}</h1>
-<p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{trainer_line}</p>
-<form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
-{progress_cards(lang, user["id"])}
-{practice_goal_block(request, store.get_profile(user['id'], 'coachee'))}
-<div class="card"><h2>{_e(T[lang]['my_sessions'])}</h2><div class="list">{sessions_html}</div></div>
-<div class="card" id="insights"><h2>{_e(T[lang]['insights'])}</h2><p class="hint">{_e(T[lang]['insight_hint'])}</p><div class="grid2">
+        insights_html = f'''<p class="hint">{_e(T[lang]['insight_hint'])}</p><div class="grid2">
 {profile_block(lang, 'coach', store.get_profile(user['id'], 'coach'), request)}
-{profile_block(lang, 'coachee', store.get_profile(user['id'], 'coachee'), request)}</div></div>
-<div class="grid2"><div class="card"><h2>{_e(T[lang]['change_password'])}</h2>
+{profile_block(lang, 'coachee', store.get_profile(user['id'], 'coachee'), request)}</div>'''
+        settings_html = f'''<div class="grid2"><section><h2>{_e(T[lang]['change_password'])}</h2>
 <form method="post" action="/account/password">{csrf_field(request)}
 <label for="current">{_e(T[lang]['current_password'])}</label><input id="current" name="current" type="password" autocomplete="current-password" required>
 <label for="password">{_e(T[lang]['new_password'])}</label><input id="password" name="password" type="password" autocomplete="new-password" required>
 <label for="confirm">{_e(T[lang]['confirm_password'])}</label><input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
-<button class="full" type="submit">{_e(T[lang]['save'])}</button></form></div>
-<div class="card"><h2>{_e(T[lang]['your_data'])}</h2><p><a class="button secondary" href="/account/export">{_e(T[lang]['export'])}</a></p>
+<button class="full" type="submit">{_e(T[lang]['save'])}</button></form></section>
+<section><h2>{_e(T[lang]['your_data'])}</h2><p><a class="button secondary" href="/account/export">{_e(T[lang]['export'])}</a></p>
 <form method="post" action="/account/delete">{csrf_field(request)}<p class="hint">{_e(T[lang]['delete_hint'])}</p>
 <input name="confirm" type="text" autocomplete="off" aria-label="DELETE">
-<button class="danger full" type="submit">{_e(T[lang]['delete_account'])}</button></form></div></div>
+<button class="danger full" type="submit">{_e(T[lang]['delete_account'])}</button></form></section></div>'''
+        body = f"""<div class="card"><div class="eyebrow">{_e(ROLE_LABELS[lang][user['role']])}</div><h1>{_e(user['display_name'])}</h1>
+<p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{trainer_line}</p>
+<form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
+{disclosure(T[lang]['my_sessions'], f'<div class="list">{sessions_html}</div>', element_id="my-sessions", opened=True)}
+{progress_cards(lang, user["id"])}
+{practice_goal_block(request, store.get_profile(user['id'], 'coachee'))}
+{disclosure(T[lang]['insights'], insights_html, element_id="insights")}
+{disclosure(T[lang]['account_settings'], settings_html, element_id="account-settings", opened=request.url.path in ('/account/password', '/account/delete'))}
 <script>document.querySelectorAll('form[data-confirm]').forEach(function (form) {{
   form.addEventListener('submit', function (event) {{ if (!window.confirm(form.dataset.confirm)) event.preventDefault(); }});
 }});</script>"""
@@ -1678,10 +1711,11 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             f'<div class="meta">{_e(t["email"])} · {_e(text(lang, "tokens_24h", n=usage.get(t["id"], 0)))}</div></div></div>'
             for t in trainees) or f'<p class="muted">{_e(T[lang]["no_trainees"])}</p>'
         sessions = "".join(session_row(lang, row, owner_name=row["owner_name"], results=True) for row in store.trainer_visible_sessions(user["id"]))
+        sessions = sessions or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'
         body = f"""{extra}<p class="flash info">{_e(T[lang]['mentor_hint'])}</p>
-<div class="grid2"><div class="card"><h2>{_e(T[lang]['trainees'])}</h2><div class="list">{trainee_rows}</div></div>
-<div class="card"><h2>{_e(T[lang]['invite_trainee'])}</h2>{invite_form(request, lang, '/mentor/invites', roles=('user',), trainers=[])}</div></div>
-<div class="card"><h2>{_e(T[lang]['trainee_sessions'])}</h2><div class="list">{sessions or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'}</div></div>"""
+{disclosure(T[lang]['trainees'], f'<div class="list">{trainee_rows}</div>', element_id="trainees", opened=True)}
+{disclosure(T[lang]['invite_trainee'], invite_form(request, lang, '/mentor/invites', roles=('user',), trainers=[]), element_id="invite-trainee")}
+{disclosure(T[lang]['trainee_sessions'], f'<div class="list">{sessions}</div>', element_id="trainee-sessions", opened=True)}"""
         return render(request, lang, T[lang]["trainer"], body, user=user, current="trainer")
 
     @router.get("/mentor")
@@ -1791,13 +1825,23 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
                  average=f"{average:.1f}", count=count)
             for module, (count, average) in sorted(ratings.items())) or T[lang]["ratings_none"]
         warning = f'<div class="flash error">{_e(T[lang]["storage_warning"])}</div>' if settings.storage_warning else ""
-        body = f"""{warning}{extra}{ai_service_card(lang, now)}<div class="grid2"><div class="card"><h2>{_e(T[lang]['invite_someone'])}</h2>
-{invite_form(request, lang, '/admin/invites', roles=accounts.ROLES, trainers=trainers)}</div>
-<div class="card"><h2>{_e(T[lang]['invites'])}</h2><div class="list">{''.join(invite_rows) or '<p class="muted">—</p>'}</div></div></div>
-<div class="card"><h2>{_e(T[lang]['allowances'])}</h2><p class="hint">{_e(T[lang]['allowances_hint'])}</p><div class="list">{allowance_forms}</div></div>
-<div class="card"><h2>{_e(T[lang]['users'])}</h2><p class="muted">{_e(text(lang, 'feedback_summary', up=votes.get('like', 0), down=votes.get('dislike', 0)))}</p><div class="list">{''.join(user_rows)}</div></div>
-<div class="card"><h2>{_e(T[lang]['recent_sessions'])}</h2><p class="hint">{_e(T[lang]['recent_sessions_hint'])}</p><p class="muted">{_e(text(lang, 'ratings_summary', parts=rating_parts))}</p><div class="list">{''.join(session_row(lang, row, owner_name=row['owner_name'], link=False) for row in store.recent_sessions(60)) or '<p class="muted">—</p>'}</div></div>
-<div class="card"><h2>{_e(T[lang]['audit'])}</h2><div class="list">{audit_rows or '<p class="muted">—</p>'}</div></div>"""
+        invite_list = "".join(invite_rows) or '<p class="muted">—</p>'
+        recent_sessions = "".join(session_row(lang, row, owner_name=row["owner_name"], link=False)
+                                  for row in store.recent_sessions(60)) or '<p class="muted">—</p>'
+        recent_body = (f'<p class="hint">{_e(T[lang]["recent_sessions_hint"])}</p>'
+                       f'<p class="muted">{_e(text(lang, "ratings_summary", parts=rating_parts))}</p>'
+                       f'<div class="list">{recent_sessions}</div>')
+        members_body = (f'<p class="muted">{_e(text(lang, "feedback_summary", up=votes.get("like", 0), down=votes.get("dislike", 0)))}</p>'
+                        f'<div class="list">{"".join(user_rows)}</div>')
+        allowance_body = f'<p class="hint">{_e(T[lang]["allowances_hint"])}</p><div class="list">{allowance_forms}</div>'
+        audit_body = '<div class="list">' + (audit_rows or '<p class="muted">—</p>') + '</div>'
+        body = f"""{warning}{extra}{ai_service_card(lang, now)}
+{disclosure(T[lang]['invite_someone'], invite_form(request, lang, '/admin/invites', roles=accounts.ROLES, trainers=trainers), element_id="create-invite")}
+{disclosure(T[lang]['invites'], f'<div class="list">{invite_list}</div>', element_id="invites")}
+{disclosure(T[lang]['allowances'], allowance_body, element_id="allowances")}
+{disclosure(T[lang]['users'], members_body, element_id="users")}
+{disclosure(T[lang]['recent_sessions'], recent_body, element_id="recent-sessions")}
+{disclosure(T[lang]['audit'], audit_body, element_id="audit-log")}"""
         return render(request, lang, T[lang]["admin"], body, user=user, current="admin")
 
     @router.get("/admin")

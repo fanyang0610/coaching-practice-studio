@@ -2977,13 +2977,14 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertEqual(agent.context[0]["content"], "今天你最想聚焦在什么上？")
         self.assertEqual(outputs[0][0]["content"], "今天你最想聚焦在什么上？")
 
-    def test_switching_language_keeps_the_chosen_voice(self):
+    def test_switching_language_updates_read_aloud_without_a_voice_selector(self):
         web_app, _, user, request = _signed_in()
         session = web_app._open_session(user, "coach", "template", "zh")
-        voice = web_app.switch_lang("English", session, "coach", "Template", "男声", request=request)[15]
-        self.assertEqual((voice["choices"], voice["value"]), (["Female", "Male"], "Male"))
-        voice = web_app.switch_lang("中文", session, "coach", "Template", "Female", request=request)[15]
-        self.assertEqual(voice["value"], "女声")
+        english = web_app.switch_lang("English", session, "coach", "Template", request=request)
+        chinese = web_app.switch_lang("中文", session, "coach", "Template", request=request)
+        self.assertEqual(english[14]["label"], "Auto-play replies")
+        self.assertEqual(chinese[14]["label"], "自动朗读回复")
+        self.assertEqual(len(english), 28)
 
     def test_busy_ai_service_is_tried_again_but_a_timeout_is_not(self):
         import httpx
@@ -4266,7 +4267,7 @@ class TestProviderAndRegionSupport(unittest.TestCase):
         if not node:
             self.skipTest("node is not installed")
         with tempfile.TemporaryDirectory() as folder:
-            scripts = {name: "(" + getattr(web_assets, name) + ")" for name in ("force_light_js", "tts_js", "voice_note_js", "scroll_js",
+            scripts = {name: "(" + getattr(web_assets, name) + ")" for name in ("force_light_js", "tts_js", "scroll_js",
                                                                               "remember_lang_js")}
             # An HTML block's js_on_load is a function body that receives the block as `element`.
             scripts["welcome_js"] = "(function (element) {" + web_assets.welcome_js + "})"
@@ -4606,11 +4607,11 @@ window.speechSynthesis = {
   },
 };
 const tts = (%(script)s);
-tts("1|||" + %(text)s, true, %(preference)s, %(language)s);
+tts("1|||" + %(text)s, true, %(language)s);
 setTimeout(() => console.log(JSON.stringify(spoken)), 300);
 """
 
-    def _speak(self, voices, text="今天这次谈话，你希望有什么收获？", preference="女声", language="中文", online_works=True):
+    def _speak(self, voices, text="今天这次谈话，你希望有什么收获？", language="中文", online_works=True):
         import shutil
         import subprocess
         import web_assets
@@ -4621,7 +4622,7 @@ setTimeout(() => console.log(JSON.stringify(spoken)), 300);
         source = self.HARNESS % dict(voices=json.dumps(voices, ensure_ascii=False), script=web_assets.tts_js,
                                      online_works="true" if online_works else "false",
                                      text=json.dumps(text, ensure_ascii=False),
-                                     preference=json.dumps(preference, ensure_ascii=False), language=json.dumps(language))
+                                     language=json.dumps(language))
         with tempfile.TemporaryDirectory() as folder:
             script = Path(folder) / "tts.js"
             script.write_text(source, encoding="utf-8")
@@ -4645,22 +4646,19 @@ setTimeout(() => console.log(JSON.stringify(spoken)), 300);
         cantonese = {"name": "Google 粤語（香港）", "lang": "zh-HK", "voiceURI": "Google 粤語（香港）", "localService": False}
         chrome = [tingting, self.GOOGLE_ZH, cantonese]
         self.assertEqual(set(self._voices_used(self._speak(chrome))), {self.GOOGLE_ZH["voiceURI"]})
-        self.assertEqual(set(self._voices_used(self._speak(chrome, preference="男声"))), {self.GOOGLE_ZH["voiceURI"]})
         blocked = self._speak(chrome, online_works=False)
         self.assertEqual(set(self._voices_used(blocked[blocked.index("cancel", 1):])), {"Tingting"})
         english = [{"name": "Samantha", "lang": "en-US", "voiceURI": "Samantha", "localService": True},
                    {"name": "Google US English", "lang": "en-US", "voiceURI": "Google US English", "localService": False},
                    {"name": "Google UK English Male", "lang": "en-GB", "voiceURI": "Google UK English Male", "localService": False}]
         self.assertEqual(set(self._voices_used(self._speak(english, language="English"))), {"Google US English"})
-        self.assertEqual(set(self._voices_used(self._speak(english, preference="Male", language="English"))),
-                         {"Google UK English Male"})
 
-    def test_male_voices_keep_their_own_pitch(self):
-        spoken = self._speak([self.APPLE_ENHANCED, self.LIMU], preference="男声")
-        self.assertEqual(set(self._voices_used(spoken)), {self.LIMU["voiceURI"]})
+    def test_default_voice_is_female_and_keeps_its_own_pitch(self):
+        spoken = self._speak([self.APPLE_ENHANCED, self.LIMU])
+        self.assertEqual(set(self._voices_used(spoken)), {self.APPLE_ENHANCED["voiceURI"]})
         self.assertEqual({item["pitch"] for item in spoken if item != "cancel"}, {1})  # no more lowered "male" pitch
-        edge = self._speak([self.XIAOXIAO, self.YUNXI], preference="男声")
-        self.assertEqual(set(self._voices_used(edge)), {self.YUNXI["voiceURI"]})
+        edge = self._speak([self.XIAOXIAO, self.YUNXI])
+        self.assertEqual(set(self._voices_used(edge)), {self.XIAOXIAO["voiceURI"]})
 
     def test_replies_are_read_sentence_by_sentence_without_markdown(self):
         spoken = self._speak([self.APPLE_ENHANCED], text="**行动卡**\n目标：每周两晚早点睡。\n下一步：今晚十一点前关灯！你觉得怎么样？")
@@ -4683,67 +4681,21 @@ setTimeout(() => console.log(JSON.stringify(spoken)), 300);
         # Where Google's voice works, it is kept.
         self.assertEqual(set(self._voices_used(self._speak([self.GOOGLE_ZH, android]))), {self.GOOGLE_ZH["voiceURI"]})
 
-    def test_robotic_voices_come_last_even_for_a_male_preference(self):
+    def test_robotic_voices_come_last(self):
         # A Mac's real list (2026-10-16) has Apple's older voices next to Tingting; the old code chose "Reed" for a male
         # voice and lowered its pitch, which was the most machine-like sound of all.
         mac = [{"name": f"{name} (Chinese (China mainland))", "lang": "zh-CN", "voiceURI": f"{name} (Chinese (China mainland))",
                 "localService": True} for name in ("Eddy", "Flo", "Grandma", "Grandpa", "Reed", "Rocko", "Sandy", "Shelley")]
         tingting = {"name": "Tingting", "lang": "zh-CN", "voiceURI": "Tingting", "localService": True}
-        self.assertEqual(set(self._voices_used(self._speak(mac + [tingting], preference="男声"))), {"Tingting"})
-        self.assertEqual(set(self._voices_used(self._speak(mac + [tingting, self.LIMU], preference="男声"))), {self.LIMU["voiceURI"]})
+        self.assertEqual(set(self._voices_used(self._speak(mac + [tingting]))), {"Tingting"})
+        self.assertEqual(set(self._voices_used(self._speak(mac + [tingting, self.LIMU]))), {"Tingting"})
         only_old = self._voices_used(self._speak(mac))  # nothing better on the device: an older voice, never Grandma/Grandpa
         self.assertTrue(only_old and not any(name.startswith(("Grandma", "Grandpa")) for name in only_old))
-
-    NOTE_HARNESS = """
-const voices = %(voices)s;
-const note = {textContent: "unset"};
-global.document = {getElementById: (id) => (id === "voice-note-text" ? note : null)};
-global.window = {speechSynthesis: {getVoices: () => voices}};
-const run = (%(script)s);
-run(%(preference)s, %(language)s);
-setTimeout(() => console.log(JSON.stringify(note.textContent)), 50);
-"""
-
-    def _note(self, voices, preference, language="中文"):
-        import shutil
-        import subprocess
-        import web_assets
-
-        node = shutil.which("node")
-        if not node:
-            self.skipTest("node is not installed")
-        source = self.NOTE_HARNESS % dict(voices=json.dumps(voices, ensure_ascii=False), script=web_assets.voice_note_js,
-                                          preference=json.dumps(preference, ensure_ascii=False),
-                                          language=json.dumps(language))
-        with tempfile.TemporaryDirectory() as folder:
-            script = Path(folder) / "note.js"
-            script.write_text(source, encoding="utf-8")
-            result = subprocess.run([node, str(script)], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout)
-
-    def test_settings_note_says_when_a_device_has_no_natural_male_voice(self):
-        # Fan's iPhone (2026-10-16): websites get only super-compact voices, and no male Chinese one.
-        iphone = [{"name": "Tingting", "lang": "zh-CN", "voiceURI": "com.apple.voice.super-compact.zh-CN.Tingting",
-                   "localService": True},
-                  {"name": "Daniel", "lang": "en-GB", "voiceURI": "com.apple.voice.super-compact.en-GB.Daniel",
-                   "localService": True},
-                  {"name": "Albert", "lang": "en-US", "voiceURI": "com.apple.speech.synthesis.voice.Albert", "localService": True}]
-        self.assertEqual(self._note(iphone, "男声"), "这台设备没有自然的中文男声，会用女声朗读。")
-        self.assertEqual(self._note(iphone, "女声"), "")
-        self.assertEqual(self._note(iphone, "Male", "English"), "")  # Daniel
-        self.assertEqual(self._note(iphone + [self.LIMU], "男声"), "")
-        reed = {"name": "Reed (Chinese (China mainland))", "lang": "zh-CN", "voiceURI": "Reed (Chinese (China mainland))",
-                "localService": True}
-        self.assertEqual(self._note(iphone + [reed], "男声"), "这台设备没有自然的中文男声，会用女声朗读。")  # robotic only
-        english_only_women = [{"name": "Samantha", "lang": "en-US", "voiceURI": "Samantha", "localService": True}]
-        self.assertEqual(self._note(english_only_women, "Male", "English"),
-                         "This device has no natural male English voice, so a female voice is used.")
 
     def test_novelty_voices_are_never_used(self):
         self.assertEqual(set(self._voices_used(self._speak([self.BELLS, self.SAMANTHA, self.ALEX], language="English"))),
                          {self.SAMANTHA["voiceURI"]})
-        self.assertEqual(set(self._voices_used(self._speak([self.BELLS, self.ALEX], preference="Male", language="English"))),
+        self.assertEqual(set(self._voices_used(self._speak([self.BELLS, self.ALEX], language="English"))),
                          {self.ALEX["voiceURI"]})
 
 
@@ -4828,7 +4780,7 @@ class TestHelpPage(unittest.TestCase):
         self.assertNotIn("download an Enhanced or Premium voice", english)
 
     def test_voice_page_runs_the_apps_own_read_aloud_code(self):
-        # Built after Fan heard no change on an iPhone: the voice the app uses for each setting, with a Listen button.
+        # Built after Fan heard no change on an iPhone: the voice the app uses for each language, with a Listen button.
         import web_assets
 
         english = self.client.get("/voices?lang=en")

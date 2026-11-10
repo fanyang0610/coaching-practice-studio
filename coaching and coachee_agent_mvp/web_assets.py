@@ -39,9 +39,6 @@ UI = {
         "language": "Language",
         "mode": "Mode",
         "tts_enable": "Auto-play replies",
-        "tts_voice": "Voice style",
-        "voice_f": "Female",
-        "voice_m": "Male",
         "mode_hint": "AI is the default. Template is available as a backup.",
         "server_config_error": "AI mode is waiting for server configuration. Ask the app owner to set OPENAI_API_KEY on the hosted server.",
         "ai_unavailable": "The AI isn't available right now, so a new session can't start. Please try again in a few minutes with New Session.",
@@ -85,7 +82,6 @@ UI = {
         "hero_eyebrow": "Transformation Studio",
         "hero_title": "Turn reflection into your next clear step.",
         "hero_sub": "A structured coaching space for clarity, choice, and committed action.",
-        "mode_context": "Current mode",
         "coach_module_note": "The AI coaches you on something real in your life.",
         "coachee_module_note": "The AI plays a client. You coach, then get a score.",
         "memory_title": "AI Insights (Your Profile)",
@@ -136,9 +132,6 @@ UI = {
         "language": "语言",
         "mode": "模式",
         "tts_enable": "自动朗读回复",
-        "tts_voice": "声音偏好",
-        "voice_f": "女声",
-        "voice_m": "男声",
         "mode_hint": "默认使用 AI。模板模式仅作为备用。",
         "server_config_error": "AI 模式正在等待服务器配置。请让应用管理员在托管服务器上设置 OPENAI_API_KEY。",
         "ai_unavailable": "AI 暂时无法使用，所以新会话还不能开始。请过几分钟后点击“新会话”再试。",
@@ -182,7 +175,6 @@ UI = {
         "hero_eyebrow": "Transformation Studio",
         "hero_title": "把困惑变成下一步。",
         "hero_sub": "专业、可信，也让成长更可感。",
-        "mode_context": "当前模式",
         "coach_module_note": "AI 就你生活中的真实话题为你做教练。",
         "coachee_module_note": "AI 扮演来访者，你来提问，结束后获得评分和反馈。",
         "memory_title": "AI 洞察 (个人画像)",
@@ -861,13 +853,10 @@ footer {
     min-width: 0 !important;
     max-width: 100% !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    background: transparent !important;
     gap: 12px !important;
     overflow: visible !important;
-}
-
-/* Read-aloud sits alone on its row now that the mode switch is hidden, so it takes the full width */
-.settings-controls > .form > div:last-child {
-    grid-column: 1 / -1 !important;
 }
 
 .settings-controls > div,
@@ -1932,17 +1921,29 @@ body,
     width: 100% !important;
 }
 
-#topbar.module-tabs {
-    margin: 0 0 -9px 0 !important;
-    padding: 10px !important;
+/* One surface owns the border and corners for both mode buttons and their allowance. */
+#mode-panel {
+    flex: 0 0 auto !important;
+    gap: 0 !important;
+    padding: 8px !important;
     border: 1px solid #d8e5f2 !important;
-    border-bottom: 0 !important;
-    border-radius: 16px 16px 0 0 !important;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 250, 255, 0.98)),
-        repeating-linear-gradient(135deg, rgba(18, 111, 168, 0.06) 0 1px, transparent 1px 18px) !important;
-    box-shadow: 0 12px 28px rgba(13, 78, 122, 0.08) !important;
+    border-radius: 18px !important;
+    background: #ffffff !important;
+    box-shadow: 0 8px 20px rgba(13, 78, 122, 0.06) !important;
     overflow: hidden !important;
+}
+
+#topbar.module-tabs {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+#mode-panel .mode-context-md .html-container {
+    padding: 0 !important;
 }
 
 #topbar.module-tabs > div,
@@ -1973,41 +1974,22 @@ body,
 }
 
 .mode-context-card {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    column-gap: 10px;
-    row-gap: 2px;
-    min-height: 40px;
+    gap: 6px 12px;
     margin: 0;
-    padding: 8px 14px 10px 14px;
-    border: 1px solid #d8e5f2;
-    border-top: 0;
-    border-radius: 0 0 16px 16px;
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 12px 28px rgba(13, 78, 122, 0.08);
-    overflow: hidden;
+    padding: 8px 6px 2px;
+    color: #45647a;
 }
 
-.mode-context-label {
-    color: #5d7486;
-    font-size: 10px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-}
-
-.mode-context-title {
-    color: #18364a;
-    font-size: 13px;
-    font-weight: 900;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.mode-context-allowance {
+    flex: 0 0 auto;
+    font-size: 12px;
 }
 
 .mode-context-card p {
-    grid-column: 1 / -1;
+    flex: 1 1 240px;
     margin: 0;
     color: #45647a;
     font-size: 12px;
@@ -2021,7 +2003,7 @@ body,
 }
 
 .context-capacity-note {
-    grid-column: 1 / -1;
+    flex: 1 1 100%;
     color: #18364a;
     font-size: 13px;
     line-height: 1.4;
@@ -2077,12 +2059,6 @@ body,
         text-transform: none !important;
     }
 
-    #topbar.module-tabs {
-        padding: 8px !important;
-        margin-bottom: -7px !important;
-        border-radius: 14px 14px 0 0 !important;
-    }
-
     .module-card-btn,
     .module-card-btn.selected {
         height: 44px !important;
@@ -2090,17 +2066,6 @@ body,
         border-radius: 12px !important;
         padding: 0 10px !important;
         font-size: 12px !important;
-    }
-
-    .mode-context-card {
-        min-height: 38px;
-        padding: 7px 11px 9px 11px;
-        border-radius: 0 0 14px 14px;
-    }
-
-    .mode-context-label,
-    .mode-context-title {
-        font-size: 10px;
     }
 
     .mode-context-card p {
@@ -2119,6 +2084,7 @@ body,
 
 /* Row alignment contract */
 .intro-md,
+#mode-panel,
 #topbar.module-tabs,
 .mode-context-md,
 #settings-sheet,
@@ -2172,6 +2138,7 @@ div:has(> .tracker-shell) {
 
 @media (max-width: 768px) {
     .intro-md,
+    #mode-panel,
     #topbar.module-tabs,
     .mode-context-md,
     #settings-sheet,
@@ -2260,10 +2227,6 @@ div:has(> .tracker-shell) {
     }
 }
 
-.mode-context-title .studio-quota {
-    margin-left: 6px;
-    vertical-align: 1px;
-}
 
 /* First-visit welcome card: a fixed layer over the page, closed in the browser */
 #welcome-host {
@@ -2377,9 +2340,12 @@ div:has(> .tracker-shell) {
         min-height: 44px !important;
     }
 
-    #app-shell #topbar.module-tabs {
+    #app-shell #mode-panel {
         padding: 5px !important;
-        margin-bottom: -6px !important;
+        border-radius: 16px !important;
+    }
+
+    #app-shell #topbar.module-tabs {
         gap: 5px !important;
     }
 
@@ -2392,10 +2358,10 @@ div:has(> .tracker-shell) {
         line-height: 1.15 !important;
     }
 
-    /* Mode card: one line with the mode name and today's allowance; the description is in the mode buttons */
+    /* The selected button names the mode; keep only its allowance below on phones. */
     #app-shell .mode-context-card {
         min-height: 0 !important;
-        padding: 6px 11px 6px 11px !important;
+        padding: 6px 5px 1px !important;
         row-gap: 0 !important;
     }
 
@@ -2711,19 +2677,7 @@ div:has(> .tracker-shell) {
     }
 }
 
-/* Under the voice setting: says so when this device has no natural male voice for the language */
-#app-shell .voice-note {
-    margin: 2px 2px 0 !important;
-    font-size: 13px !important;
-    line-height: 1.4 !important;
-    color: #62809a !important;
-}
 
-/* With nothing to say, the whole block goes, so it leaves no gap in the settings */
-#app-shell .voice-note:empty,
-#app-shell #voice-note:has(.voice-note:empty) {
-    display: none !important;
-}
 
 @media (max-width: 767px) {
     #app-shell #topic-card {
@@ -2825,7 +2779,7 @@ scroll_js = """
 }
 """
 
-# How voices are ranked, shared by read-aloud (tts_js) and the 男声 note (voice_note_js) so the two always agree.
+# Rank the available browser voices, keeping the existing default female voice preference.
 _VOICE_RANKING_JS = r"""
     // Better voices first: Edge's free neural voices ("Natural"), Apple's Premium voices, Chrome's Google voices (online, so
     // not in mainland China: see fallBack), then Apple's Enhanced ones. Fan uses Chrome and Safari, where Google's voice
@@ -2839,12 +2793,8 @@ _VOICE_RANKING_JS = r"""
     const MALE = /\b(yunxi|yunjian|yunyang|yunze|yunfeng|yunhao|yunye|kangkang|limu|li-mu|alex|tom|evan|nathan|daniel|aaron|arthur|oliver|david|mark|guy|christopher|eric|roger|steffan|andrew|brian|ryan|male)\b|男/;
     const voiceId = (voice) => voice.voiceURI || voice.name;
     const describe = (voice) => ((voice.name || "") + " " + (voice.voiceURI || "")).toLowerCase();
-    const isMaleVoice = (voice) => {
-        const name = (voice.name || "").toLowerCase();
-        return !FEMALE.test(name) && MALE.test(name);
-    };
-    // A language's usable voices, best first, for a female or male preference; `bad` holds voices that failed to start.
-    const rankVoices = (voices, zh, wantsFemale, bad) => {
+    // A language's usable voices, best first; `bad` holds voices that failed to start.
+    const rankVoices = (voices, zh, bad) => {
         const family = zh ? "zh" : "en";
         const region = zh ? "zh-cn" : "en-us";
         const score = (voice) => {
@@ -2859,8 +2809,8 @@ _VOICE_RANKING_JS = r"""
             if (ROBOTIC.test(name) || /eloquence/.test(describe(voice))) points -= 450;
             const female = FEMALE.test(name);
             const male = !female && MALE.test(name);
-            if (wantsFemale ? female : male) points += 250;
-            if (wantsFemale ? male : female) points -= 150;
+            if (female) points += 250;
+            if (male) points -= 150;
             return points;
         };
         return voices
@@ -2875,7 +2825,7 @@ _VOICE_RANKING_JS = r"""
 # version cold and machine-like: it took the first voice whose name matched, lowered the pitch to fake a male voice,
 # and read a whole reply in one breath. Raw string: the regular expressions keep their backslashes.
 tts_js = r"""
-(payload, toggle, voiceSelector, langSelector) => {
+(payload, toggle, langSelector) => {
     const synth = window.speechSynthesis;
     const raw = (payload || "").toString();
     const parts = raw.split("|||");
@@ -2887,8 +2837,6 @@ tts_js = r"""
     synth.cancel();
 
     const zh = langSelector !== "English";
-    const preference = (voiceSelector || "").toString();
-    const wantsFemale = preference.includes("女") || preference.includes("Female");
 
     // What a listener should hear: no markdown symbols, and one sentence at a time, so the voice pauses naturally
     // (Chrome also cuts off a single long utterance after about 15 seconds).
@@ -2915,13 +2863,12 @@ tts_js = r"""
         try { JSON.parse(window.sessionStorage.getItem("ttsBadVoices") || "[]").forEach((id) => bad.add(id)); } catch (error) {}
     }
     const best = (voices, localOnly) =>
-        rankVoices(voices.filter((voice) => !localOnly || voice.localService), zh, wantsFemale, bad)[0] || null;
+        rankVoices(voices.filter((voice) => !localOnly || voice.localService), zh, bad)[0] || null;
 
     const speak = (voices, localOnly) => {
         if (window.__ttsRun !== runId) return;
         const voice = best(voices, localOnly);
         window.__ttsVoice = voice ? voice.name : "";
-        window.__ttsVoiceIsMale = Boolean(voice && isMaleVoice(voice));
         let started = false;
         let fellBack = false;
         // An online voice that can't be reached (Google's in mainland China, for one) never starts: use one on the device.
@@ -2965,34 +2912,6 @@ tts_js = r"""
         setTimeout(whenVoicesReady, 120);
     };
     whenVoicesReady();
-}
-"""
-
-# Fills the note under the voice setting: whether this device has a natural male voice for the language.
-voice_note_js = r"""
-(voiceSelector, langSelector) => {
-    const note = document.getElementById("voice-note-text");
-    const synth = window.speechSynthesis;
-    if (!note || !synth) return;
-    const preference = (voiceSelector || "").toString();
-    const wantsFemale = preference.includes("女") || preference.includes("Female");
-    const zh = langSelector !== "English";
-""" + _VOICE_RANKING_JS + r"""    // Said plainly when the device has no natural male voice for the language (an iPhone has none for Chinese), so
-    // choosing 男声 and hearing a woman doesn't feel broken.
-    let attempts = 0;
-    const update = () => {
-        const voices = synth.getVoices();
-        if (!voices.length && attempts < 10) {
-            attempts += 1;
-            setTimeout(update, 150);
-            return;
-        }
-        const voice = rankVoices(voices, zh, wantsFemale, window.__ttsBadVoices || new Set())[0];
-        const missing = !wantsFemale && voices.length > 0 && !(voice && isMaleVoice(voice));
-        note.textContent = !missing ? "" : zh ? "这台设备没有自然的中文男声，会用女声朗读。"
-            : "This device has no natural male English voice, so a female voice is used.";
-    };
-    update();
 }
 """
 

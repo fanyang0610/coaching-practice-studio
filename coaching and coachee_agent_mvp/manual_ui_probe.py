@@ -45,8 +45,7 @@ READY_JS = """
         Array.from(document.querySelectorAll(selector)).filter(isVisible);
     const textCheckSelectors = [
         ".module-card-btn",
-        ".mode-context-label",
-        ".mode-context-title",
+        ".mode-context-allowance",
         ".mode-context-card p",
         "#settings-sheet > .label-wrap button",
         ".tracker-eyebrow",
@@ -97,8 +96,7 @@ READY_JS = """
         && moduleCards.every((card) => card.width >= moduleMinWidth);
     const rowSelectors = [
         ".intro-md",
-        "#topbar.module-tabs",
-        ".mode-context-md",
+        "#mode-panel",
         "#settings-sheet",
         ".tracker-shell",
         "#chat-stage",

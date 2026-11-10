@@ -46,7 +46,6 @@ from web_assets import (
     scroll_js,
     space_status_js,
     tts_js,
-    voice_note_js,
     welcome_js,
 )
 
@@ -101,7 +100,7 @@ default_module = "coach"
 RESPOND_OUTPUT_COUNT = 17
 NEXT_STAGE_OUTPUT_COUNT = 17
 # New Session, switching mode, and starting a practice on one's own topic all fill the same outputs.
-NEW_SESSION_OUTPUT_COUNT = 30
+NEW_SESSION_OUTPUT_COUNT = 29
 # The practice topic band: card, prompt, topic box, button (see _topic_updates).
 TOPIC_OUTPUT_COUNT = 4
 
@@ -194,9 +193,8 @@ def _mode_context_html(session: dict) -> str:
     agent = session["agent"]
     module_code = session["module"]
     s = UI[agent.language]
-    mode_title = s["coach_module"] if module_code == "coach" else s["coachee_module"]
     mode_note = s["coach_module_note"] if module_code == "coach" else s["coachee_module_note"]
-    # Today's allowance for this mode, next to its name.
+    # The selected button already names the mode; only its allowance needs repeating below.
     allowance = session.get("allowance")
     quota_pill = ""
     if allowance and allowance.session_limit is not None:
@@ -208,8 +206,7 @@ def _mode_context_html(session: dict) -> str:
         capacity_note = f'<div class="context-capacity-note" role="status">{s["context_near"]}</div>'
     return f"""
     <section class="mode-context-card">
-        <div class="mode-context-label">{s["mode_context"]}</div>
-        <div class="mode-context-title">{mode_title}{quota_pill}</div>
+        <div class="mode-context-allowance">{quota_pill}</div>
         <p>{mode_note}</p>
         {capacity_note}
     </section>
@@ -1199,7 +1196,7 @@ def _advance_stage(chat_history, session):
 
 
 def _navigate_session(user: dict, module: str, mode: str, language: str, session: dict | None, *,
-                      explicit: bool = False, topic: str = "", voice_sel: str | None = None):
+                      explicit: bool = False, topic: str = ""):
     current = session if session and session.get("user_id") == user["id"] else None
     lock = _agent_lock(current["agent"]) if current else None
     if lock and not lock.acquire(blocking=False):
@@ -1220,7 +1217,7 @@ def _navigate_session(user: dict, module: str, mode: str, language: str, session
             get_store().remember_module(user["id"], module)
             if current and current.get("id") == target["id"] and current.get("version") == target["version"]:
                 return (gr.skip(),) * NEW_SESSION_OUTPUT_COUNT
-        return _new_session_outputs(target, voice_sel)
+        return _new_session_outputs(target)
     finally:
         if lock:
             lock.release()
@@ -1232,9 +1229,9 @@ def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Requ
     return _navigate_session(user, _safe_module(module_sel), _safe_mode(mode_sel), lc, session, explicit=True)
 
 
-def _new_session_outputs(session: dict, voice_sel: str | None = None):
+def _new_session_outputs(session: dict):
     out = _session_start_outputs(session)
-    controls = _language_control_updates(session["agent"].language, voice_sel) if voice_sel is not None else (gr.skip(),) * 7
+    controls = _language_control_updates(session["agent"].language)
     return (
         out["chat"], out["tracker"], out["tts"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
         out["msg"], *out["memory"], out["module"], out["mode"], out["lang"],
@@ -1255,7 +1252,7 @@ def start_with_topic(topic: str, lang_sel, mode_sel, session=None, request: gr.R
     return _navigate_session(user, "coachee", _safe_mode(mode_sel), lc, session, explicit=True, topic=topic)
 
 
-def _language_control_updates(language: str, voice_sel: str | None = None):
+def _language_control_updates(language: str):
     s = UI[language]
     return (
         gr.update(value=s["send"]),
@@ -1264,12 +1261,10 @@ def _language_control_updates(language: str, voice_sel: str | None = None):
         gr.update(label=s["settings"], open=False),
         gr.update(value=s["mode_hint"]),
         gr.update(label=s["tts_enable"]),
-        gr.update(label=s["tts_voice"], choices=[s["voice_f"], s["voice_m"]],
-                  value=s["voice_m"] if voice_sel in (UI["en"]["voice_m"], UI["zh"]["voice_m"]) else s["voice_f"]),
     )
 
 
-def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request: gr.Request = None):
+def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = None):
     lc = _safe_lang(new_lang)
     user = _require_user(request, lc)
     session = _ensure_session(session, user, module_sel, mode_sel, new_lang)
@@ -1290,7 +1285,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
     s = UI[lc]
     copy = _session_ui(agent, session["module"])
     coach_btn, coachee_btn = _module_button_updates(session["module"], lc)
-    send, advance, reset, settings, hint, tts_enabled, tts_voice = _language_control_updates(lc, voice_sel)
+    send, advance, reset, settings, hint, tts_enabled = _language_control_updates(lc)
 
     m_s, m_g, m_f = _memory_ui_updates(agent, lc)
     return (
@@ -1304,7 +1299,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
         send, advance, reset, settings, hint,
         gr.update(label=s["language"], value=new_lang),
         gr.update(label=s["mode"], choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
-        tts_enabled, tts_voice,
+        tts_enabled,
         m_s, m_g, m_f,
         _memory_title(lc),
         gr.update(value=session["module"]),
@@ -1314,11 +1309,10 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
     )
 
 
-def select_module(module_code: str, lang_sel: str, mode_sel: str, session=None, voice_sel="",
-                  request: gr.Request = None):
+def select_module(module_code: str, lang_sel: str, mode_sel: str, session=None, request: gr.Request = None):
     lc = _safe_lang(lang_sel)
     user = _require_user(request, lc)
-    return _navigate_session(user, _safe_module(module_code), _safe_mode(mode_sel), lc, session, voice_sel=voice_sel)
+    return _navigate_session(user, _safe_module(module_code), _safe_mode(mode_sel), lc, session)
 
 
 def record_feedback(session, feedback: gr.LikeData, request: gr.Request = None):
@@ -1393,10 +1387,11 @@ with gr.Blocks(
 
     with gr.Column(elem_id="app-shell", min_width=0):
         intro_md = gr.HTML("", elem_classes="intro-md")
-        with gr.Row(elem_id="topbar", elem_classes="module-tabs"):
-            coach_module_btn = gr.Button("", elem_classes="module-card-btn", min_width=0)
-            coachee_module_btn = gr.Button("", elem_classes="module-card-btn", min_width=0)
-        mode_context_md = gr.HTML("", elem_classes="mode-context-md")
+        with gr.Column(elem_id="mode-panel", min_width=0):
+            with gr.Row(elem_id="topbar", elem_classes="module-tabs"):
+                coach_module_btn = gr.Button("", elem_classes="module-card-btn", min_width=0)
+                coachee_module_btn = gr.Button("", elem_classes="module-card-btn", min_width=0)
+            mode_context_md = gr.HTML("", elem_classes="mode-context-md")
 
         with gr.Accordion(UI["zh"]["settings"], open=False, elem_id="settings-sheet") as settings_sheet:
             # The AI/Template switch is a technical fallback, so members don't see it (template mode starts by itself
@@ -1412,11 +1407,8 @@ with gr.Blocks(
                     min_width=0,
                     visible=False,
                 )
-                tts_voice = gr.Radio([UI["zh"]["voice_f"], UI["zh"]["voice_m"]], label=UI["zh"]["tts_voice"], value=UI["zh"]["voice_f"], scale=1, min_width=0)
                 # Off until someone turns it on, so replies aren't read aloud unexpectedly, e.g. in an office.
                 tts_toggle = gr.Checkbox(label=UI["zh"]["tts_enable"], value=False, scale=1, min_width=0)
-            # Filled in the browser (voice_note_js) when this device has no natural male voice for the language.
-            gr.HTML('<p id="voice-note-text" class="voice-note"></p>', elem_id="voice-note")
 
             # AI Insights Dashboard
             gr.Markdown("---")
@@ -1477,7 +1469,7 @@ with gr.Blocks(
     rating_outputs = [rating_card, rating_prompt, rating_row]
     topic_outputs = [topic_card, topic_prompt, topic_input, topic_btn]
 
-    language_outputs = [send_btn, next_btn, reset_btn, settings_sheet, settings_hint, tts_toggle, tts_voice]
+    language_outputs = [send_btn, next_btn, reset_btn, settings_sheet, settings_hint, tts_toggle]
     new_session_outputs = [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg,
                            memory_strengths_md, memory_growth_md, memory_footer_md, module_state, mode_radio, lang_radio,
                            memory_title_md, *language_outputs, *rating_outputs, *topic_outputs, session_state]
@@ -1488,40 +1480,39 @@ with gr.Blocks(
         [chatbot, tracker, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg, tts_text, memory_strengths_md, memory_growth_md, memory_footer_md, module_state, lang_radio, mode_radio, memory_title_md, welcome_html, *language_outputs, *rating_outputs, *topic_outputs, session_state],
         js=force_light_js,
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(
-        None, [tts_voice, lang_radio], None, js=voice_note_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js)
 
     send_btn.click(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
         [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     msg.submit(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
         [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     next_btn.click(
         next_stage,
         [chatbot, session_state, module_state, mode_radio, lang_radio],
         [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     reset_btn.click(
         reset_session,
         [lang_radio, module_state, mode_radio, session_state],
         new_session_outputs,
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     lang_radio.input(
         switch_lang,
-        [lang_radio, session_state, module_state, mode_radio, tts_voice],
+        [lang_radio, session_state, module_state, mode_radio],
         [
             chatbot,
             tracker,
@@ -1538,7 +1529,6 @@ with gr.Blocks(
             lang_radio,
             mode_radio,
             tts_toggle,
-            tts_voice,
             memory_strengths_md,
             memory_growth_md,
             memory_footer_md,
@@ -1549,29 +1539,28 @@ with gr.Blocks(
             session_state,
         ],
         **LLM_EVENT,
-    ).then(None, [lang_radio], None, js=remember_lang_js).then(None, [tts_voice, lang_radio], None, js=voice_note_js)
-    tts_voice.change(None, [tts_voice, lang_radio], None, js=voice_note_js)
+    ).then(None, [lang_radio], None, js=remember_lang_js)
 
     coach_module_btn.click(
         select_module,
-        [coach_module_value, lang_radio, mode_radio, session_state, tts_voice],
+        [coach_module_value, lang_radio, mode_radio, session_state],
         new_session_outputs,
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     coachee_module_btn.click(
         select_module,
-        [coachee_module_value, lang_radio, mode_radio, session_state, tts_voice],
+        [coachee_module_value, lang_radio, mode_radio, session_state],
         new_session_outputs,
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     topic_btn.click(
         start_with_topic,
         [topic_input, lang_radio, mode_radio, session_state],
         new_session_outputs,
         **LLM_EVENT,
-    ).then(None, [tts_text, tts_toggle, tts_voice, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
+    ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     chatbot.like(record_feedback, [session_state], None, api_visibility="private")
     for button in rating_buttons:
