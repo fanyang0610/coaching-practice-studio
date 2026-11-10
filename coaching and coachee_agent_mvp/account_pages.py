@@ -29,6 +29,7 @@ import db
 import quota
 from coaching_core import CoachingState
 from coachee_agent import can_retry_review
+from coach_agent import ACTION_CARD_FIELDS, can_recover_action_card
 from studio_config import LANG_COOKIE, LEGACY_LANG_COOKIE
 from web_assets import STAGE_NAMES, tts_js
 
@@ -131,6 +132,16 @@ T = {
         "retry_failed": "The AI still couldn’t write your review. You can try again.",
         "retry_busy": "A review may already be in progress. Refresh in a moment.",
         "retry_saved": "Your practice review is ready.",
+        "recover_card": "Recover action card",
+        "card_history": "View this conversation and recover its action card",
+        "card_unknown": "No action card is saved for this conversation. You can recover it from the original dialogue.",
+        "card_none": "No action commitment was found, so no action card was created.",
+        "card_generation_failed": "The action card could not be generated. Your conversation is saved; you can try again here.",
+        "card_save_failed": "The action card could not be saved. Your conversation is kept; you can try again here.",
+        "card_pending": "The action card is being generated. Refresh in a moment.",
+        "card_interrupted": "The last action card attempt was interrupted. You can try again.",
+        "card_busy": "This record changed or recovery is already in progress. Refresh to see the latest result.",
+        "card_saved": "Your action card is saved.",
         "owner": "Participant",
         "not_allowed": "You don't have access to this session.",
         "not_found": "That page doesn't exist.",
@@ -364,6 +375,16 @@ T = {
         "retry_failed": "AI 暂时还是没能写出点评，可以再试一次。",
         "retry_busy": "可能正在生成点评，请稍后刷新。",
         "retry_saved": "本次练习的点评已生成。",
+        "recover_card": "恢复行动卡",
+        "card_history": "查看本次历史记录并恢复行动卡",
+        "card_unknown": "这次会话尚未保存行动卡，可以从原始对话恢复。",
+        "card_none": "未发现行动承诺，因此没有生成行动卡。",
+        "card_generation_failed": "行动卡生成失败。对话已保存，可以在这里重试。",
+        "card_save_failed": "行动卡保存失败。原对话已保留，可以在这里重试。",
+        "card_pending": "正在生成行动卡，请稍后刷新。",
+        "card_interrupted": "上次行动卡生成中断，可以重试。",
+        "card_busy": "记录已更新，或正在恢复行动卡。请刷新查看最新结果。",
+        "card_saved": "行动卡已保存。",
         "owner": "参与者",
         "not_allowed": "你没有权限查看此会话。",
         "not_found": "页面不存在。",
@@ -687,7 +708,8 @@ def _safe_next(target: str | None) -> str:
 
 
 def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
-                 retry_review: Callable[[dict, dict, dict], str] | None = None) -> APIRouter:
+                 retry_review: Callable[[dict, dict, dict], str] | None = None,
+                 retry_action_card: Callable[[dict, dict, dict], str] | None = None) -> APIRouter:
     router = APIRouter()
     throttle = accounts.LoginThrottle()
     # The address in the first throttle comes from X-Forwarded-For, which a caller can change on every try, so failed
@@ -1140,9 +1162,12 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             score = f' <span class="pill gold">{_e(text(lang, "score", n=row["score"]))}</span>'
         if results and (row.get("card") or {}).get("next_step"):
             next_step = f'<div class="meta">{_e(T[lang]["card_next_step"])}: {_e(_clip(row["card"]["next_step"], 120))}</div>'
+        view_label = T[lang]["view"]
+        if results and row["module"] == "coach" and row["mode"] == "llm" and row["status"] == "completed" and not row.get("card"):
+            view_label = T[lang]["recover_card"]
         return f"""<div class="row"><div class="main"><div class="title">{title} <span class="pill">{_e(status)}</span> {shared}{score}{rating}</div>
 <div class="meta">{_e(stage)} · {_time(row["created_at"])} · {_e(' · '.join(bits))}</div>{next_step}</div>
-<div class="actions">{share_form}{f'<a class="button secondary" href="/sessions/{_e(row["id"])}">{_e(T[lang]["view"])}</a>' if link else ''}</div></div>"""
+<div class="actions">{share_form}{f'<a class="button secondary" href="/sessions/{_e(row["id"])}">{_e(view_label)}</a>' if link else ''}</div></div>"""
 
     def profile_block(lang: str, module: str, data: dict | None, request: Request) -> str:
         heading = T[lang]["module_coachee" if module == "coachee" else "module_coach"]
@@ -1319,6 +1344,21 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 
     # Transcript review ----------------------------------------------------------
 
+    @router.post("/sessions/{session_id}/retry-action-card")
+    def recover_action_card(request: Request, session_id: str, csrf: str = Form(""), version: str = Form("")):
+        user = checked_user(request, csrf)
+        if not user:
+            return login_redirect(request)
+        row = get_store().get_session(session_id)
+        if not retry_action_card or not row or row["user_id"] != user["id"]:
+            return forbidden(request, page_lang(request), user)
+        state = json.loads(row["state"])
+        if version != row["updated_at"].isoformat() or not can_recover_action_card(row, state):
+            result = "card_busy"
+        else:
+            result = retry_action_card(row, state, user)
+        return RedirectResponse(f"/sessions/{quote(session_id, safe='')}?card={result}", status_code=303)
+
     @router.post("/sessions/{session_id}/retry-review")
     def regenerate_review(request: Request, session_id: str, csrf: str = Form("")):
         user = checked_user(request, csrf)
@@ -1361,7 +1401,27 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             bubbles.append(f'<div class="msg {"ai" if is_ai else "human"}"><span class="who">{_e(ai_label if is_ai else human_label)}{mark}</span>{_e(message.get("content"))}</div>')
         owner_line = f'{_e(T[lang]["owner"])}: {_e(owner["display_name"])} · ' if owner and owner["id"] != user["id"] else ""
         retry_form = ""
+        card_panel = ""
         flash = None
+        if row["module"] == "coach" and row["status"] == "completed" and row["mode"] == "llm":
+            card = row.get("card")
+            if card:
+                fields = "".join(f'<div><b>{_e(T[lang]["card_" + key])}</b>: {_e(card[key])}</div>'
+                                 for key in ACTION_CARD_FIELDS if card.get(key))
+                card_panel = f'<div class="card"><h2>{_e(T[lang]["action_cards"])}</h2>{fields}</div>'
+            else:
+                result = state.get("action_card_result", {})
+                pending = result.get("status") == "pending" and result.get("retry_until", "") > db.utcnow().isoformat()
+                key = "card_" + result.get("status", "unknown")
+                if result.get("status") == "pending" and not pending:
+                    key = "card_interrupted"
+                notice = T[lang].get(key, T[lang]["card_unknown"])
+                form = ""
+                if user["id"] == row["user_id"] and retry_action_card and can_recover_action_card(row, state) and not pending:
+                    form = f'''<form method="post" action="/sessions/{_e(session_id)}/retry-action-card">
+{csrf_field(request)}<input type="hidden" name="version" value="{_e(row['updated_at'].isoformat())}">
+<button type="submit">{_e(T[lang]['recover_card'])}</button></form>'''
+                card_panel = f'<div class="card"><h2>{_e(T[lang]["action_cards"])}</h2><p>{_e(notice)}</p>{form}</div>'
         if user["id"] == row["user_id"]:
             if retry_review and can_retry_review(row, state):
                 retry_form = f"""<form method="post" action="/sessions/{_e(session_id)}/retry-review">
@@ -1369,9 +1429,12 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             outcome = request.query_params.get("review")
             if outcome in ("retry_failed", "retry_busy", "retry_saved"):
                 flash = ("error" if outcome == "retry_failed" else "info", T[lang][outcome])
+            card_outcome = request.query_params.get("card")
+            if card_outcome in ("card_saved", "card_none", "card_generation_failed", "card_save_failed", "card_busy"):
+                flash = ("error" if card_outcome.endswith("failed") else "info", T[lang][card_outcome])
         body = f"""<div class="card"><div class="eyebrow">{_e(T[lang]['transcript'])}</div>
 {session_row(lang, row, link=False, results=is_practice)}<p class="muted">{owner_line}{_time(row['updated_at'])}</p>
-{retry_form}<div class="transcript">{''.join(bubbles) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'}</div></div>"""
+{card_panel}{retry_form}<div class="transcript">{''.join(bubbles) or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'}</div></div>"""
         return render(request, lang, T[lang]["transcript"], body, user=user, flash=flash)
 
     # Mentor (role key "trainer") -----------------------------------------------------

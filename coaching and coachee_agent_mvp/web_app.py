@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 
 import accounts
 import account_pages
-from coach_agent import ACTION_CARD_FIELDS, CoachAgent
+from coach_agent import ACTION_CARD_FIELDS, CoachAgent, can_recover_action_card
 import coaching_core
 from coaching_core import CoachingState
 from coachee_agent import CoacheeAgent, review_score
@@ -285,11 +285,13 @@ def _session_ui(agent, module_code: str) -> dict[str, str]:
     }
 
 
-def _chat_history_from_context(agent) -> list[dict[str, str]]:
+def _chat_history_from_context(agent, session_id: str | None = None) -> list[dict[str, str]]:
     chat_history = []
     for msg in agent.context:
         role = "assistant" if msg["role"] == agent.assistant_role else "user"
         chat_history.append({"role": role, "content": msg["content"]})
+    if isinstance(agent, CoachAgent) and agent.action_card_result:
+        chat_history.append({"role": "assistant", "content": _action_card_outcome_text(agent, session_id)})
     return chat_history
 
 def _memory_ui_updates(agent, lang_code: str):
@@ -588,6 +590,17 @@ def _restore_session(row: dict, user: dict) -> dict | None:
         if row["status"] == "active":
             get_store().abandon_session(row["id"], expected_version=row["updated_at"])
         return None
+    if row["module"] == "coach" and row["status"] == "completed" and row["mode"] == "llm" and not agent.action_card_result:
+        # Older cards were saved as chat bubbles. Leave those in place; show a missing result explicitly otherwise.
+        has_legacy_card = any(
+            msg.get("role") == "coach" and any(msg.get("content", "").startswith(UI[lang]["card_title"] + "\n\n")
+                                              and msg["content"].endswith(UI[lang]["card_saved"]) for lang in ("en", "zh"))
+            for msg in agent.context
+        )
+        if not has_legacy_card:
+            saved = row if "card" in row else get_store().get_session(row["id"])
+            card = (saved or {}).get("card")
+            agent.action_card_result = {"status": "ready", "card": card} if card else {"status": "unknown"}
     return _attach({"module": row["module"], "agent": agent, "id": row["id"], "version": row["updated_at"]}, user)
 
 
@@ -640,7 +653,7 @@ def _session_start_outputs(session: dict):
     coach_btn, coachee_btn = _module_button_updates(session["module"], lc)
     m_s, m_g, m_f = _memory_ui_updates(agent, lc)
     return dict(
-        chat=_chat_history_from_context(agent),
+        chat=_chat_history_from_context(agent, session.get("id")),
         tracker=_tracker_html(agent, session["module"]),
         header=_header_markdown(session),
         coach_btn=coach_btn,
@@ -801,28 +814,102 @@ def _action_card_text(card: dict, lang_code: str) -> str:
     return "\n".join([s["card_title"], "", *fields, "", s["card_saved"]])
 
 
-def _makes_action_card(session: dict, api_key: str) -> bool:
-    return session["module"] == "coach" and session["agent"].mode == "llm" and bool(api_key)
+def _makes_action_card(session: dict) -> bool:
+    return session["module"] == "coach" and session["agent"].mode == "llm"
+
+
+def _action_card_outcome_text(agent, session_id: str | None = None) -> str:
+    result = agent.action_card_result
+    if result.get("status") == "ready" and result.get("card"):
+        return _action_card_text(result["card"], agent.language)
+    key = "card_" + result.get("status", "unknown")
+    if result.get("status") == "pending" and result.get("retry_until", "") <= db.utcnow().isoformat():
+        key = "card_interrupted"
+    s = account_pages.T[agent.language]
+    notice = s.get(key, s["card_unknown"])
+    if session_id:
+        return f'{notice}\n\n[{s["card_history"]}](/sessions/{session_id})'
+    return f'{notice}\n\n[{s["card_history"]}](/account)'
+
+
+def retry_action_card(row: dict, state: dict, user: dict, *, api_key: str | None = None) -> str:
+    """Claim a version before calling the model; save the result and its status in one transaction."""
+    if row["user_id"] != user["id"] or not can_recover_action_card(row, state):
+        return "card_busy"
+    if state.get("action_card_result", {}).get("retry_until", "") > db.utcnow().isoformat():
+        return "card_busy"
+    store = get_store()
+    claimed = {**state, "action_card_result": {"status": "pending",
+               "retry_until": (db.utcnow() + dt.timedelta(minutes=5)).isoformat()}}
+    try:
+        version = store.save_action_card_attempt(row["id"], user["id"], claimed, row["updated_at"])
+    except Exception:
+        logger.exception("Claiming an action card request failed")
+        return "card_save_failed"
+    if version is None:
+        return "card_busy"
+    card = None
+    try:
+        api_key = _safe_key() if api_key is None else api_key
+        if not api_key:
+            raise ValueError("Action card model is unavailable")
+        agent = CoachAgent.from_dict(state)
+        _attach({"id": row["id"], "module": "coach", "agent": agent}, user)
+        card = agent.action_card(api_key)
+        result = {"status": "ready", "card": card} if card else {"status": "none"}
+    except Exception:
+        logger.exception("Generating an action card failed")
+        result = {"status": "generation_failed"}
+    try:
+        saved = store.save_action_card_attempt(row["id"], user["id"], {**state, "action_card_result": result},
+                                               version, card=card)
+        if saved is None:
+            return "card_busy"
+        return "card_saved" if card else "card_" + result["status"]
+    except Exception:
+        logger.exception("Saving an action card failed")
+        try:
+            store.save_action_card_attempt(row["id"], user["id"],
+                                          {**state, "action_card_result": {"status": "save_failed"}}, version)
+        except Exception:
+            logger.exception("Recording the action card save failure failed; its lease will expire")
+        return "card_save_failed"
 
 
 def _finish_session(session: dict, api_key: str) -> str | None:
     """Keep what a finished session produced, then learn from it in the background.
 
-    An AI Coach session gets an action card: shown in the chat, listed on the Account page, and followed up on in the
-    next session. Returns the card's text when one was made.
+    The artifact stays outside the original dialogue. Returns its saved card or an explicit outcome notice.
     """
     agent = session["agent"]
     card_text = None
-    try:
-        if _makes_action_card(session, api_key):
-            card = agent.action_card(api_key)
-            if card:
-                get_store().save_session_result(session["id"], session["user_id"], "coach", card=card)
-                card_text = _action_card_text(card, agent.language)
-                agent.context.append({"role": agent.assistant_role, "content": card_text})
-                _save(session)
-    except Exception:
-        logger.exception("Keeping the result of a finished session failed")
+    if _makes_action_card(session):
+        outcome = "card_save_failed"
+        try:
+            store = get_store()
+            row = store.get_session(session["id"])
+            if row and row["updated_at"] == session.get("version"):
+                state = json.loads(row["state"])
+                # Only the initial close is automatic; subsequent attempts use the history form.
+                if not state.get("action_card_result") and not row.get("card"):
+                    outcome = retry_action_card(row, state, store.get_user(session["user_id"]), api_key=api_key)
+                else:
+                    outcome = "card_saved"
+                row = store.get_session(session["id"])
+                if row:
+                    agent.action_card_result = json.loads(row["state"]).get("action_card_result", {})
+                    if row.get("card"):
+                        agent.action_card_result = {"status": "ready", "card": row["card"]}
+                    session["version"] = row["updated_at"]
+            else:
+                outcome = "card_busy"
+        except Exception:
+            logger.exception("Loading the action card result failed")
+        if outcome == "card_save_failed":
+            agent.action_card_result = {"status": "save_failed"}
+        elif outcome == "card_busy":
+            session["version"] = _STALE
+        card_text = _action_card_outcome_text(agent, session["id"])
     if agent.mode == "llm" and api_key:
         threading.Thread(target=_learn_from_session, args=(session, api_key), daemon=True).start()
     return card_text
@@ -837,13 +924,13 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
 
     if session.get("unavailable"):
         gr.Info(session["unavailable"])
-        yield _respond_outputs(gr.update(interactive=False), _chat_history_from_context(agent), agent, session)
+        yield _respond_outputs(gr.update(interactive=False), _chat_history_from_context(agent, session.get("id")), agent, session)
         return
 
     if session.pop("changed_elsewhere", False):
         # Show what was said in the other tab or device first; the person's message stays in the box to send again.
         gr.Info(s["session_changed_elsewhere"])
-        yield _respond_outputs(gr.update(interactive=not agent.is_session_ended()), _chat_history_from_context(agent),
+        yield _respond_outputs(gr.update(interactive=not agent.is_session_ended()), _chat_history_from_context(agent, session.get("id")),
                                agent, session)
         return
 
@@ -876,7 +963,7 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
         if _user_turns(agent) >= MAX_USER_TURNS_PER_SESSION:
             # Only a conversation saved before reaching the limit ended it lands here: it ends now, with its review or
             # action card, rather than staying locked with no way to finish (Xiaofang's practice under the old cap).
-            yield from _end_at_limit(_chat_history_from_context(agent), session, _safe_key(), gr.update())
+            yield from _end_at_limit(_chat_history_from_context(agent, session.get("id")), session, _safe_key(), gr.update())
             return
         yield from _stream_reply(user_msg, chat_history, agent, session)
     finally:
@@ -939,7 +1026,7 @@ def _stream_reply(user_msg, chat_history, agent, session):
         else:
             agent.context = json.loads(latest["state"])["context"] if latest else []
         yield _respond_outputs(gr.update(value=user_msg, interactive=not agent.is_session_ended()),
-                               _chat_history_from_context(agent), agent, session)
+                               _chat_history_from_context(agent, session.get("id")), agent, session)
         return
 
     chat_history.append({"role": "assistant", "content": coach_response})
@@ -977,7 +1064,7 @@ def _close_turn(chat_history, session, api_key, tts_update):
         msg = "会话已结束" if agent.language == "zh" else "Session Complete"
         gr.Info(msg)
         session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]), session["module"])
-        if _makes_action_card(session, api_key):
+        if _makes_action_card(session):
             # Show the closing words first; the action card follows a moment later.
             yield _respond_outputs(gr.update(value="", interactive=False), list(chat_history), agent, session, tts_update)
             tts_update = gr.update()
@@ -1002,10 +1089,10 @@ def next_stage(chat_history, session, module_sel, mode_sel, lang_sel, request: g
     agent = session["agent"]
     if session.get("unavailable"):
         gr.Info(session["unavailable"])
-        return _next_stage_outputs(gr.update(interactive=False), _chat_history_from_context(agent), agent, session)
+        return _next_stage_outputs(gr.update(interactive=False), _chat_history_from_context(agent, session.get("id")), agent, session)
     if session.pop("changed_elsewhere", False):
         gr.Info(UI[agent.language]["session_changed_elsewhere"])
-        return _next_stage_outputs(gr.update(interactive=not agent.is_session_ended()), _chat_history_from_context(agent),
+        return _next_stage_outputs(gr.update(interactive=not agent.is_session_ended()), _chat_history_from_context(agent, session.get("id")),
                                    agent, session)
     lock = _agent_lock(agent)
     if not lock.acquire(blocking=False):
@@ -1174,7 +1261,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, voice_sel=None, request
 
     m_s, m_g, m_f = _memory_ui_updates(agent, lc)
     return (
-        _chat_history_from_context(agent),
+        _chat_history_from_context(agent, session.get("id")),
         _tracker_html(agent, session["module"]),
         _header_markdown(session),
         coach_btn,
@@ -1205,7 +1292,7 @@ def record_feedback(session, feedback: gr.LikeData, request: gr.Request = None):
     """Thumbs up/down on a reply, saved against the message's position in the transcript."""
     user = _current_user(request)
     if (not user or not session or session.get("user_id") != user["id"] or not session.get("id")
-            or not isinstance(feedback.index, int)):
+            or not isinstance(feedback.index, int) or not 0 <= feedback.index < len(session["agent"].context)):
         return
     value = {True: "like", False: "dislike"}.get(feedback.liked)
     get_store().set_feedback(user["id"], session["id"], feedback.index, value)
@@ -1550,7 +1637,8 @@ def create_app(store: db.Store | None = None, env: dict[str, str] | None = None)
     )
     coaching_core.on_request_failure = _record_ai_failure
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    app.include_router(account_pages.build_router(get_store, settings, retry_review=retry_practice_review))
+    app.include_router(account_pages.build_router(get_store, settings, retry_review=retry_practice_review,
+                                                 retry_action_card=retry_action_card))
 
     def signed_in_user_id(request) -> str | None:
         user = account_pages.current_user(request, get_store(), secret)

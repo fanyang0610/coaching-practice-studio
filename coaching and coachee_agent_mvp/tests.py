@@ -3032,6 +3032,185 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertEqual(again[15], "")
 
 
+class TestActionCardRecovery(unittest.TestCase):
+    """Missing cards recover from an immutable dialogue, with owner and version checks."""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.web, self.store, self.user, self.request = _signed_in()
+        self.secret = "card-test-secret"
+        self.client = TestClient(self.web.create_app(store=self.store, env={"STUDIO_SECRET_KEY": self.secret}))
+        self.client.cookies.set(accounts.SESSION_COOKIE, accounts.make_session_cookie(self.user, self.secret))
+        self.card = {"goal": "Rest", "next_step": "Walk at lunch", "by_when": "Tomorrow", "support": ""}
+
+    def finished(self, lang="en", *, legacy=False):
+        agent = CoachAgent(mode="llm", language=lang)
+        agent.current_state = CoachingState.CLOSING
+        agent.session_complete = True
+        agent.context = [{"role": "coach", "content": "What will you do?"},
+                         {"role": "client", "content": "I'll walk at lunch tomorrow."},
+                         {"role": "coach", "content": "Goodbye."}]
+        state = agent.to_dict()
+        if legacy:
+            state.pop("action_card_result")
+        sid = self.store.create_session(self.user["id"], "coach", lang, "llm", "CLOSING", state)
+        self.store.save_session(sid, state=state, status="completed", stage="CLOSING", user_turns=1,
+                                language=lang, mode="llm")
+        return self.store.get_session(sid)
+
+    def form(self, row, client=None):
+        client = client or self.client
+        return {"csrf": accounts.csrf_token(client.cookies.get(accounts.SESSION_COOKIE), self.secret),
+                "version": row["updated_at"].isoformat()}
+
+    def attempt(self, row):
+        return self.web.retry_action_card(row, json.loads(row["state"]), self.user, api_key="isolated-fake")
+
+    def test_legacy_history_recovery_saves_once_and_survives_refresh(self):
+        row = self.finished(legacy=True)
+        path = f'/sessions/{row["id"]}'
+        self.assertIn("Recover action card", self.client.get("/account?lang=en").text)
+        self.assertIn("No action card is saved", self.client.get(path).text)
+        reopened = self.web._restore_session(row, self.user)
+        self.assertIn("No action card is saved", self.web._chat_history_from_context(reopened["agent"], row["id"])[-1]["content"])
+        with patch.object(self.web, "_safe_key", return_value="isolated-fake"), \
+                patch.object(CoachAgent, "action_card", return_value=self.card) as model:
+            page = self.client.post(path + "/retry-action-card", data=self.form(row))
+            self.assertIn("Your action card is saved", page.text)
+            self.assertIn("Walk at lunch", page.text)
+            self.assertNotIn('action="' + path + '/retry-action-card"', page.text)
+            self.client.post(path + "/retry-action-card", data=self.form(row))
+            model.assert_called_once()
+        saved = self.store.get_session(row["id"])
+        self.assertEqual(saved["card"], self.card)
+        self.assertEqual(json.loads(saved["state"])["context"], json.loads(row["state"])["context"])
+        self.assertEqual((saved["completed_at"], saved["user_turns"]), (row["completed_at"], row["user_turns"]))
+        self.assertEqual(len(self.store.session_results(self.user["id"], "coach")), 1)
+        self.assertIn("Walk at lunch", self.client.get(path).text)
+        restored = self.web._restore_session(saved, self.user)
+        self.assertIn("Walk at lunch", self.web._chat_history_from_context(restored["agent"])[-1]["content"])
+        self.assertIn("Walk at lunch", self.client.get("/account").text)
+        import gradio as gr
+        self.web.record_feedback(restored, gr.LikeData(None, {"index": len(restored["agent"].context),
+                                                            "value": "card", "liked": True}), self.request)
+        self.assertEqual(self.store.feedback_for_session(row["id"]), {})
+
+    def test_initial_close_distinguishes_none_and_generation_failure_in_both_languages(self):
+        import account_pages
+
+        for lang in ("en", "zh"):
+            for failure in (False, True):
+                with self.subTest(lang=lang, failure=failure):
+                    row = self.finished(lang)
+                    session = self.web._restore_session(row, self.user)
+                    with patch.object(CoachAgent, "action_card", side_effect=RuntimeError("isolated outage") if failure else None,
+                                      return_value=None), patch.object(self.web, "_learn_from_session"), \
+                            patch.object(self.web.logger, "exception"):
+                        notice = self.web._finish_session(session, "isolated-fake")
+                    status = "generation_failed" if failure else "none"
+                    saved = self.store.get_session(row["id"])
+                    self.assertEqual(json.loads(saved["state"])["action_card_result"]["status"], status)
+                    self.assertIn(account_pages.T[lang]["card_" + status], notice)
+                    self.assertIn(f'/sessions/{row["id"]}', notice)
+                    self.assertEqual(json.loads(saved["state"])["context"], json.loads(row["state"])["context"])
+                    page = self.client.get(f'/sessions/{row["id"]}?lang={lang}').text
+                    self.assertIn(account_pages.T[lang]["card_" + status], page)
+
+    def test_save_failure_rolls_back_card_and_can_recover(self):
+        import sqlalchemy as sa
+
+        row = self.finished()
+        def fail_insert(conn, cursor, statement, parameters, context, executemany):
+            if statement.startswith("INSERT INTO session_results"):
+                raise RuntimeError("isolated simulated save outage")
+        sa.event.listen(self.store.engine, "before_cursor_execute", fail_insert)
+        try:
+            with patch.object(CoachAgent, "action_card", return_value=self.card), patch.object(self.web.logger, "exception"):
+                self.assertEqual(self.attempt(row), "card_save_failed")
+        finally:
+            sa.event.remove(self.store.engine, "before_cursor_execute", fail_insert)
+        failed = self.store.get_session(row["id"])
+        self.assertIsNone(failed["card"])
+        self.assertEqual(json.loads(failed["state"])["action_card_result"], {"status": "save_failed"})
+        self.assertEqual(json.loads(failed["state"])["context"], json.loads(row["state"])["context"])
+        self.assertIn("could not be saved", self.client.get(f'/sessions/{row["id"]}?lang=en').text)
+        with patch.object(CoachAgent, "action_card", return_value=self.card):
+            self.assertEqual(self.attempt(failed), "card_saved")
+
+    def test_existing_legacy_card_and_dialogue_are_never_replaced(self):
+        row = self.finished(legacy=True)
+        self.store.save_session_result(row["id"], self.user["id"], "coach", card=self.card)
+        row = self.store.get_session(row["id"])
+        with patch.object(CoachAgent, "action_card") as model:
+            self.assertEqual(self.attempt(row), "card_busy")
+            stale_state = {**json.loads(row["state"]), "action_card_result": {"status": "save_failed"}}
+            self.assertIsNone(self.store.save_action_card_attempt(row["id"], self.user["id"], stale_state,
+                                                                 row["updated_at"], card={"goal": "overwrite"}))
+            model.assert_not_called()
+        self.assertEqual(self.store.get_session(row["id"]), row)
+        self.assertIn("Walk at lunch", self.client.get(f'/sessions/{row["id"]}').text)
+        state = json.loads(row["state"])
+        state["context"].append({"role": "coach", "content": self.web._action_card_text(self.card, "en")})
+        old_row = {**row, "state": json.dumps(state)}
+        old_agent = self.web._restore_session(old_row, self.user)["agent"]
+        self.assertEqual(len(self.web._chat_history_from_context(old_agent)), len(state["context"]))
+
+    def test_only_owner_with_csrf_and_current_version_can_recover(self):
+        from fastapi.testclient import TestClient
+
+        row = self.finished()
+        path = f'/sessions/{row["id"]}'
+        self.store.set_session_shared(row["id"], True)
+        with patch.object(CoachAgent, "action_card") as model:
+            for role in ("user", "trainer", "admin"):
+                uid = self.store.create_user(f"{role}2@example.com", role, "x", role=role)
+                if role == "trainer":
+                    self.store.update_user(self.user["id"], trainer_id=uid)
+                client = TestClient(self.client.app)
+                client.cookies.set(accounts.SESSION_COOKIE, accounts.make_session_cookie(self.store.get_user(uid), self.secret))
+                self.assertNotIn('action="' + path + '/retry-action-card"', client.get(path).text)
+                self.assertEqual(client.post(path + "/retry-action-card", data=self.form(row, client)).status_code, 403)
+            invalid = {**self.form(row), "csrf": "wrong"}
+            self.client.post(path + "/retry-action-card", data=invalid)
+            stale = {**self.form(row), "version": "old"}
+            page = self.client.post(path + "/retry-action-card", data=stale)
+            self.assertIn("record changed", page.text)
+            model.assert_not_called()
+        self.assertEqual(self.store.get_session(row["id"])["state"], row["state"])
+
+    def test_pending_request_blocks_duplicate_and_expired_worker_cannot_overwrite(self):
+        import datetime as dt
+
+        row = self.finished()
+        winner_card = {**self.card, "next_step": "A newer saved result"}
+        def delayed_generation(key):
+            pending = self.store.get_session(row["id"])
+            state = json.loads(pending["state"])
+            self.assertEqual(self.web.retry_action_card(pending, state, self.user, api_key=key), "card_busy")
+            state["action_card_result"]["retry_until"] = (db.utcnow() - dt.timedelta(seconds=1)).isoformat()
+            self.store.save_action_card_attempt(row["id"], self.user["id"], state, pending["updated_at"])
+            expired = self.store.get_session(row["id"])
+            page = self.client.get(f'/sessions/{row["id"]}?lang=en').text
+            self.assertIn("interrupted", page)
+            with patch.object(CoachAgent, "action_card", return_value=winner_card):
+                self.assertEqual(self.attempt(expired), "card_saved")
+            return self.card
+        with patch.object(CoachAgent, "action_card", side_effect=delayed_generation):
+            self.assertEqual(self.attempt(row), "card_busy")
+        self.assertEqual(self.store.get_session(row["id"])["card"], winner_card)
+
+    def test_deleted_session_is_not_recreated_by_a_late_result(self):
+        row = self.finished()
+        def deleted_while_generating(key):
+            self.store.delete_session(row["id"])
+            return self.card
+        with patch.object(CoachAgent, "action_card", side_effect=deleted_while_generating):
+            self.assertEqual(self.attempt(row), "card_busy")
+        self.assertIsNone(self.store.get_session(row["id"]))
+        self.assertEqual(self.store.session_results(self.user["id"], "coach"), [])
+
+
 class TestSessionRating(unittest.TestCase):
     def test_a_finished_session_asks_how_useful_it_was_and_keeps_the_answer(self):
         web_app, store, user, request = _signed_in()

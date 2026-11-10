@@ -411,6 +411,28 @@ class Store:
                 self._insert_practice_score(conn, session_id, score)
             return now
 
+    def save_action_card_attempt(self, session_id: str, user_id: int, state: dict,
+                                 expected_version: dt.datetime, *, card: dict | None = None) -> dt.datetime | None:
+        """Claim/finish recovery atomically; never replace an existing result or original dialogue."""
+        c = coaching_sessions.c
+        now = _version_stamp()
+        stmt = coaching_sessions.update().where(
+            c.id == session_id, c.user_id == user_id, c.module == "coach", c.status == "completed",
+            c.mode == "llm", c.updated_at == expected_version,
+            ~sa.exists(sa.select(session_results.c.session_id).where(session_results.c.session_id == session_id)),
+        )
+        with self.engine.begin() as conn:
+            if conn.execute(stmt.values(state=json.dumps(state, ensure_ascii=False), updated_at=now)).rowcount != 1:
+                return None
+            if card is not None:
+                # A plain insert also rolls back the state if another writer inserted a card meanwhile.
+                conn.execute(session_results.insert().from_select(
+                    ["session_id", "user_id", "module", "card", "created_at"],
+                    sa.select(c.id, c.user_id, c.module, sa.literal(json.dumps(card, ensure_ascii=False)),
+                              sa.func.coalesce(c.completed_at, c.created_at)).where(c.id == session_id),
+                ))
+            return now
+
     def _insert_practice_score(self, conn, session_id: str, score: int) -> None:
         c = coaching_sessions.c
         insert = sqlite.insert if self.is_sqlite else postgresql.insert
@@ -457,9 +479,10 @@ class Store:
                 shared_with_trainer=False))
 
     def get_session(self, session_id: str) -> dict | None:
-        return self._one(sa.select(coaching_sessions, session_results.c.score)
+        row = self._one(sa.select(coaching_sessions, session_results.c.score, session_results.c.card)
                          .outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id)
                          .where(coaching_sessions.c.id == session_id))
+        return _with_card(row) if row else None
 
     def _resumable_query(self, user_id: int, module: str | None):
         c = coaching_sessions.c

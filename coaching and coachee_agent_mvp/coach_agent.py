@@ -18,6 +18,15 @@ from coach_data import (
 
 
 ACTION_CARD_FIELDS = ("goal", "next_step", "by_when", "support")
+
+
+def can_recover_action_card(row: dict, state: dict) -> bool:
+    """Only missing results of finished AI-coach conversations can be recovered."""
+    return (row["module"] == "coach" and row["status"] == "completed" and row["mode"] == "llm"
+            and not row.get("card") and state.get("action_card_result", {}).get("status") != "ready"
+            and any(m.get("role") == "client" for m in state.get("context", [])))
+
+
 # After this many client turns in one stage, the AI coach is asked to sum up and move on.
 STAGE_NUDGE_TURNS = 5
 
@@ -133,6 +142,8 @@ class CoachAgent:
         self.opening_variation_seed = uuid.uuid4().hex[:8]
         # The action card from this person's previous session, set by the web app so the opening can follow up on it.
         self.last_card: dict | None = None
+        # A derived artifact, kept outside the original dialogue.
+        self.action_card_result: dict = {}
         # The closing stage is a conversation of its own; the session ends when the coach says goodbye.
         self.session_complete = False
         # Stages the conversation jumped over, shown as skipped rather than done.
@@ -167,6 +178,7 @@ class CoachAgent:
             "fresh_start": self.fresh_start,
             "session_complete": self.session_complete,
             "skipped": sorted(self.skipped_stages),
+            "action_card_result": self.action_card_result,
         }
 
     @classmethod
@@ -182,6 +194,7 @@ class CoachAgent:
         # Sessions saved before closing became a stage of its own ended on reaching it.
         agent.session_complete = data.get("session_complete", agent.current_state == CoachingState.CLOSING)
         agent.skipped_stages = set(data.get("skipped", []))
+        agent.action_card_result = data.get("action_card_result", {})
         return agent
 
     def get_stage_prompt(self, api_key: str | None = None) -> str:
