@@ -876,7 +876,7 @@ class TestCoacheeAgent(unittest.TestCase):
         agent.contract_done = True
         agent.context = [{"role": "coachee", "content": "I'll start on Monday."}]
         agent.metrics.stage_questions[CoachingState.VALUE] = 1
-        replies = ["That I can start small.", "Thanks, bye!", "Session Result: ok\nScore: 30/100"]
+        replies = ["That I can start small.", "Thanks, bye!", "Session Result: ok\n" + _review_fixture()]
 
         with patch("coachee_agent._build_client", return_value=_fake_llm_client(replies, [])), _coach_labels("CLOSING", "END"):
             reply = agent.generate_response("What are you taking away from today?", api_key="server-key")
@@ -945,6 +945,13 @@ class TestMemoryPrivacy(unittest.TestCase):
         self.assertIn("openai", requirements)
         self.assertNotIn("requests", requirements)
         self.assertNotIn("cryptography", requirements)
+
+
+def _review_fixture(scores=(6, 6, 6, 6, 6), language="en"):
+    names = ("目标合同", "现实探索", "可能方案", "行动承诺", "结束回顾") if language == "zh" else (
+        "Contract", "Reality", "Possibilities", "Commitment", "Closing")
+    label = "分阶段得分：" if language == "zh" else "Stage scores: "
+    return label + " · ".join(f"{name} {score}/20" for name, score in zip(names, scores))
 
 
 def _fake_llm_client(replies, calls):
@@ -1197,12 +1204,12 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         agent._llm_scenario_ready = True
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
         calls = []
-        client = _fake_llm_client(["Thanks, I feel ready.", "Session Result: Solid start.\nScore: 7/100"], calls)
+        client = _fake_llm_client(["Thanks, I feel ready.", "Session Result: Solid start.\n" + _review_fixture((7, 0, 0, 0, 0))], calls)
 
         with patch("coachee_agent._build_client", return_value=client), _coach_labels("END"):
             partials = list(agent.stream_response("Goodbye and good luck!", api_key="server-key"))
 
-        self.assertEqual(partials, ["Session Result: Solid start.\nScore: 7/100"])
+        self.assertEqual(partials, ["Session Result: Solid start.\n" + _review_fixture((7, 0, 0, 0, 0)) + "\nScore: 7/100"])
         self.assertTrue(agent.is_session_ended())
         self.assertTrue(calls[0]["stream"])
         self.assertFalse(calls[1].get("stream", False))
@@ -2461,7 +2468,8 @@ class TestAccountPages(unittest.TestCase):
         path_calls = []
         start = db.utcnow() - db.dt.timedelta(hours=1)
         processing, release = Event(), Event()
-        replies = ["", "Sorry, the service is unavailable.", "", "暂时无法写出点评。", "会话结果：练习已保存。\n最后得分：42/100"]
+        replies = ["", "Sorry, the service is unavailable.", "最后得分：99/100", "暂时无法写出点评。",
+                   "会话结果：练习已保存。\n" + _review_fixture((16, 14, 12, 0, 0), "zh")]
 
         def fake_client(key, on_usage=None):
             client = _fake_llm_client(replies, path_calls)
@@ -2540,6 +2548,51 @@ class TestAccountPages(unittest.TestCase):
         for page in (owner.get(detail), owner.get("/account"), trainer.get(detail), trainer.get("/mentor")):
             self.assertIn("42/100", page.text)
 
+    def test_computed_score_survives_save_reload_history_account_and_mentor(self):
+        from coachee_agent import review_score
+
+        mentor = self._person("score-mentor@example.com", role="trainer")
+        uid = self._person("score-owner@example.com", trainer_id=mentor)
+        user = self.store.get_user(uid)
+        owner, trainer = self._sign_in("score-owner@example.com"), self._sign_in("score-mentor@example.com")
+        for language in ("en", "zh"):
+            with self.subTest(language=language):
+                agent = CoacheeAgent(mode="llm", language=language)
+                original = [{"role": "coach", "content": "Fictional short, partially completed practice."},
+                            {"role": "coachee", "content": "I know my goal and options; no action agreed yet."}]
+                agent.context = list(original)
+                raw = _review_fixture((18, 16, 12, 0, 0), language) + "\nScore: 99/100"
+                with patch("coachee_agent._build_client", return_value=_fake_llm_client([raw], [])):
+                    review = agent._build_final_review("fake")
+                self.assertFalse(agent.review_failed)
+                agent.context.append({"role": "coachee", "content": review})
+                agent.session_complete = True
+                sid = self.store.create_session(uid, "coachee", language, "llm", "CLOSING", agent.to_dict())
+                session = self.web_app._restore_session(self.store.get_session(sid), user)
+                self.assertTrue(self.web_app._save(session))
+                row = self.store.get_session(sid)
+                restored = self.web_app._restore_session(row, user)["agent"]
+                chat = self.web_app._chat_history_from_context(restored)
+                self.assertEqual(restored.context[:-1], original)
+                self.assertEqual(review_score(chat[-1]["content"]), 46)
+                self.assertEqual(row["score"], 46)
+                self.assertEqual(review_score(json.loads(row["state"])["context"][-1]["content"]), 46)
+                for page in (owner.get(f"/sessions/{sid}?lang={language}"), owner.get(f"/account?lang={language}"),
+                             trainer.get(f"/sessions/{sid}?lang={language}"), trainer.get(f"/mentor?lang={language}")):
+                    self.assertIn("46/100", page.text)
+                    self.assertNotIn("99/100", page.text)
+
+        # Reading and re-saving an old total-only review leaves its original text and stored result intact.
+        old = CoacheeAgent(mode="llm", language="en")
+        old.session_complete = True
+        old.context = [{"role": "coachee", "content": "Legacy review. Score: 74/100"}]
+        sid = self.store.create_session(uid, "coachee", "en", "llm", "CLOSING", old.to_dict())
+        self.store.save_session_result(sid, uid, "coachee", score=74)
+        self.assertTrue(self.web_app._save(self.web_app._restore_session(self.store.get_session(sid), user)))
+        self.assertEqual(json.loads(self.store.get_session(sid)["state"])["context"], old.context)
+        self.assertIn("74/100", owner.get(f"/sessions/{sid}").text)
+        self.assertEqual(self.store.get_session(sid)["score"], 74)
+
     def test_only_recognizable_failed_completed_practice_can_regenerate(self):
         from coachee_agent import REVIEW_UNAVAILABLE
 
@@ -2571,7 +2624,7 @@ class TestAccountPages(unittest.TestCase):
                 self.assertEqual("Regenerate review" in owner.get(url).text, eligible)
                 with patch.object(self.web_app, "_safe_key", return_value="fake"), \
                         patch("coachee_agent._build_client", return_value=_fake_llm_client(
-                            ["Session Result: A clear question.\nScore: 7/100"], [])):
+                            ["Session Result: A clear question.\n" + _review_fixture((7, 0, 0, 0, 0))], [])):
                     response = owner.post(url + "/retry-review", data=token, follow_redirects=False)
                 self.assertEqual(response.status_code, 303 if eligible else 403)
 
@@ -3219,7 +3272,7 @@ class TestFullConversation(unittest.TestCase):
                 before = json.loads(json.dumps(agent.context))
                 calls = []
                 replies = ["What feels possible?", "{}", "{}", "Goodbye."] if cls is CoachAgent else [
-                    "What feels possible?", "{}", "Score: 30/100", "[[GOAL]]"]
+                    "What feels possible?", "{}", _review_fixture(), "[[GOAL]]"]
                 client = _fake_llm_client(replies, calls)
                 with patch(f"{module}._build_client", return_value=client):
                     list(agent._get_llm_response("fake"))
@@ -3318,7 +3371,7 @@ class TestFullConversation(unittest.TestCase):
                 original = list(agent.context)
                 self.assertEqual(core.conversation_capacity(agent.context), "near")
                 calls = []
-                replies = ["Goodbye.", '{"goal":"Rest"}'] if cls is CoachAgent else ["Score: 30/100"]
+                replies = ["Goodbye.", '{"goal":"Rest"}'] if cls is CoachAgent else [_review_fixture()]
                 with patch.object(core, "_shared_client", return_value=_fake_llm_client(replies, calls)):
                     if cls is CoachAgent:
                         agent._get_llm_closing_summary("fake")
@@ -3470,20 +3523,22 @@ class TestStructuredReplies(unittest.TestCase):
         calls = []
         agent = CoacheeAgent(mode="llm", language="en")
         agent.context = [{"role": "coach", "content": "What would you like from today?"}]
-        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Score: 40/100"], calls)):
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client([_review_fixture((14, 14, 12, 0, 0))], calls)):
             agent._build_llm_final_review("server-key")
 
         prompt = calls[0]["messages"][0]["content"]
         self.assertIn("Stage scores: Contract <n>/20", prompt)
         self.assertIn("A stage the coach skipped earns 0", prompt)
-        self.assertIn("The coach spoke 1 times in this session, so the total must not exceed 8.", prompt)
+        self.assertIn("not the number of questions or turns", prompt)
+        self.assertNotIn("earns at most 6", prompt)
+        self.assertNotIn("total must not exceed", prompt)
 
     def test_a_practice_ended_at_the_limit_is_reviewed_whole_and_says_why_it_stopped(self):
         calls = []
         agent = CoacheeAgent(mode="llm", language="en")
         agent.current_state = CoachingState.ACTION
         agent.context = _conversation(agent, 100)
-        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Score: 40/100"], calls)):
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client([_review_fixture((14, 14, 12, 0, 0))], calls)):
             review = agent.end_at_limit(100, "server-key")
 
         prompt = calls[0]["messages"][0]["content"]
@@ -3492,18 +3547,40 @@ class TestStructuredReplies(unittest.TestCase):
         self.assertTrue(agent.session_complete)
         self.assertEqual(agent.context[-1]["content"], review)
 
-    def test_practice_scores_are_held_to_the_ceiling_for_short_sessions(self):
-        agent = CoacheeAgent(mode="llm", language="zh")
-        agent.context = [{"role": "coach", "content": f"问题 {i}"} for i in range(5)]
-        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["会话结果：不错。\n最后得分：70/100"], [])):
-            review = agent._build_llm_final_review("server-key")
+    def test_short_practice_keeps_stage_scores_and_computes_total_in_both_languages(self):
+        from coachee_agent import review_score
 
-        self.assertIn("最后得分：40/100", review)
-        self.assertEqual(agent._apply_score_ceiling("Score: 30/100"), "Score: 30/100")
-        capped = agent._apply_score_ceiling("分阶段得分：目标合同 18/20 · 现实探索 12/20 · 可能方案 14/20 · 行动承诺 18/20 · 结束回顾 16/20\n最后得分：78/100")
-        stage_scores = [int(n) for n in re.findall(r"(\d+)/20", capped)]
-        self.assertEqual(sum(stage_scores), 40)
-        self.assertIn("最后得分：40/100", capped)
+        for language in ("en", "zh"):
+            for scores in ((18, 12, 14, 18, 16), (18, 12, 14, 0, 0), (0, 0, 0, 0, 0), (20, 20, 20, 20, 20)):
+                with self.subTest(language=language, scores=scores):
+                    agent = CoacheeAgent(mode="llm", language=language)
+                    agent.context = [{"role": "coach", "content": "A short fictional practice."}]
+                    total_label = "最后得分：" if language == "zh" else "Score: "
+                    feedback = "点评保留。" if language == "zh" else "Feedback stays."
+                    raw = "**" + _review_fixture(scores, language) + "**\n" + total_label + "3/100\n" + feedback
+                    with patch("coachee_agent._build_client", return_value=_fake_llm_client([raw], [])):
+                        review = agent._build_llm_final_review("fake")
+                    self.assertIn(_review_fixture(scores, language), review)
+                    self.assertEqual(review_score(review), sum(scores))
+                    self.assertEqual(review.count("/100"), 1)
+                    self.assertTrue(review.endswith(feedback))
+
+    def test_invalid_or_missing_stage_scores_fail_without_saving_a_success_score(self):
+        from coachee_agent import REVIEW_UNAVAILABLE, review_score
+
+        for language in ("en", "zh"):
+            valid = _review_fixture(language=language)
+            for raw in ("Score: 99/100", valid.replace("6/20", "21/20", 1),
+                        valid.replace("6/20", "-1/20", 1), valid.replace("6/20", "6.5/20", 1),
+                        valid.rsplit(" · ", 1)[0], valid + "\n" + valid):
+                with self.subTest(language=language, raw=raw):
+                    agent = CoacheeAgent(mode="llm", language=language)
+                    with patch("coachee_agent._build_client", return_value=_fake_llm_client([raw, raw], [])), \
+                            patch("coachee_agent.logger.warning"):
+                        review = agent._build_final_review("fake")
+                    self.assertTrue(agent.review_failed)
+                    self.assertEqual(review, REVIEW_UNAVAILABLE[language])
+                    self.assertIsNone(review_score(review))
 
     def test_a_stray_bullet_before_a_one_paragraph_reply_is_removed(self):
         self.assertEqual(_clean_response_language("- You want evenings back. What matters most?", "en"),
@@ -3531,12 +3608,12 @@ class TestStructuredReplies(unittest.TestCase):
         agent = CoacheeAgent(mode="llm", language="en")
         agent._llm_scenario_ready = True
         agent.context = [{"role": "coachee", "content": agent.scenario.intro["en"]}]
-        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Thanks!", "Score: 6/100"], [])), \
+        with patch("coachee_agent._build_client", return_value=_fake_llm_client(["Thanks!", _review_fixture((6, 0, 0, 0, 0))], [])), \
                 _coach_labels("END"):
             reply = agent.generate_response("Good luck, that's all for today. Goodbye!", "server-key")
 
         self.assertTrue(agent.is_session_ended())
-        self.assertEqual(reply, "Score: 6/100")
+        self.assertEqual(reply, _review_fixture((6, 0, 0, 0, 0)) + "\nScore: 6/100")
 
 
 class TestLanguageAndLocalisation(unittest.TestCase):
@@ -4039,7 +4116,7 @@ class TestOwnPracticeTopic(unittest.TestCase):
 
         review_calls = []
         with patch("coachee_agent._build_client",
-                   return_value=_fake_llm_client(["Session Result: ok\nScore: 10/100"], review_calls)):
+                   return_value=_fake_llm_client(["Session Result: ok\n" + _review_fixture((10, 0, 0, 0, 0))], review_calls)):
             agent._build_llm_final_review("server-key")
         review_prompt = review_calls[0]["messages"][0]["content"]
         self.assertIn("Pay particular attention to pace and trust", review_prompt)

@@ -37,8 +37,44 @@ REVIEW_UNAVAILABLE = {
 
 
 def review_score(review: str) -> int | None:
-    match = re.search(r"(\d{1,3})\s*/\s*100", review or "")
+    # Prefer the result line over a score quoted in the prose; keep old total-only formats readable.
+    plain = (review or "").replace("**", "")
+    match = re.search(r"^\s*(?:Score|最后得分)\s*[:：]\s*(\d{1,3})\s*/\s*100", plain, re.M | re.I)
+    if not match:
+        match = re.search(r"(\d{1,3})\s*/\s*100", plain)
     return min(int(match.group(1)), 100) if match else None
+
+
+def _normalize_review_scores(review: str, language: str) -> str:
+    """New AI reviews need five valid parts. The app supplies their total, never a turn-count cap."""
+    names = ("目标合同", "现实探索", "可能方案", "行动承诺", "结束回顾") if language == "zh" else (
+        "Contract", "Reality", "Possibilities", "Commitment", "Closing")
+    label = "分阶段得分" if language == "zh" else "Stage scores"
+    total_label = "最后得分" if language == "zh" else "Score"
+    parts = r"\s*[·•|]\s*".join(re.escape(name) + r"\s+(\d{1,2})\s*/\s*20" for name in names)
+    pattern = re.compile(re.escape(label) + r"\s*[:：]\s*" + parts, re.I)
+    lines = review.splitlines()
+    stage_lines = [(i, line.replace("**", "").strip()) for i, line in enumerate(lines)
+                   if re.match(re.escape(label) + r"\s*[:：]", line.replace("**", "").strip(), re.I)]
+    if len(stage_lines) != 1:
+        raise ValueError("Practice review needs one five-stage score breakdown.")
+    index, stage_line = stage_lines[0]
+    match = pattern.fullmatch(stage_line)
+    if not match or any(int(n) > 20 for n in match.groups()):
+        raise ValueError("Practice review stage scores must be integers from 0 to 20.")
+    scores = [int(n) for n in match.groups()]
+    separator = "：" if language == "zh" else ": "
+    lines[index] = label + separator + " · ".join(f"{name} {score}/20" for name, score in zip(names, scores))
+    # Discard model-written totals, including a missing or mistaken sum, and insert the computed result once.
+    total_line = re.compile(r"(?:Score|最后得分)\s*[:：]", re.I)
+    result = []
+    for i, line in enumerate(lines):
+        if total_line.match(line.replace("**", "").strip()):
+            continue
+        result.append(line)
+        if i == index:
+            result.append(f"{total_label}{separator}{sum(scores)}/100")
+    return "\n".join(result)
 
 
 def can_retry_review(row: dict, state: dict) -> bool:
@@ -790,7 +826,6 @@ class CoacheeAgent:
                 "请严格按照以下格式输出：\n"
                 "会话结果：[用一两句话总结本次模拟教练的效果和完整度]\n"
                 "分阶段得分：目标合同 X/20 · 现实探索 X/20 · 可能方案 X/20 · 行动承诺 X/20 · 结束回顾 X/20（X 为该阶段得分）\n"
-                "最后得分：[五个阶段得分之和]/100\n"
                 "节奏与信任：[一两句话：教练是先建立信任、约定这次谈话想要的结果，还是急于分析原因或解决问题？引用教练的原话说明]\n"
                 "做得好的部分：\n- [具体的优点1]\n- [具体的优点2]\n"
                 "需要提升的部分：\n- [具体、可操作的建议1]\n- [具体、可操作的建议2]\n"
@@ -801,7 +836,6 @@ class CoacheeAgent:
                 "Use this structure exactly:\n"
                 "Session Result: <summary of the coaching quality>\n"
                 "Stage scores: Contract <n>/20 · Reality <n>/20 · Possibilities <n>/20 · Commitment <n>/20 · Closing <n>/20\n"
-                "Score: <sum of the five stage scores>/100\n"
                 "Pace and trust: <one or two sentences: did the coach build trust and agree what the coachee wanted before "
                 "analysing causes or solving? Quote the coach's own words>\n"
                 "What worked:\n- ...\n- ...\n"
@@ -825,15 +859,16 @@ class CoacheeAgent:
             "natural next step, not rushing. Where you see rushing, quote the coach's own words and "
             "suggest what they might have asked instead; where trust was built well, say what worked. "
             "Score with this rubric: each of the five stages is worth up to 20 points. A stage the coach skipped earns 0; "
-            "one touched with a single question earns at most 6; full marks need real exploration that the coachee answered in depth. "
-            "The total is the sum of the five stage scores. Give constructive feedback on anything incomplete. "
+            "judge each stage by the coaching evidence in the dialogue, not the number of questions or turns. "
+            "Full marks need clear evidence that the stage's purpose was achieved. "
+            "Return integer stage scores from 0 to 20; the app will calculate their sum. Do not write a total score. "
+            "Give constructive feedback on anything incomplete. "
             + (f"This practice stopped because the coach used all {self.stopped_at_limit} messages a conversation allows, "
                f"during the {('Contract', 'Reality', 'Possibilities', 'Commitment', 'Closing')[self.current_state.value - 1]} "
                "stage. The stages after it were not reached, so they earn 0; say so plainly in the result, and don't count "
                "reaching the limit itself as a fault. "
                if self.stopped_at_limit else "")
-            +             f"The coach spoke {self._coach_turns()} times in this session, so the total must not exceed {self._score_ceiling()}. "
-            "Be strict and consistent, because learners track these scores over time. "
+            + "Be consistent, because learners track these scores over time. "
             f"Respond only in {lang_instr}. {_language_output_rule(self.language)}\n"
             f"{struct}\n\n"
             "COACHING HISTORY TO EVALUATE:\n"
@@ -848,36 +883,7 @@ class CoacheeAgent:
             max_tokens=650,
             temperature=0.3,
         )
-        return self._apply_score_ceiling(_clean_response_language(_response_text(resp), self.language))
-
-    def _coach_turns(self) -> int:
-        return sum(1 for msg in self.context if msg["role"] == self.user_role)
-
-    def _score_ceiling(self) -> int:
-        """At most 8 points per coaching turn: about 12 turns are needed to explore all five stages in depth."""
-        return min(100, 8 * self._coach_turns())
-
-    def _apply_score_ceiling(self, review: str) -> str:
-        """Hold the reviewer to the ceiling it was given, so scores stay comparable over time."""
-        ceiling = self._score_ceiling()
-        match = re.search(r"(\d{1,3})(\s*/\s*100)", review)
-        if not match:
-            return review
-        total = min(int(match.group(1)), ceiling)
-        review = review[:match.start()] + f"{total}{match.group(2)}" + review[match.end():]
-        # Keep the five stage scores adding up to the total.
-        stage_line = next((line for line in review.splitlines() if len(re.findall(r"\d{1,2}\s*/\s*20", line)) == 5), None)
-        if stage_line:
-            scores = [int(n) for n in re.findall(r"(\d{1,2})\s*/\s*20", stage_line)]
-            if sum(scores) > total:
-                scaled = [n * total // sum(scores) for n in scores]
-                by_remainder = sorted(range(5), key=lambda i: scaled[i] - scores[i] * total / sum(scores))
-                for i in by_remainder[: total - sum(scaled)]:
-                    scaled[i] += 1
-                values = iter(scaled)
-                new_line = re.sub(r"\d{1,2}(\s*/\s*20)", lambda m: f"{next(values)}{m.group(1)}", stage_line)
-                review = review.replace(stage_line, new_line, 1)
-        return review
+        return _normalize_review_scores(_clean_response_language(_response_text(resp), self.language), self.language)
 
     def _has_insufficient_evidence(self) -> bool:
         total_facts = sum(len(self.metrics.facts_shared[state]) for state in COACHEE_STAGE_ORDER)
