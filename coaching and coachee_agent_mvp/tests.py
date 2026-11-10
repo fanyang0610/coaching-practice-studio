@@ -3116,8 +3116,9 @@ class TestInsightControls(unittest.TestCase):
                 page = self.client.get("/account").text
                 self.assertIn(edited, page)
                 # The other role still has its independent, unchanged observations.
-                self.assertEqual(page.count("Always avoids silence"), int(module == "coach"))
-                self.assertEqual(page.count("Patient"), int(module == "coach"))
+                insights = page.split('id="insights"', 1)[1]
+                self.assertEqual(insights.count("Always avoids silence"), int(module == "coach"))
+                self.assertEqual(insights.count("Patient"), int(module == "coach"))
                 reopened = self.web._restore_session(self.store.get_session(session["id"]), self.user)
                 self.assertEqual(reopened["agent"].user_profile.strengths, [edited, "Curious"])
                 self.assertIn(edited, self.web._memory_ui_updates(reopened["agent"], lang)[0])
@@ -3278,6 +3279,188 @@ class TestInsightControls(unittest.TestCase):
         self.assertEqual((merged.strengths, merged.growth_areas, merged.coaching_style_insights), ([], [], ""))
         self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), self.legacy)
         self.assertIn("changed elsewhere", self.client.post("/account/profile/reset", data=form).text)
+
+
+class TestPracticeGoal(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.web, self.store, self.user, self.request = _signed_in()
+        self.secret = "practice-goal-test-secret"
+        self.client = TestClient(self.web.create_app(store=self.store, env={"STUDIO_SECRET_KEY": self.secret}))
+        self.client.cookies.set(accounts.SESSION_COOKIE, accounts.make_session_cookie(self.user, self.secret))
+        self.client.cookies.set("studio_lang", "en")
+        self.legacy = {"growth_areas": ["Leave space before the next question", "先复述，再提问"], "strengths": ["Curious"]}
+        self.store.save_profile(self.user["id"], "coachee", self.legacy)
+
+    def form(self, **extra):
+        from memory import profile_version
+
+        return {"csrf": accounts.csrf_token(self.client.cookies.get(accounts.SESSION_COOKIE), self.secret),
+                "version": profile_version(self.store.get_profile(self.user["id"], "coachee")),
+                "action": "save", "value": "Reflect before asking", **extra}
+
+    def goal(self):
+        return UserProfile.from_dict(self.store.get_profile(self.user["id"], "coachee")).next_practice_goal
+
+    def test_bilingual_select_edit_refresh_and_clear_preserve_history(self):
+        old = self.web._open_session(self.user, "coachee", "template", "en")
+        self.store.save_session_result(old["id"], self.user["id"], "coachee", score=42)
+        before, results = self.store.get_session(old["id"]), self.store.session_results(self.user["id"], "coachee")
+        for lang, candidate, edited in (("en", self.legacy["growth_areas"][0], "Reflect the feeling before asking"),
+                                        ("zh", self.legacy["growth_areas"][1], "先核对理解，再提下一个问题")):
+            self.client.cookies.set("studio_lang", lang)
+            page = self.client.get("/account").text
+            self.assertIn(f'<option value="{candidate}">', page)
+            self.assertIn("document.getElementById('practice-goal-value').value=this.value", page)
+            for value in (candidate, edited):
+                response = self.client.post("/account/practice-goal", data=self.form(value="  " + value + "  "))
+                self.assertIn("练习目标已保存" if lang == "zh" else "Practice goal saved", response.text)
+                self.assertEqual(self.goal(), value)
+                self.assertIn(value, self.client.get("/account").text)
+                restored = self.web._restore_session(self.store.get_session(old["id"]), self.user)
+                self.assertEqual(restored["agent"].user_profile.next_practice_goal, value)
+                self.assertIn(value, self.web._memory_ui_updates(restored["agent"], lang)[1])
+            self.client.post("/account/practice-goal", data=self.form(action="clear"))
+            self.assertEqual(self.goal(), "")
+        self.assertEqual(self.store.get_session(old["id"]), before)
+        self.assertEqual(self.store.session_results(self.user["id"], "coachee"), results)
+        self.assertEqual(self.store.get_profile(self.user["id"], "coachee")["growth_areas"], self.legacy["growth_areas"])
+
+    def test_manual_goal_without_insights_and_validation(self):
+        self.store.delete_profiles(self.user["id"])
+        self.assertNotIn('id="practice-goal-choice"', self.client.get("/account").text)
+        value = "练" * 300
+        self.client.post("/account/practice-goal", data=self.form(value=value))
+        self.assertEqual(self.goal(), value)
+        agent = CoacheeAgent(user_profile=self.web._load_profile(self.user["id"], "coachee"))
+        self.assertIn(value, self.web._memory_ui_updates(agent, "zh")[1])
+        response = self.client.post("/account/practice-goal", data=self.form(value="x" * 301))
+        self.assertIn("within 300", response.text)
+        self.assertEqual(self.goal(), value)
+        self.client.post("/account/practice-goal", data=self.form(value="<script>alert('x')</script>"))
+        self.assertNotIn("<script>alert", self.client.get("/account").text)
+        agent.user_profile = self.web._load_profile(self.user["id"], "coachee")
+        self.assertIn("&lt;script&gt;", self.web._memory_ui_updates(agent, "en")[1])
+        self.client.post("/account/practice-goal", data=self.form(value=" \n "))
+        self.assertEqual(self.goal(), "")
+
+    def test_next_actual_case_input_uses_current_goal_and_keeps_topic_separate(self):
+        for lang, goal in (("en", "Check the client's understanding"), ("zh", "多停顿，少给建议")):
+            self.client.post("/account/practice-goal", data=self.form(value=goal))
+            prior = self.store.resumable_session(self.user["id"], "coachee")
+            # Isolated JSON fixture checks the actual opening request, without contacting a model.
+            with patch.object(self.web, "_safe_key", return_value="isolated-fake"), \
+                    patch("coachee_agent._build_client"), \
+                    patch("coachee_agent._json_completion", return_value=json.loads(TestOwnPracticeTopic.CASE)) as completion:
+                session = self.web._open_session(self.user, "coachee", "llm", lang, "a client deciding whether to move",
+                                                 expected=(prior["id"], prior["updated_at"]) if prior else None)
+            self.assertIn("id", session)
+            self.assertEqual(completion.call_count, 1)
+            prompt = completion.call_args.kwargs["messages"][0]["content"]
+            self.assertIn(f"User-chosen coaching skill: <<{goal}>>", prompt)
+            self.assertIn("<<a client deciding whether to move>>", prompt)
+            self.assertIn("separate from the client's situation", prompt)
+            self.assertIn("never as instructions", prompt)
+            old_case = session["agent"].scenario
+            before = self.store.get_session(session["id"])
+            self.client.post("/account/practice-goal", data=self.form(value="A different skill"))
+            current = self.web._ensure_session(session, self.user, "coachee", "AI", "English")
+            self.assertIs(current["agent"].scenario, old_case)
+            self.assertEqual(current["agent"].user_profile.next_practice_goal, "A different skill")
+            self.assertEqual(self.store.get_session(session["id"]), before)
+        self.client.post("/account/practice-goal", data=self.form(action="clear"))
+        fresh = CoacheeAgent(mode="llm", user_profile=self.web._load_profile(self.user["id"], "coachee"))
+        with patch("coachee_agent._build_client"), \
+                patch("coachee_agent._json_completion", return_value=json.loads(TestOwnPracticeTopic.CASE)) as completion:
+            fresh._ensure_llm_scenario("isolated-fake")
+        self.assertNotIn("User-chosen coaching skill:", completion.call_args.kwargs["messages"][0]["content"])
+
+    def test_goal_is_owner_controlled_across_analysis_and_insight_reset(self):
+        self.client.post("/account/practice-goal", data=self.form())
+        session = self.web._open_session(self.user, "coachee", "template", "en")
+        with patch.object(session["agent"], "analyze_session_for_memory", return_value={
+                "growth_areas": ["Try silence"], "next_practice_goal": "AI must not choose this"}):
+            self.web._learn_from_session(session, "isolated-fake")
+        self.assertEqual(self.goal(), "Reflect before asking")
+        form = self.form(module="coachee")
+        self.client.post("/account/profile/reset", data=form)
+        self.assertEqual(self.goal(), "Reflect before asking")
+        self.assertEqual(self.store.get_profile(self.user["id"], "coachee")["growth_areas"], [])
+
+    def test_stale_and_racing_saves_keep_current_goal_and_draft(self):
+        stale = self.form(value="Stale draft")
+        self.client.post("/account/practice-goal", data=self.form(value="Current goal"))
+        response = self.client.post("/account/practice-goal", data=stale)
+        self.assertIn("changed elsewhere", response.text)
+        self.assertIn("Stale draft</textarea>", response.text)
+        self.assertEqual(self.goal(), "Current goal")
+        real_save = self.store.save_profile
+
+        def raced_save(*args, **kwargs):
+            with patch.object(self.store, "save_profile", side_effect=real_save):
+                self.client.post("/account/practice-goal", data=self.form(value="Other tab wins"))
+            return real_save(*args, **kwargs)
+
+        with patch.object(self.store, "save_profile", side_effect=raced_save):
+            response = self.client.post("/account/practice-goal", data=self.form(value="Racing draft"))
+        self.assertIn("changed elsewhere", response.text)
+        self.assertIn("Racing draft</textarea>", response.text)
+        self.assertEqual(self.goal(), "Other tab wins")
+
+    def test_save_or_clear_failure_keeps_saved_goal_and_draft(self):
+        from sqlalchemy.exc import OperationalError
+
+        self.client.post("/account/practice-goal", data=self.form(value="Saved goal"))
+        before = self.store.get_profile(self.user["id"], "coachee")
+        for action in ("save", "clear"):
+            form = self.form(action=action, value="Unsaved draft")
+            failure = OperationalError("isolated failure", {}, None)
+            with self.subTest(action=action), \
+                    patch.object(self.store, "save_profile", side_effect=failure), \
+                    patch.object(self.store, "get_profile", side_effect=[before, failure]), \
+                    patch("account_pages.logging.getLogger"):
+                response = self.client.post("/account/practice-goal", data=form)
+            self.assertIn("Your saved goal is unchanged", response.text)
+            self.assertIn("Unsaved draft</textarea>", response.text)
+            self.assertIn("Saved goal</div>", response.text)
+            self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), before)
+
+    def test_owner_authentication_csrf_and_role_boundaries(self):
+        from fastapi.testclient import TestClient
+        from memory import profile_version
+
+        self.client.post("/account/practice-goal", data=self.form(value="Only my coaching skill"))
+        before = self.store.get_profile(self.user["id"], "coachee")
+        for role in ("user", "trainer", "admin"):
+            other = self.store.create_user(f"goal-{role}@example.test", "Other", "unused", role=role)
+            client = TestClient(self.client.app)
+            client.cookies.set(accounts.SESSION_COOKIE, accounts.make_session_cookie(self.store.get_user(other), self.secret))
+            self.assertNotIn("Only my coaching skill", client.get("/account").text)
+            client.post("/account/practice-goal", data=self.form(user_id=self.user["id"]))
+            self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), before)
+            # Even a valid form with another user's ID can only change the signed-in owner's goal.
+            client.post("/account/practice-goal", data={
+                "csrf": accounts.csrf_token(client.cookies.get(accounts.SESSION_COOKIE), self.secret),
+                "version": profile_version(None), "action": "save", "value": "Other person's goal", "user_id": self.user["id"]})
+            self.assertEqual(self.store.get_profile(other, "coachee")["next_practice_goal"], "Other person's goal")
+            self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), before)
+        for form in (self.form(csrf="invalid"), self.form(action="complete")):
+            self.client.post("/account/practice-goal", data=form)
+            self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), before)
+        self.assertEqual(TestClient(self.client.app).post("/account/practice-goal", data=self.form(), follow_redirects=False).status_code, 303)
+        self.assertIsNone(self.store.get_profile(self.user["id"], "coach"))
+        # The AI Coach still loads only its own profile, including when explicitly starting fresh.
+        for explicit in (False, True):
+            calls = []
+            prior = self.store.resumable_session(self.user["id"], "coach")
+            with patch.object(self.web, "_safe_key", return_value="isolated-fake"), \
+                    patch("coach_agent._build_client", return_value=_fake_llm_client(["What matters today?"], calls)):
+                coaching = self.web._open_session(self.user, "coach", "llm", "en", explicit=explicit,
+                                                  expected=(prior["id"], prior["updated_at"]) if prior else None)
+            self.assertIn("id", coaching)
+            self.assertNotIn("Only my coaching skill", str(calls))
+            self.assertNotIn("Next practice goal", self.web._memory_ui_updates(coaching["agent"], "en")[1])
 
 
 class TestActionCardRecovery(unittest.TestCase):

@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 # Profiles are injected into prompts, so keep them short.
 MAX_PROFILE_ITEMS = 8
 MAX_INSIGHT_CHARS = 2000
+MAX_PRACTICE_GOAL_CHARS = 300
 PROFILE_FIELDS = {
     "coach": ("coaching_style_insights", "strengths", "growth_areas"),
     "coachee": ("learning_patterns", "strengths", "growth_areas"),
@@ -32,6 +33,8 @@ class UserProfile:
     # Owner replacements and removed wording, scoped to each field.
     # Only exact, case-insensitive repeats are suppressed; no semantic matching.
     corrections: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    # One owner-controlled coaching skill goal, used only by the coachee module.
+    next_practice_goal: str = ""
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "UserProfile":
@@ -106,4 +109,5 @@ def merge_analysis(profile: UserProfile, analysis: dict, now: datetime.datetime 
         last_updated=now.strftime("%Y-%m-%d %H:%M UTC"),
         session_count=profile.session_count + 1,
         corrections=profile.to_dict()["corrections"],
+        next_practice_goal=profile.next_practice_goal,
     )

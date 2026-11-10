@@ -1,5 +1,6 @@
 import contextlib
 import datetime as dt
+import html
 import json
 import logging
 import os
@@ -300,10 +301,17 @@ def _chat_history_from_context(agent, session_id: str | None = None) -> list[dic
 def _memory_ui_updates(agent, lang_code: str):
     s = UI[lang_code]
     p = agent.user_profile
+    goal = ""
+    if isinstance(agent, CoacheeAgent):
+        label = "下次练习目标" if lang_code == "zh" else "Next practice goal"
+        empty = "尚未设置目标" if lang_code == "zh" else "No goal set"
+        edit = "编辑目标" if lang_code == "zh" else "Edit goal"
+        goal = (f'<div><strong>{label}</strong><p>{html.escape(p.next_practice_goal if p and p.next_practice_goal else empty)}</p>'
+                f'<a href="/account#practice-goal">{edit}</a></div>\n\n')
     if not p or not (p.last_updated or p.strengths or p.growth_areas or p.coaching_style_insights or p.learning_patterns):
         return (
             f"**{s['memory_strengths']}**\n\n{s['memory_no_data']}",
-            f"**{s['memory_growth']}**\n\n- ",
+            goal + f"**{s['memory_growth']}**\n\n- ",
             f"*{s['memory_last_sync']}: {s['memory_never']}*"
         )
     
@@ -313,7 +321,7 @@ def _memory_ui_updates(agent, lang_code: str):
     summary = p.coaching_style_insights if isinstance(agent, CoachAgent) else p.learning_patterns
     return (
         (f"{summary}\n\n" if summary else "") + f"**{s['memory_strengths']}**\n\n{strengths}",
-        f"**{s['memory_growth']}**\n\n{growth}",
+        goal + f"**{s['memory_growth']}**\n\n{growth}",
         f"*{s['memory_last_sync']}: {p.last_updated or s['memory_never']}* · [" +
         ("管理洞察" if lang_code == "zh" else "Manage insights") + "](/account#insights)"
     )

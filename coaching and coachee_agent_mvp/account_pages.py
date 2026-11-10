@@ -32,7 +32,7 @@ from coaching_core import CoachingState
 from coachee_agent import can_retry_review
 from coach_agent import ACTION_CARD_FIELDS, can_recover_action_card
 from studio_config import LANG_COOKIE, LEGACY_LANG_COOKIE
-from memory import MAX_INSIGHT_CHARS, PROFILE_FIELDS, UserProfile, change_insight, profile_items, profile_version
+from memory import MAX_INSIGHT_CHARS, MAX_PRACTICE_GOAL_CHARS, PROFILE_FIELDS, UserProfile, change_insight, profile_items, profile_version
 from web_assets import STAGE_NAMES, tts_js
 
 
@@ -124,6 +124,18 @@ T = {
         "learning_patterns": "Learning patterns",
         "growth_areas": "Areas for challenge",
         "cancel_insight": "Back to insights",
+        "practice_goal": "Next practice goal",
+        "practice_goal_hint": "Choose one coaching skill to practise. You can edit or clear it at any time. It will be used to prepare your next AI Client case.",
+        "practice_goal_choose": "Choose from practice insights (optional)",
+        "practice_goal_manual": "Write your own",
+        "practice_goal_clear": "Clear goal",
+        "practice_goal_saved": "Practice goal saved.",
+        "practice_goal_cleared": "Practice goal cleared.",
+        "practice_goal_invalid": "Keep the goal within 300 characters, or leave it empty to clear it.",
+        "practice_goal_failed": "Could not save. Your saved goal is unchanged; your draft is below. Please try again.",
+        "practice_goal_conflict": "Your practice goal or insights changed elsewhere. Your draft is below; check the saved goal before saving again.",
+        "practice_goal_current": "Saved goal",
+        "practice_goal_empty": "No goal set",
         "change_password": "Change password",
         "your_data": "Your data",
         "export": "Download my data (JSON)",
@@ -379,6 +391,18 @@ T = {
         "learning_patterns": "学习方式",
         "growth_areas": "挑战方向",
         "cancel_insight": "返回洞察",
+        "practice_goal": "下次练习目标",
+        "practice_goal_hint": "选一个想练习的教练技能，可随时编辑或清空。它会用于准备下次 AI 来访者案例。",
+        "practice_goal_choose": "从练习洞察选取（可选）",
+        "practice_goal_manual": "自行输入",
+        "practice_goal_clear": "清空目标",
+        "practice_goal_saved": "练习目标已保存。",
+        "practice_goal_cleared": "练习目标已清空。",
+        "practice_goal_invalid": "目标请保持在 300 字符以内，留空可清空目标。",
+        "practice_goal_failed": "未能保存，已保存目标保持不变；草稿保留在下方，请重试。",
+        "practice_goal_conflict": "目标或练习洞察已在别处改动。草稿保留在下方，请核对已保存目标后再保存。",
+        "practice_goal_current": "已保存目标",
+        "practice_goal_empty": "尚未设置目标",
         "change_password": "修改密码",
         "your_data": "你的数据",
         "export": "下载我的数据（JSON）",
@@ -1256,6 +1280,34 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         return f"""<div class="grid2"><div class="card"><h2>{_e(T[lang]['action_cards'])}</h2><div class="list">{cards_html}</div></div>
 <div class="card"><h2>{_e(T[lang]['practice_scores'])}</h2>{scores_html}</div></div>"""
 
+    def practice_goal_block(request, data, draft=None, error=None):
+        lang = page_lang(request)
+        profile = UserProfile.from_dict(data)
+        candidates = [item for item in profile.growth_areas if len(item) <= MAX_PRACTICE_GOAL_CHARS]
+        choose = ""
+        if candidates:
+            options = ''.join(f'<option value="{_e(item)}">{_e(item)}</option>' for item in candidates)
+            choose = f'''<label for="practice-goal-choice">{_e(T[lang]['practice_goal_choose'])}</label>
+<select id="practice-goal-choice" onchange="if(this.value) document.getElementById('practice-goal-value').value=this.value;">
+<option value="">{_e(T[lang]['practice_goal_manual'])}</option>{options}</select>'''
+        feedback = f'<div class="flash error" role="status">{_e(error)}</div>' if error else ""
+        value = profile.next_practice_goal if draft is None else draft
+        return f'''<div class="card" id="practice-goal"><h2 id="practice-goal-label">{_e(T[lang]['practice_goal'])}</h2>
+<p class="hint">{_e(T[lang]['practice_goal_hint'])}</p>{feedback}
+<div class="row"><div class="main"><div class="meta">{_e(T[lang]['practice_goal_current'])}</div>
+<div class="title">{_e(profile.next_practice_goal or T[lang]['practice_goal_empty'])}</div></div></div>
+<form method="post" action="/account/practice-goal#practice-goal">{csrf_field(request)}
+<input type="hidden" name="version" value="{profile_version(data)}">{choose}
+<textarea id="practice-goal-value" name="value" maxlength="{MAX_PRACTICE_GOAL_CHARS}" aria-labelledby="practice-goal-label">{_e(value)}</textarea>
+<div class="actions"><button name="action" value="save" type="submit">{_e(T[lang]['save'])}</button>
+<button class="secondary" name="action" value="clear" type="submit" formnovalidate>{_e(T[lang]['practice_goal_clear'])}</button></div></form></div>'''
+
+    def practice_goal_error(request, user, data, draft, key):
+        # A failed write may also mean further reads fail. Keep the known saved content and draft available.
+        lang = page_lang(request)
+        return render(request, lang, T[lang]["practice_goal"],
+                      practice_goal_block(request, data, draft, T[lang][key]), user=user, current="account")
+
     def account_page(request: Request, user: dict, flash=None) -> HTMLResponse:
         lang = page_lang(request)
         store = get_store()
@@ -1288,6 +1340,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{trainer_line}</p>
 <form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
 {progress_cards(lang, user["id"])}
+{practice_goal_block(request, store.get_profile(user['id'], 'coachee'))}
 <div class="card"><h2>{_e(T[lang]['my_sessions'])}</h2><div class="list">{sessions_html}</div></div>
 <div class="card" id="insights"><h2>{_e(T[lang]['insights'])}</h2><p class="hint">{_e(T[lang]['insight_hint'])}</p><div class="grid2">
 {profile_block(lang, 'coach', store.get_profile(user['id'], 'coach'), request)}
@@ -1313,8 +1366,35 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         if not user:
             return login_redirect(request)
         flash_key = request.query_params.get("done")
-        flash = ("ok", T[page_lang(request)][flash_key]) if flash_key in ("password_changed", "insights_cleared", "session_deleted", "insight_saved", "insight_removed") else None
+        flash = ("ok", T[page_lang(request)][flash_key]) if flash_key in ("password_changed", "insights_cleared", "session_deleted", "insight_saved", "insight_removed", "practice_goal_saved", "practice_goal_cleared") else None
         return account_page(request, user, flash)
+
+    @router.post("/account/practice-goal")
+    def save_practice_goal(request: Request, csrf: str = Form(""), version: str = Form(""),
+                           value: str = Form(""), action: str = Form("")):
+        user = checked_user(request, csrf)
+        if not user:
+            return login_redirect(request)
+        lang = page_lang(request)
+        if action not in ("save", "clear"):
+            return forbidden(request, lang, user)
+        store = get_store()
+        data = store.get_profile(user["id"], "coachee")
+        if action == "save" and len(value.strip()) > MAX_PRACTICE_GOAL_CHARS:
+            return practice_goal_error(request, user, data, value, "practice_goal_invalid")
+        if version != profile_version(data):
+            return practice_goal_error(request, user, data, value, "practice_goal_conflict")
+        profile = UserProfile.from_dict(data)
+        profile.next_practice_goal = value.strip() if action == "save" else ""
+        try:
+            saved = store.save_profile(user["id"], "coachee", profile.to_dict(), expected_version=version)
+        except SQLAlchemyError:
+            logging.getLogger("coaching_studio").exception("Saving an owner practice goal failed")
+            return practice_goal_error(request, user, data, value, "practice_goal_failed")
+        if not saved:
+            return practice_goal_error(request, user, store.get_profile(user["id"], "coachee"), value, "practice_goal_conflict")
+        done = "practice_goal_saved" if profile.next_practice_goal else "practice_goal_cleared"
+        return RedirectResponse(f"/account?done={done}#practice-goal", status_code=303)
 
     @router.post("/account/password")
     def change_password(request: Request, csrf: str = Form(""), current: str = Form(""), password: str = Form(""), confirm: str = Form("")):
