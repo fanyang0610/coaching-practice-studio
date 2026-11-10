@@ -1075,8 +1075,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
         self.assertTrue(all("Tomorrow" not in text and "সং" not in text for text in partials))
         self.assertEqual(agent.context[-1]["content"], "When will you start?")
 
-    def test_the_model_sees_its_past_replies_without_short_opening_echoes(self):
-        # It copies its own earlier replies, so echoes it could see bred an echo at the start of every reply.
+    def test_the_model_sees_its_past_replies_in_full(self):
         agent = self._deepening_coach()
         agent.context += [{"role": "coach", "content": "Time management. What matters most about it?", "stage": 1},
                           {"role": "client", "content": "Getting evenings back."}]
@@ -1086,7 +1085,7 @@ class TestSingleCallStageDecisions(unittest.TestCase):
             agent.generate_response("Mostly reading.", api_key="server-key")
 
         sent = calls[0]["messages"]
-        self.assertIn({"role": "assistant", "content": "[[GOAL]] What matters most about it?"}, sent)
+        self.assertIn({"role": "assistant", "content": "[[GOAL]] Time management. What matters most about it?"}, sent)
         self.assertIn("go straight to your question", sent[-1]["content"])  # a note beside the latest message
         self.assertEqual(agent.context[2]["content"], "Time management. What matters most about it?")
 
@@ -2796,17 +2795,6 @@ class TestAccountPages(unittest.TestCase):
 class TestSessionTakeaways(unittest.TestCase):
     """The coach remembers the goal, and finished sessions leave something to keep: an action card or a score."""
 
-    def test_conversation_window_keeps_the_start_and_the_latest_messages(self):
-        from coaching_core import _conversation_window
-
-        context = [{"role": "client", "content": str(i)} for i in range(40)]
-        window = _conversation_window(context)
-
-        self.assertEqual([m["content"] for m in window[:6]], ["0", "1", "2", "3", "4", "5"])
-        self.assertEqual(window[-1]["content"], "39")
-        self.assertEqual(len(window), 22)
-        self.assertEqual(_conversation_window(context[:10]), context[:10])
-
     def test_coach_still_sees_the_agreed_goal_late_in_a_long_session(self):
         from coaching_core import CoachingSubPhase
 
@@ -3209,6 +3197,171 @@ class TestActionCardRecovery(unittest.TestCase):
             self.assertEqual(self.attempt(row), "card_busy")
         self.assertIsNone(self.store.get_session(row["id"]))
         self.assertEqual(self.store.session_results(self.user["id"], "coach"), [])
+
+
+class TestFullConversation(unittest.TestCase):
+    @staticmethod
+    def history(agent, pairs=120):
+        # Longer than every former window, including the practice review's 210 messages.
+        context = [msg for i in range(pairs) for msg in (
+            {"role": agent.assistant_role, "content": f"Question {i}?"},
+            {"role": agent.user_role, "content": f"Answer {i}."})]
+        context[21]["content"] = "MIDDLE AGREEMENT: no overtime; Tuesday with Mira."
+        context[35]["content"] = "CORRECTION: Thursday with Jo, replacing Tuesday with Mira."
+        return context
+
+    def test_actual_requests_keep_all_roles_text_and_corrections(self):
+        for cls, module in ((CoachAgent, "coach_agent"), (CoacheeAgent, "coachee_agent")):
+            with self.subTest(module=module):
+                agent = cls(mode="llm", language="en")
+                agent._llm_scenario_ready = True
+                agent.context = self.history(agent)
+                before = json.loads(json.dumps(agent.context))
+                calls = []
+                replies = ["What feels possible?", "{}", "{}", "Goodbye."] if cls is CoachAgent else [
+                    "What feels possible?", "{}", "Score: 30/100", "[[GOAL]]"]
+                client = _fake_llm_client(replies, calls)
+                with patch(f"{module}._build_client", return_value=client):
+                    list(agent._get_llm_response("fake"))
+                    if cls is CoachAgent:
+                        agent.action_card("fake")
+                    agent.analyze_session_for_memory("fake")
+                    if cls is CoachAgent:
+                        agent._get_llm_closing_summary("fake")
+                    else:
+                        agent._build_llm_final_review("fake")
+                        agent._label_coach_message("fake", {})
+                self.assertEqual(agent.context, before)
+                self.assertEqual(calls[0]["messages"][1:], [
+                    {"role": "user" if m["role"] == agent.user_role else "assistant", "content": m["content"]}
+                    for m in before])
+                for call in calls:
+                    sent = "\n".join(m["content"] for m in call["messages"])
+                    positions = [sent.index(m["content"]) for m in before]
+                    self.assertEqual(positions, sorted(positions))
+
+    def test_long_turn_saves_and_refreshes_both_roles(self):
+        for module in ("coach", "coachee"):
+            with self.subTest(module=module):
+                web, store, user, request = _signed_in()
+                with patch.object(web, "_safe_key", return_value=""):
+                    session = web._open_session(user, module, "template", "en")
+                agent = session["agent"]
+                agent.mode = "llm"
+                agent._llm_scenario_ready = True
+                agent.context = self.history(agent, 30)
+                before = list(agent.context)
+                self.assertTrue(web._save(session))
+                calls = []
+                with patch.object(web, "_safe_key", return_value="fake"), \
+                        patch(f"{module}_agent._build_client", return_value=_fake_llm_client(["What matters?"], calls)), \
+                        _coach_labels("GOAL"):
+                    output = list(web.respond("A further correction: Friday, still no overtime.",
+                        web._chat_history_from_context(agent), session, module, "AI", "English", request))[-1]
+                    reopened = web.initial_load(None, module, "AI", "English", request)[-1]
+                self.assertEqual(reopened["agent"].context[:len(before)], before)
+                self.assertEqual(reopened["agent"].context, output[-1]["agent"].context)
+                self.assertEqual(reopened["agent"].context[-2]["content"], "A further correction: Friday, still no overtime.")
+
+    def test_capacity_warning_and_rejection_keep_record_and_unsent_input(self):
+        import coaching_core as core
+        for module in ("coach", "coachee"):
+            with self.subTest(module=module), patch.dict(os.environ, {"OPENAI_MODEL": "deepseek/deepseek-chat"}):
+                web, store, user, request = _signed_in()
+                session = web._open_session(user, module, "template", "zh")
+                agent = session["agent"]
+                agent.mode = "llm"
+                agent.context = [{"role": agent.assistant_role, "content": "中" * 74000}]
+                self.assertEqual(core.conversation_capacity(agent.context), "near")
+                self.assertTrue(web._save(session))
+                self.assertIn(web.UI["zh"]["context_near"], web._mode_context_html(session))
+                restored = web._restore_session(store.get_session(session["id"]), user)
+                self.assertIn(web.UI["zh"]["context_near"], web._mode_context_html(restored))
+                # A shorter input can still continue; a max-size one cannot consume the closing reserve.
+                agent.context[0]["content"] = "中" * 79000
+                self.assertNotEqual(core.conversation_capacity(agent.context, "继续"), "full")
+                self.assertEqual(core.conversation_capacity(agent.context, "中" * 2000), "full")
+                self.assertTrue(web._save(session))
+                original = store.get_session(session["id"])["state"]
+                with patch.object(agent, "stream_response") as model, patch.object(web.gr, "Warning") as warning:
+                    result = list(web.respond("中" * 2000, web._chat_history_from_context(agent), session,
+                        module, "AI", "中文", request))[-1]
+                model.assert_not_called()
+                warning.assert_called_with(web.UI["zh"]["context_full"])
+                self.assertEqual(result[0]["value"], "中" * 2000)
+                self.assertEqual(store.get_session(session["id"])["state"], original)
+
+    def test_actual_request_guard_and_provider_capacity_error(self):
+        import httpx
+        import openai
+        import coaching_core as core
+        from unittest.mock import Mock
+        with patch.dict(os.environ, {"OPENAI_MODEL": "deepseek/deepseek-chat"}):
+            completion = Mock()
+            client = core._MeteredClient(type("Client", (), {"chat": type("Chat", (), {"completions": completion})()})())
+            with self.assertRaises(core.ContextCapacityError):
+                client.chat.completions.create(messages=[{"content": "中" * 90000}], max_tokens=650)
+            completion.create.assert_not_called()
+            error = openai.BadRequestError("Too long", response=httpx.Response(400, request=httpx.Request("POST", "https://example.test")),
+                body={"error": {"code": "context_length_exceeded"}})
+            completion.create.side_effect = error
+            with self.assertRaises(core.ContextCapacityError):
+                client.chat.completions.create(messages=[{"content": "short"}], max_tokens=250)
+            self.assertEqual(completion.create.call_count, 1)
+
+    def test_near_capacity_can_wrap_up_using_the_entire_original(self):
+        import coaching_core as core
+        for cls in (CoachAgent, CoacheeAgent):
+            with self.subTest(role=cls.__name__), patch.dict(os.environ, {"OPENAI_MODEL": "deepseek/deepseek-chat"}):
+                agent = cls(mode="llm", language="en")
+                agent.context = [{"role": agent.user_role, "content": "中" * 79000}]
+                original = list(agent.context)
+                self.assertEqual(core.conversation_capacity(agent.context), "near")
+                calls = []
+                replies = ["Goodbye.", '{"goal":"Rest"}'] if cls is CoachAgent else ["Score: 30/100"]
+                with patch.object(core, "_shared_client", return_value=_fake_llm_client(replies, calls)):
+                    if cls is CoachAgent:
+                        agent._get_llm_closing_summary("fake")
+                        self.assertEqual(agent.action_card("fake")["goal"], "Rest")
+                    else:
+                        agent._build_llm_final_review("fake")
+                self.assertEqual(agent.context, original)
+                for call in calls:
+                    self.assertIn(original[0]["content"], "".join(m["content"] for m in call["messages"]))
+
+    def test_flash_capacity_fits_a_maximum_length_session(self):
+        import coaching_core as core
+        with patch.dict(os.environ, {"OPENAI_MODEL": "deepseek-flash"}):
+            # 100 maximum-size Chinese inputs and generous 1,000-character replies.
+            context = [message for _ in range(100) for message in (
+                {"role": "client", "content": "中" * 2000}, {"role": "coach", "content": "中" * 1000})]
+            self.assertEqual(core._context_limit(), 1_000_000)
+            self.assertEqual(core.conversation_capacity(context), "")
+            self.assertEqual(core.conversation_capacity([{"content": "中" * 660000}]), "near")
+            self.assertEqual(core.conversation_capacity([{"content": "中" * 661000}]), "full")
+            self.assertEqual(core._provider_extra_body("https://api.deepseek.com"), {"thinking": {"type": "disabled"}})
+
+    def test_provider_capacity_failure_rolls_back_turn_and_keeps_input(self):
+        import coaching_core as core
+        for module in ("coach", "coachee"):
+            with self.subTest(module=module):
+                web, store, user, request = _signed_in()
+                session = web._open_session(user, module, "template", "en")
+                agent = session["agent"]
+                agent.mode = "llm"
+                agent._llm_scenario_ready = True
+                agent.context = self.history(agent, 30)
+                self.assertTrue(web._save(session))
+                before = json.loads(json.dumps(agent.to_dict()))
+                with patch.object(web, "_safe_key", return_value="fake"), \
+                        patch(f"{module}_agent._stream_text", side_effect=core.ContextCapacityError("isolated boundary")), \
+                        _coach_labels("GOAL"), patch.object(web.gr, "Warning") as warning:
+                    output = list(web.respond("Keep this unsent correction.", web._chat_history_from_context(agent), session,
+                        module, "AI", "English", request))[-1]
+                self.assertEqual(agent.to_dict(), before)
+                self.assertEqual(output[0]["value"], "Keep this unsent correction.")
+                warning.assert_called_with(web.UI["en"]["context_full"])
+                self.assertEqual(json.loads(store.get_session(session["id"])["state"]), before)
 
 
 class TestSessionRating(unittest.TestCase):

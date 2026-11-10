@@ -8,7 +8,7 @@ import uuid
 
 import openai
 
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, STAGE_MARKERS, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, STAGE_MARKERS, _build_client, _chat_model, _clean_response_language, ContextCapacityError, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coachee_data import (
     COACHEE_ACKNOWLEDGMENTS,
     COACHEE_BRIDGES,
@@ -661,7 +661,7 @@ class CoacheeAgent:
         try:
             client = _build_client(api_key, on_usage=self.on_usage)
             recent = "\n".join(f"{'Coach' if msg['role'] == self.user_role else 'Client'}: {msg['content']}"
-                               for msg in self.context[-4:])
+                               for msg in self.context)
             prompt = (
                 "You label one message in a coaching practice chat: the coach's LAST message below. The stages are:\n"
                 f"{STAGE_MARKER_GUIDE}\n"
@@ -736,7 +736,7 @@ class CoacheeAgent:
                     ),
                 }
             ]
-            for msg in _conversation_window(self.context):
+            for msg in self.context:
                 role = "assistant" if msg["role"] == self.assistant_role else "user"
                 messages.append({"role": role, "content": msg["content"]})
             if self.rushed and messages[-1]["role"] == "user":
@@ -749,6 +749,8 @@ class CoacheeAgent:
             if not text:
                 raise ValueError("Model returned no text content.")
             yield text, None
+        except ContextCapacityError:
+            raise
         except Exception as exc:
             raise Exception(f"LLM error: {exc}")
 
@@ -778,7 +780,7 @@ class CoacheeAgent:
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         transcript = []
         # The whole practice, up to the longest a conversation can be, so the review sees every stage.
-        for msg in _conversation_window(self.context, head=10, tail=200):
+        for msg in self.context:
             speaker = "Coach" if msg["role"] == self.user_role else "Coachee"
             transcript.append(f"{speaker}: {msg['content']}")
 
@@ -1052,7 +1054,7 @@ class CoacheeAgent:
         try:
             client = _build_client(api_key, on_usage=self.on_usage)
             transcript = []
-            for msg in self.context[-30:]:
+            for msg in self.context:
                 role = "Coach" if msg["role"] == self.user_role else "Coachee"
                 transcript.append(f"{role}: {msg['content']}")
             

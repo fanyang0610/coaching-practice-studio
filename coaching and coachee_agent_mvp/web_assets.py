@@ -47,6 +47,8 @@ UI = {
         "ai_unavailable": "The AI isn't available right now, so a new session can't start. Please try again in a few minutes with New Session.",
         "new_session_failed": "Couldn't start a new session. Your current conversation and draft are still here. Try New Session again in a moment.",
         "ai_reply_error": "The AI didn't respond this time. Please try again in a moment.",
+        "context_near": "This conversation is nearing capacity. Use Skip Ahead to wrap up. Your record will be kept.",
+        "context_full": "This message would exceed the conversation's available capacity and was not sent. Your input is still here. Shorten it, or use Skip Ahead to wrap up and start a new session. The original record will be kept.",
         "message_too_long": "Please keep each message under {limit} characters.",
         "turns_left": "Each conversation allows up to {limit} messages. You've sent {used}, so {left} left. Time to start wrapping up.",
         "turn_limit": "This conversation has used all {limit} messages it allows, so it ends here.",
@@ -142,6 +144,8 @@ UI = {
         "ai_unavailable": "AI 暂时无法使用，所以新会话还不能开始。请过几分钟后点击“新会话”再试。",
         "new_session_failed": "暂时无法开始新会话。当前对话和输入都还在，可以稍后再点「新会话」重试。",
         "ai_reply_error": "AI 这次没有回应，请稍后再试。",
+        "context_near": "对话接近容量，请用「跳到下一阶段」收尾。原记录会保留。",
+        "context_full": "这条消息会超出本次对话的可用容量，尚未发送，输入仍保留。请缩短消息，或用「跳到下一阶段」收尾后新开会话。原记录不会删减。",
         "message_too_long": "每条消息请控制在 {limit} 字以内。",
         "turns_left": "每次对话最多可以发 {limit} 条消息。你已经发了 {used} 条，还剩 {left} 条，可以开始收尾了。",
         "turn_limit": "这次对话已经发满 {limit} 条消息的上限，到此结束。",
@@ -2014,6 +2018,14 @@ body,
     -webkit-line-clamp: 2;
     white-space: normal;
     overflow-wrap: anywhere;
+}
+
+.context-capacity-note {
+    grid-column: 1 / -1;
+    color: #18364a;
+    font-size: 13px;
+    line-height: 1.4;
+    padding-top: 4px;
 }
 
 #settings-sheet {

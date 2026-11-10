@@ -4,7 +4,7 @@ import random
 import re
 import uuid
 
-from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _as_written, _build_client, _chat_model, _clean_response_language, _conversation_window, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
+from coaching_core import CoachingState, CoachingSubPhase, STAGE_DESCRIPTIONS, STAGE_MARKER_GUIDE, _as_written, _build_client, _chat_model, _clean_response_language, ContextCapacityError, _json_completion, _labelled_stage, _language_output_rule, _marker, _response_text, _split_stage_signal, _stream_text, _translate_texts
 from coach_data import (
     ACKNOWLEDGMENTS,
     BRIDGE_PHRASES,
@@ -95,16 +95,6 @@ def _end_at_question(text: str) -> tuple[str, bool]:
     if not match:
         return text, False
     return text[:match.start(1)].rstrip(), True
-
-
-def _as_remembered(msg: dict) -> str:
-    """A past coach reply as the model is shown it: marker put back, and a short opening echo left out. The model copies
-    its earlier replies, so echoes it can see breed more echoes; the person always sees the full reply."""
-    content = msg["content"]
-    first = _FIRST_SENTENCE_RE.match(content.strip())
-    if msg["role"] == "coach" and _opens_with_comment(content) and len(first.group(0)) <= 40:
-        content = content.strip()[len(first.group(0)):].strip()
-    return _as_written({**msg, "content": content})
 
 
 # Put beside the client's latest message when the coach's last reply opened with a comment (see _get_llm_response).
@@ -326,7 +316,7 @@ class CoachAgent:
                 ),
             }
         ]
-        for msg in _conversation_window(self.context):
+        for msg in self.context:
             role = "user" if msg["role"] == "client" else "assistant"
             messages.append({"role": role, "content": msg["content"]})
 
@@ -566,9 +556,9 @@ Coach lines with the rhythm to aim for, from other conversations (don't reuse th
             system_prompt += self._stage_decision_rules() if decide_stage else self._end_only_rules()
 
             messages = [{"role": "system", "content": system_prompt}]
-            for msg in _conversation_window(self.context):
+            for msg in self.context:
                 role = "user" if msg["role"] == "client" else "assistant"
-                messages.append({"role": role, "content": _as_remembered(msg)})
+                messages.append({"role": role, "content": _as_written(msg)})
             # Told not to, the AI coach still opened nearly every reply by restating the client's words, copying its
             # own earlier replies. A note beside the client's latest message, where the model is looking, does better
             # than any rule in the instructions above. The client never sees it.
@@ -588,6 +578,8 @@ Coach lines with the rhythm to aim for, from other conversations (don't reuse th
             if not text:
                 raise ValueError("Model returned no text content.")
             yield text, signal
+        except ContextCapacityError:
+            raise
         except Exception as exc:
             raise Exception(f"LLM error: {exc}")
 
@@ -597,7 +589,7 @@ Coach lines with the rhythm to aim for, from other conversations (don't reuse th
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         transcript = "\n".join(
             f'{"Client" if msg["role"] == "client" else "Coach"}: {msg["content"]}'
-            for msg in _conversation_window(self.context, head=8, tail=30)
+            for msg in self.context
         )
         prompt = (
             "Read this finished coaching conversation and write the client's action card. "
@@ -617,7 +609,7 @@ Coach lines with the rhythm to aim for, from other conversations (don't reuse th
         try:
             client = _build_client(api_key, on_usage=self.on_usage)
             transcript = []
-            for msg in self.context[-30:]:
+            for msg in self.context:
                 role = "Coach" if msg["role"] == "coach" else "Client"
                 transcript.append(f"{role}: {msg['content']}")
             

@@ -203,11 +203,15 @@ def _mode_context_html(session: dict) -> str:
         quota_pill = f' <span class="studio-quota">{s["quota_pill"].format(left=allowance.sessions_left, limit=allowance.session_limit)}</span>'
     elif allowance:
         quota_pill = f' <span class="studio-quota">{s["quota_pill_unlimited"].format(used=allowance.sessions_used)}</span>'
+    capacity_note = ""
+    if agent.mode == "llm" and not agent.is_session_ended() and coaching_core.conversation_capacity(agent.context):
+        capacity_note = f'<div class="context-capacity-note" role="status">{s["context_near"]}</div>'
     return f"""
     <section class="mode-context-card">
         <div class="mode-context-label">{s["mode_context"]}</div>
         <div class="mode-context-title">{mode_title}{quota_pill}</div>
         <p>{mode_note}</p>
+        {capacity_note}
     </section>
     """
 
@@ -965,6 +969,11 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
             # action card, rather than staying locked with no way to finish (Xiaofang's practice under the old cap).
             yield from _end_at_limit(_chat_history_from_context(agent, session.get("id")), session, _safe_key(), gr.update())
             return
+        if (agent.mode == "llm" and coaching_core.conversation_capacity(agent.context, user_msg) == "full"
+                and not (session["module"] == "coach" and safety.looks_like_crisis(user_msg))):
+            gr.Warning(s["context_full"])
+            yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
+            return
         yield from _stream_reply(user_msg, chat_history, agent, session)
     finally:
         lock.release()
@@ -1006,6 +1015,11 @@ def _stream_reply(user_msg, chat_history, agent, session):
         try:
             for coach_response in agent.stream_response(user_msg, api_key=api_key or None):
                 yield _streaming_outputs(chat_history + [{"role": "assistant", "content": coach_response}], session)
+        except coaching_core.ContextCapacityError:
+            gr.Warning(UI[agent.language]["context_full"])
+            chat_history.pop()
+            yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
+            return
         except Exception:
             logger.exception("Model reply failed")
             gr.Warning(UI[agent.language]["ai_reply_error"])
@@ -1131,6 +1145,13 @@ def _advance_stage(chat_history, session):
 
     try:
         new_prompt = _append_opening_prompt(agent)
+    except coaching_core.ContextCapacityError:
+        agent.current_state = old_state
+        agent.current_sub_phase = old_sub
+        agent.turns_in_current_stage = old_turns
+        agent.session_complete = old_complete
+        gr.Warning(s["context_full"])
+        return _next_stage_outputs(gr.update(), chat_history, agent, session)
     except Exception:
         logger.exception("Next-stage prompt failed")
         agent.current_state = old_state

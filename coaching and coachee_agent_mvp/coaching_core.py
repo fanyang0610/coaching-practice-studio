@@ -51,6 +51,43 @@ def _chat_model() -> str:
     return os.environ.get("OPENAI_MODEL", "").strip() or "gpt-4o-mini"
 
 
+class ContextCapacityError(ValueError):
+    """The full request cannot fit; callers must keep the conversation and unsent input."""
+
+
+def _context_limit() -> int | None:
+    # DeepSeek's direct API serves V4.1-Flash as deepseek-flash with a 1M-token context.
+    # https://api-docs.deepseek.com/quick_start/pricing/ (checked 2026-11-10)
+    if _chat_model() == "deepseek-flash":
+        return 1_000_000
+    # OpenRouter's deepseek-chat routes currently offer 128,000 and 163,840 tokens.
+    # Use the smaller route without changing provider selection. Recheck if the model changes.
+    return 128_000 if _chat_model() in ("deepseek/deepseek-chat", "gpt-4o-mini") else None
+
+
+def _request_tokens(messages: list[dict]) -> int:
+    # A deliberately generous estimate for ordinary English/Chinese, not an exact tokenizer.
+    # Provider context errors remain authoritative (unusual text can tokenize differently).
+    return 3 + sum(12 + (len(msg["content"].encode("utf-8")) + 1) // 2 for msg in messages)
+
+
+def conversation_capacity(context: list[dict], pending: str = "") -> str:
+    """Capacity of the unchanged transcript, reserving prompts, output and time to wrap up."""
+    limit = _context_limit()
+    if limit is None:
+        return ""
+    messages = list(context)
+    if pending:
+        messages.append({"role": "user", "content": pending})
+    # Current system/case/review prompts fit within 8K by this estimate; 1K covers the
+    # largest conversation output (650). Another 8K gives room for two maximum-size
+    # Chinese inputs (2,000 characters each) and short replies before the hard boundary.
+    needed = _request_tokens(messages) + 8192 + 1024
+    if needed >= limit:
+        return "full"
+    return "near" if needed + 8192 >= limit else ""
+
+
 def _build_client(api_key: str, base_url: str | None = None, on_usage=None):
     """The shared client; with on_usage, every completion also reports (model, prompt_tokens, completion_tokens)."""
     resolved_base_url = base_url or os.environ.get("OPENAI_BASE_URL", "").strip()
@@ -119,6 +156,10 @@ def _create_with_busy_retry(create, **create_kwargs):
         try:
             return create(**create_kwargs)
         except Exception as exc:
+            if isinstance(exc, openai.BadRequestError):
+                body = (str(getattr(exc, "body", "") or "") + str(exc)).lower()
+                if any(marker in body for marker in ("context_length_exceeded", "maximum context length", "prompt is too long", "context window")):
+                    raise ContextCapacityError("The full conversation exceeds the model context capacity.") from exc
             if delay is None or not _is_brief_outage(exc):
                 _report_failure(exc)
                 raise
@@ -171,6 +212,9 @@ class _MeteredCompletions:
         self._extra_body = extra_body or {}
 
     def create(self, **create_kwargs):
+        limit = _context_limit()
+        if limit and _request_tokens(create_kwargs.get("messages", [])) + create_kwargs.get("max_tokens", 0) > limit:
+            raise ContextCapacityError("The full conversation exceeds the model context capacity.")
         if self._extra_body:
             create_kwargs["extra_body"] = {**self._extra_body, **create_kwargs.get("extra_body", {})}
         create = self._completions.create
@@ -289,16 +333,6 @@ def _split_stage_signal(raw: str) -> tuple[str | None, str]:
     signal = match.group(1).upper() if match else None
     visible = _STAGE_SIGNAL_RE.sub("", raw).split("[[", 1)[0]
     return signal, visible.strip()
-
-
-def _conversation_window(context: list[dict], head: int = 6, tail: int = 16) -> list[dict]:
-    """The start of a conversation, where the goal is agreed, plus its most recent messages.
-
-    Short sessions are sent whole; long ones keep the goal in view without the cost growing with every turn.
-    """
-    if len(context) <= head + tail:
-        return list(context)
-    return list(context[:head]) + list(context[-tail:])
 
 
 def _strip_json_fence(raw: str) -> str:
