@@ -797,14 +797,15 @@ def _learn_from_session(session: dict, api_key: str):
     """Fold a finished session into the person's profile. Runs off the request thread so the final reply isn't delayed."""
     agent = session["agent"]
     try:
+        store = get_store()
+        data = store.get_profile(session["user_id"], session["module"])
+        version = profile_version(data)
         analysis = agent.analyze_session_for_memory(api_key)
         if not analysis:
             return
-        store = get_store()
-        data = store.get_profile(session["user_id"], session["module"])
         profile = merge_analysis(UserProfile.from_dict(data), analysis)
-        # A concurrent owner edit wins; a late analysis must never replace it.
-        store.save_profile(session["user_id"], session["module"], profile.to_dict(), expected_version=profile_version(data))
+        # Owner changes during analysis or saving win over this older snapshot.
+        store.save_profile(session["user_id"], session["module"], profile.to_dict(), expected_version=version)
         agent.user_profile = _load_profile(session["user_id"], session["module"])
     except Exception:
         logger.exception("Updating the user profile from a finished session failed")

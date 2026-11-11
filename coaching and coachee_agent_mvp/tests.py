@@ -3377,6 +3377,77 @@ class TestInsightControls(unittest.TestCase):
         self.assertEqual(session["agent"].user_profile.strengths, ["Owner wins", "Curious"])
         self.assertNotIn("Late analysis", self.client.get("/account").text)
 
+    def test_reset_during_analysis_discards_old_result_and_keeps_practice_goal(self):
+        import threading
+
+        for module in ("coach", "coachee"):
+            with self.subTest(module=module):
+                goal = "Reflect before asking" if module == "coachee" else ""
+                self.store.save_profile(self.user["id"], module, {**self.legacy, "next_practice_goal": goal})
+                session = self.web._open_session(self.user, module, "template", "en")
+                started, release = threading.Event(), threading.Event()
+
+                def delayed_analysis(_key):
+                    started.set()
+                    if not release.wait(10):
+                        raise TimeoutError("The test did not release the old analysis")
+                    return {"strengths": ["Returned from previous session"]}
+
+                with patch.object(session["agent"], "analyze_session_for_memory", side_effect=delayed_analysis):
+                    worker = threading.Thread(target=self.web._learn_from_session, args=(session, "isolated-fake"))
+                    worker.start()
+                    try:
+                        self.assertTrue(started.wait(10))
+                        response = self.client.post("/account/profile/reset", data=self.form(module), follow_redirects=False)
+                        self.assertEqual(response.status_code, 303)
+                        cleared = self.store.get_profile(self.user["id"], module)
+                        self.assertEqual(cleared, UserProfile(next_practice_goal=goal).to_dict())
+                    finally:
+                        release.set()
+                        worker.join(10)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(self.store.get_profile(self.user["id"], module), cleared)
+                self.assertEqual(session["agent"].user_profile.to_dict(), cleared)
+                reopened = self.web._restore_session(self.store.get_session(session["id"]), self.user)
+                self.assertEqual(reopened["agent"].user_profile.to_dict(), cleared)
+                self.assertNotIn("Returned from previous session", self.client.get("/account").text)
+                # A later analysis starts with the cleared profile and can learn normally.
+                with patch.object(reopened["agent"], "analyze_session_for_memory", return_value={"strengths": ["New session insight"]}):
+                    self.web._learn_from_session(reopened, "isolated-fake")
+                current = self.store.get_profile(self.user["id"], module)
+                self.assertEqual(current["strengths"], ["New session insight"])
+                self.assertEqual(current["session_count"], 1)
+                self.assertEqual(current["next_practice_goal"], goal)
+
+    def test_owner_changes_during_analysis_win_over_the_old_result(self):
+        from memory import profile_version
+
+        for action in ("save", "remove", "goal", "delete"):
+            with self.subTest(action=action):
+                session = self.web._open_session(self.user, "coachee", "template", "en")
+                current = []
+
+                def owner_change(_key):
+                    form = self.form("coachee")
+                    if action == "goal":
+                        profile = UserProfile.from_dict(self.store.get_profile(self.user["id"], "coachee"))
+                        response = self.client.post("/account/practice-goal", data={**form, "value": "Owner's new goal",
+                            "version": profile_version(profile.next_practice_goal)}, follow_redirects=False)
+                    elif action == "delete":
+                        response = self.client.post("/account/delete", data={**form, "confirm": "DELETE"}, follow_redirects=False)
+                    else:
+                        response = self.client.post("/account/profile/item", data={**form, "action": action}, follow_redirects=False)
+                    self.assertEqual(response.status_code, 303)
+                    current.append(self.store.get_profile(self.user["id"], "coachee"))
+                    return {"strengths": ["Late analysis"]}
+
+                with patch.object(session["agent"], "analyze_session_for_memory", side_effect=owner_change):
+                    self.web._learn_from_session(session, "isolated-fake")
+                self.assertEqual(self.store.get_profile(self.user["id"], "coachee"), current[0])
+                self.assertEqual(session["agent"].user_profile, UserProfile.from_dict(current[0]))
+                if action == "delete":
+                    self.assertIsNone(self.store.get_user(self.user["id"]))
+
     def test_save_failure_keeps_saved_content_and_the_unsaved_edit(self):
         from sqlalchemy.exc import OperationalError
 
