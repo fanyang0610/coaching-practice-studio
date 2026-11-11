@@ -23,7 +23,7 @@ ACTION_CARD_FIELDS = ("goal", "next_step", "by_when", "support")
 def can_recover_action_card(row: dict, state: dict) -> bool:
     """Only missing results of finished AI-coach conversations can be recovered."""
     return (row["module"] == "coach" and row["status"] == "completed" and row["mode"] == "llm"
-            and not row.get("card") and state.get("action_card_result", {}).get("status") != "ready"
+            and not row.get("card") and state.get("action_card_result", {}).get("status") not in {"ready", "none"}
             and any(m.get("role") == "client" for m in state.get("context", [])))
 
 

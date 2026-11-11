@@ -28,7 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import accounts
 import db
 import quota
-from coaching_core import CoachingState
+from coaching_core import CoachingState, ai_failure_detail
 from coachee_agent import can_retry_review
 from coach_agent import ACTION_CARD_FIELDS, can_recover_action_card
 from studio_config import LANG_COOKIE, LEGACY_LANG_COOKIE
@@ -75,6 +75,7 @@ T = {
         "invite_invalid": "This invite link has expired, was already used, or was revoked. Ask for a new one.",
         "email_taken": "An account with this email already exists. Sign in instead.",
         "email_mismatch": "This invite is for a different email address.",
+        "signup_failed": "We couldn't create your account. Your invite is still available. Please try again.",
         "password_too_short": "Passwords need at least {n} characters.",
         "password_mismatch": "The two passwords don't match.",
         "wrong_password": "Your current password isn't correct.",
@@ -82,6 +83,7 @@ T = {
         "consent_required": "Please confirm you've read the privacy notice.",
         "reset_title": "Set a new password",
         "reset_invalid": "This reset link has expired or was already used. Ask for a new one.",
+        "reset_failed": "We couldn't save the new password. Please try this link again.",
         "save": "Save",
         "password_changed": "Password updated.",
         "my_sessions": "My sessions",
@@ -95,13 +97,13 @@ T = {
         "shared": "Shared",
         "private": "Private",
         "trainer_sees_practice": "Your mentor can review your Coachee Lab practice sessions. AI Coach sessions stay private unless you share them.",
+        "trainer_changed": "Your mentor has changed. Review the current mentor before sharing.",
         "no_trainer": "You don't have a mentor. Only you can see your sessions.",
         "your_trainer": "Your mentor: {name}",
         "action_cards": "Your action cards",
         "no_action_cards": "Finish an AI Coach session to get an action card with your goal and next step.",
         "practice_scores": "Practice scores",
         "no_scores": "Finish an AI Coachee Lab session to see your scores here.",
-        "score_summary": "Latest {latest}/100 · Average {average}/100",
         "score": "{n}/100",
         "card_goal": "Goal",
         "card_next_step": "Next step",
@@ -134,7 +136,7 @@ T = {
         "practice_goal_cleared": "Practice goal cleared.",
         "practice_goal_invalid": "Keep the goal within 300 characters, or leave it empty to clear it.",
         "practice_goal_failed": "Could not save. Your saved goal is unchanged; your draft is below. Please try again.",
-        "practice_goal_conflict": "Your practice goal or insights changed elsewhere. Your draft is below; check the saved goal before saving again.",
+        "practice_goal_conflict": "The saved information changed elsewhere. Check your current goal and try saving your draft again.",
         "practice_goal_current": "Saved goal",
         "practice_goal_empty": "No goal set",
         "change_password": "Change password",
@@ -162,7 +164,7 @@ T = {
         "recover_card": "Recover action card",
         "card_history": "View this conversation and recover its action card",
         "card_unknown": "No action card is saved for this conversation. You can recover it from the original dialogue.",
-        "card_none": "No action commitment was found, so no action card was created.",
+        "card_none": "No action card was extracted from this conversation.",
         "card_generation_failed": "The action card could not be generated. Your conversation is saved; you can try again here.",
         "card_save_failed": "The action card could not be saved. Your conversation is kept; you can try again here.",
         "card_pending": "The action card is being generated. Refresh in a moment.",
@@ -246,7 +248,7 @@ T = {
             "Choose at the top of the screen: Be coached (AI Coach), or Practise coaching (AI Coachee Lab).",
         ],
         "help_modes_title": "The two modes",
-        "help_coach_mode": "The AI coaches you on something real in your life: a goal, a decision or a challenge. These sessions are private to you.",
+        "help_coach_mode": "The AI coaches you on something real in your life: a goal, a decision or a challenge. Sessions are private by default. You can share individual sessions with your mentor from Account.",
         "help_coachee_mode": "You practise being the coach. The AI plays a client with a realistic situation, and you ask the questions. At the end you get a score and feedback. Want a different topic? Before your first question, describe the client's situation and tap \"Use my topic\".",
         "help_session_title": "During a session",
         "help_session_items": [
@@ -254,10 +256,10 @@ T = {
             "Type your reply and tap Send, or tap the microphone to speak.",
             "Skip Ahead moves to the next stage. New Session starts over in the current mode.",
             "Each mode saves its own conversation. Switch modes to pick up where you left off. When you return to the app, it opens the last mode you used.",
-            "When an AI Coach session ends, you get an action card with your goal and next step. It is kept on your Account page, and next time the coach asks how it went.",
+            "If you commit to a next step in an AI Coach session, it can appear in an action card on your Account page. If generating or saving the card fails, open that session to try again.",
             "Your AI Coachee Lab scores are kept on your Account page. If a review fails, open that practice record and choose Regenerate review.",
             "Tap 👍 or 👎 under a reply to say whether it helped.",
-            "Change the language or the reading voice under Settings.",
+            "Choose your language or turn on Auto-play replies under Settings.",
         ],
         "help_limits_title": "Daily allowance",
         "help_limits": "Each day (a rolling 24 hours) you have {coach} AI Coach sessions and {coachee} AI Coachee Lab sessions with the AI. When one runs out, the app tells you roughly when you can start again, and the other mode may still have sessions left. Your Account page shows what is left. One conversation can have up to {messages} of your messages; when {warning} are left, the app counts them down, and the last one ends the conversation with its feedback.",
@@ -342,6 +344,7 @@ T = {
         "invite_invalid": "此邀请链接已过期、已被使用或已撤销，请重新申请。",
         "email_taken": "该邮箱已有账户，请直接登录。",
         "email_mismatch": "此邀请属于另一个邮箱地址。",
+        "signup_failed": "未能创建账户。你的邀请仍可使用，请重试。",
         "password_too_short": "密码至少需要 {n} 位。",
         "password_mismatch": "两次输入的密码不一致。",
         "wrong_password": "当前密码不正确。",
@@ -349,6 +352,7 @@ T = {
         "consent_required": "请确认你已阅读隐私说明。",
         "reset_title": "设置新密码",
         "reset_invalid": "此重置链接已过期或已被使用，请重新申请。",
+        "reset_failed": "未能保存新密码，请使用此链接重试。",
         "save": "保存",
         "password_changed": "密码已更新。",
         "my_sessions": "我的会话",
@@ -362,13 +366,13 @@ T = {
         "shared": "已分享",
         "private": "私密",
         "trainer_sees_practice": "你的导师可以查看你的 AI学员陪练 会话。AI教练 会话默认私密，除非你主动分享。",
+        "trainer_changed": "你的导师已变更。请先确认当前导师，再决定是否分享。",
         "no_trainer": "你还没有导师。只有你本人能看到你的会话。",
         "your_trainer": "你的导师：{name}",
         "action_cards": "你的行动卡",
         "no_action_cards": "完成一次 AI教练 会话，就会得到一张写有目标和下一步的行动卡。",
         "practice_scores": "练习得分",
         "no_scores": "完成一次 AI学员陪练 会话后，得分会显示在这里。",
-        "score_summary": "最近 {latest}/100 · 平均 {average}/100",
         "score": "{n}/100",
         "card_goal": "目标",
         "card_next_step": "下一步",
@@ -401,7 +405,7 @@ T = {
         "practice_goal_cleared": "练习目标已清空。",
         "practice_goal_invalid": "目标请保持在 300 字符以内，留空可清空目标。",
         "practice_goal_failed": "未能保存，已保存目标保持不变；草稿保留在下方，请重试。",
-        "practice_goal_conflict": "目标或练习洞察已在别处改动。草稿保留在下方，请核对已保存目标后再保存。",
+        "practice_goal_conflict": "编辑期间已保存的信息发生了变化。请核对当前目标，再保存下方草稿。",
         "practice_goal_current": "已保存目标",
         "practice_goal_empty": "尚未设置目标",
         "change_password": "修改密码",
@@ -429,7 +433,7 @@ T = {
         "recover_card": "恢复行动卡",
         "card_history": "查看本次历史记录并恢复行动卡",
         "card_unknown": "这次会话尚未保存行动卡，可以从原始对话恢复。",
-        "card_none": "未发现行动承诺，因此没有生成行动卡。",
+        "card_none": "这次对话未提取到行动卡。",
         "card_generation_failed": "行动卡生成失败。对话已保存，可以在这里重试。",
         "card_save_failed": "行动卡保存失败。原对话已保留，可以在这里重试。",
         "card_pending": "正在生成行动卡，请稍后刷新。",
@@ -513,7 +517,7 @@ T = {
             "在页面顶部选择：被教练（AI教练），或练习做教练（AI学员陪练）。",
         ],
         "help_modes_title": "两种模式",
-        "help_coach_mode": "AI 针对你生活中的真实话题为你做教练：一个目标、一个决定或一个挑战。这些会话只有你自己能看到。",
+        "help_coach_mode": "AI 针对你生活中的真实话题为你做教练，例如一个目标、一个决定或一个挑战。会话默认仅自己可见，你也可以在账户页把单次会话分享给导师。",
         "help_coachee_mode": "你来练习做教练。AI 扮演一位有真实处境的来访者，由你来提问。结束后你会得到评分和反馈。想练别的话题？在提出第一个问题之前，写下来访者的情况，再点“用我的话题”。",
         "help_session_title": "会话过程中",
         "help_session_items": [
@@ -521,10 +525,10 @@ T = {
             "输入回复后点击“发送”，或点击麦克风用语音输入。",
             "“跳到下一阶段”会进入下一个阶段。“新会话”会在当前模式重新开始。",
             "两种模式各自保存对话，切回去就能接着聊。重新打开练习室时，会先进入上次使用的模式。",
-            "AI教练 会话结束时，你会得到一张写有目标和下一步的行动卡。它会保存在账户页面，下次教练会问你进展如何。",
+            "如果你在 AI 教练会话中明确了下一步，账户页可能会显示一张行动卡。生成或保存失败时，可以打开那次会话重试。",
             "AI 学员陪练的得分会保存在账户页面。如果点评生成失败，打开那次练习记录，点“重新生成点评”。",
             "在回复下方点 👍 或 👎，告诉我们这条回复是否有帮助。",
-            "在“设置”里可以切换语言和朗读声音。",
+            "在“设置”里可以切换语言，也可以开启“自动朗读回复”。",
         ],
         "help_limits_title": "每日额度",
         "help_limits": "每天（滚动 24 小时）你可以与 AI 进行 AI教练 会话 {coach} 次、AI学员陪练 会话 {coachee} 次。某一项用完后，页面会告诉你大约多久之后可以再开始；另一项如果还有剩余，仍然可以使用。账户页面会显示剩余次数。每次对话最多可以发 {messages} 条消息；还剩 {warning} 条时，应用会提醒你还剩几条，发完最后一条后对话结束，并给出反馈。",
@@ -1021,10 +1025,13 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             return signup_form(request, lang, invite, ("error", T[lang]["consent_required"]), values)
         if store.get_user_by_email(email):
             return signup_form(request, lang, invite, ("error", T[lang]["email_taken"]), values)
-        if not store.consume_invite(code):
+        try:
+            user_id = store.register_from_invite(code, email, name or email.split("@")[0], accounts.hash_password(password))
+        except SQLAlchemyError as error:
+            logging.getLogger("coaching_studio").error("Account signup failed: %s", type(error).__name__)
+            return signup_form(request, lang, invite, ("error", T[lang]["signup_failed"]), values)
+        if user_id is None:
             return invalid_invite(request, lang)
-        user_id = store.create_user(email, name or email.split("@")[0], accounts.hash_password(password),
-                                    role=invite["role"], trainer_id=invite["trainer_id"], consented=True)
         store.log(invite["created_by"], "account_created", target_user_id=user_id, detail=f"invite {code[:6]}… as {invite['role']}")
         return set_login(RedirectResponse("/", status_code=303), store.get_user(user_id))
 
@@ -1091,10 +1098,15 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         problem = accounts.password_problem(password, confirm)
         if problem:
             return reset_form(request, lang, token, ("error", text(lang, problem)))
-        user_id = store.consume_password_reset(token)
+        if store.reset_user_id(token) is None:
+            return reset_page(request, token)
+        try:
+            user_id = store.reset_password(token, accounts.hash_password(password))
+        except SQLAlchemyError as error:
+            logging.getLogger("coaching_studio").error("Password reset failed: %s", type(error).__name__)
+            return reset_form(request, lang, token, ("error", T[lang]["reset_failed"]))
         if user_id is None:
             return reset_page(request, token)
-        store.update_user(user_id, password_hash=accounts.hash_password(password))
         store.log(user_id, "password_reset", target_user_id=user_id)
         return set_login(RedirectResponse("/", status_code=303), store.get_user(user_id))
 
@@ -1243,12 +1255,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             score = f' <span class="pill gold">{_e(text(lang, "score", n=row["score"]))}</span>'
         if results and (row.get("card") or {}).get("next_step"):
             next_step = f'<div class="meta">{_e(T[lang]["card_next_step"])}: {_e(_clip(row["card"]["next_step"], 120))}</div>'
-        view_label = T[lang]["view"]
-        if results and row["module"] == "coach" and row["mode"] == "llm" and row["status"] == "completed" and not row.get("card"):
-            view_label = T[lang]["recover_card"]
         return f"""<div class="row"><div class="main"><div class="title">{title} <span class="pill">{_e(status)}</span> {shared}{score}{rating}</div>
 <div class="meta">{_e(stage)} · {_time(row["created_at"])} · {_e(' · '.join(bits))}</div>{next_step}</div>
-<div class="actions">{share_form}{f'<a class="button secondary" href="/sessions/{_e(row["id"])}">{_e(view_label)}</a>' if link else ''}</div></div>"""
+<div class="actions">{share_form}{f'<a class="button secondary" href="/sessions/{_e(row["id"])}">{_e(T[lang]["view"])}</a>' if link else ''}</div></div>"""
 
     def profile_block(lang: str, module: str, data: dict | None, request: Request) -> str:
         heading = T[lang]["module_coachee" if module == "coachee" else "module_coach"]
@@ -1256,10 +1265,11 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         sections = []
         for name in PROFILE_FIELDS[module]:
             rows = []
-            for index, item in enumerate(profile_items(profile, name)):
-                hidden = profile_form_fields(request, module, name, index, data)
+            for item in profile_items(profile, name):
+                key = profile_version(item)
+                hidden = profile_form_fields(request, module, name, key)
                 rows.append(f'''<div class="row"><div class="main title">{_e(item)}</div><div class="actions">
-<a class="button secondary" href="/account/profile/{module}/{name}/{index}">{_e(T[lang]['edit_insight'])}</a>
+<a class="button secondary" href="/account/profile/{module}/{name}/{key}">{_e(T[lang]['edit_insight'])}</a>
 <form method="post" action="/account/profile/item" class="inline">{hidden}
 <button class="quiet danger" name="action" value="remove" type="submit">{_e(T[lang]['remove_insight'])}</button></form></div></div>''')
             if rows:
@@ -1272,21 +1282,24 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <input type="hidden" name="version" value="{profile_version(data)}">
 <button class="quiet" type="submit">{_e(T[lang]['reset_insights'])}</button></form></div>"""
 
-    def profile_form_fields(request, module, name, index, data):
+    def profile_form_fields(request, module, name, key):
         return f'''{csrf_field(request)}<input type="hidden" name="module" value="{module}">
-<input type="hidden" name="field" value="{name}"><input type="hidden" name="index" value="{index}">
-<input type="hidden" name="version" value="{profile_version(data)}">'''
+<input type="hidden" name="field" value="{name}"><input type="hidden" name="key" value="{key}">'''
 
-    def profile_editor(request, user, module, name, index, data, value, flash=None):
+    def profile_editor(request, user, module, name, key, value, flash=None):
         lang = page_lang(request)
         heading = T[lang]["module_coachee" if module == "coachee" else "module_coach"]
-        body = f'''<div class="card narrow"><div class="eyebrow">{_e(heading)}</div><h1>{_e(T[lang]['edit_insight'])}</h1>
-<form method="post" action="/account/profile/item">{profile_form_fields(request, module, name, index, data)}
-<label for="insight-value">{_e(T[lang][name])}</label>
-<textarea id="insight-value" name="value" maxlength="{MAX_INSIGHT_CHARS}" required>{_e(value)}</textarea>
-<div class="actions"><button name="action" value="save" type="submit">{_e(T[lang]['save'])}</button>
+        field = f'''<label for="insight-value">{_e(T[lang][name])}</label>
+<textarea id="insight-value" name="value" maxlength="{MAX_INSIGHT_CHARS}" {"required" if key else "readonly"}>{_e(value)}</textarea>'''
+        back = f'<a class="button secondary" href="/account#insights">{_e(T[lang]["cancel_insight"])}</a>'
+        if key:
+            field = f'''<form method="post" action="/account/profile/item">{profile_form_fields(request, module, name, key)}
+{field}<div class="actions"><button name="action" value="save" type="submit">{_e(T[lang]['save'])}</button>
 <button class="quiet danger" name="action" value="remove" type="submit" formnovalidate>{_e(T[lang]['remove_insight'])}</button>
-<a class="button secondary" href="/account#insights">{_e(T[lang]['cancel_insight'])}</a></div></form></div>'''
+{back}</div></form>'''
+        else:
+            field += back
+        body = f'''<div class="card narrow"><div class="eyebrow">{_e(heading)}</div><h1>{_e(T[lang]['edit_insight'])}</h1>{field}</div>'''
         return render(request, lang, T[lang]["edit_insight"], body, user=user, flash=flash, current="account")
 
     def progress_cards(lang: str, user_id: int) -> str:
@@ -1301,10 +1314,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         cards_html = "".join(cards) or f'<p class="muted">{_e(T[lang]["no_action_cards"])}</p>'
         scores = [r for r in store.session_results(user_id, "coachee", limit=6) if r["score"] is not None]
         if scores:
-            summary = text(lang, "score_summary", latest=scores[0]["score"], average=round(sum(r["score"] for r in scores) / len(scores)))
             score_rows = "".join(f'<div class="row compact"><div class="main"><div class="meta">{_time(r["created_at"])}</div></div>'
                                  f'<span class="pill gold">{_e(text(lang, "score", n=r["score"]))}</span></div>' for r in scores)
-            scores_html = f'<p class="muted">{_e(summary)}</p><div class="list">{score_rows}</div>'
+            scores_html = f'<div class="list">{score_rows}</div>'
         else:
             scores_html = f'<p class="muted">{_e(T[lang]["no_scores"])}</p>'
         return ('<div class="grid2">'
@@ -1327,7 +1339,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <div class="row"><div class="main"><div class="meta">{_e(T[lang]['practice_goal_current'])}</div>
 <div class="title">{_e(profile.next_practice_goal or T[lang]['practice_goal_empty'])}</div></div></div>
 <form method="post" action="/account/practice-goal#practice-goal">{csrf_field(request)}
-<input type="hidden" name="version" value="{profile_version(data)}">{choose}
+<input type="hidden" name="version" value="{profile_version(profile.next_practice_goal)}">{choose}
 <textarea id="practice-goal-value" name="value" maxlength="{MAX_PRACTICE_GOAL_CHARS}" aria-labelledby="practice-goal-label">{_e(value)}</textarea>
 <div class="actions"><button name="action" value="save" type="submit">{_e(T[lang]['save'])}</button>
 <button class="secondary" name="action" value="clear" type="submit" formnovalidate>{_e(T[lang]['practice_goal_clear'])}</button></div></form>'''
@@ -1359,6 +1371,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             if row["module"] == "coach" and trainer:
                 label = T[lang]["unshare" if row["shared_with_trainer"] else "share"]
                 share_form = (f'<form method="post" action="/account/sessions/{_e(row["id"])}/share" class="inline">{csrf_field(request)}'
+                              f'<input type="hidden" name="trainer_id" value="{trainer["id"]}">'
                               f'<input type="hidden" name="shared" value="{"no" if row["shared_with_trainer"] else "yes"}">'
                               f'<button class="quiet" type="submit">{_e(label)}</button></form>')
             # Someone who said more than they meant to can remove one conversation without closing their account.
@@ -1383,9 +1396,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         body = f"""<div class="card"><div class="eyebrow">{_e(ROLE_LABELS[lang][user['role']])}</div><h1>{_e(user['display_name'])}</h1>
 <p class="muted">{_e(user['email'])}<br>{'<br>'.join(_e(line) for line in quota_lines)}</p><p class="hint">{trainer_line}</p>
 <form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
-{disclosure(T[lang]['my_sessions'], f'<div class="list">{sessions_html}</div>', element_id="my-sessions", opened=True)}
 {progress_cards(lang, user["id"])}
 {practice_goal_block(request, store.get_profile(user['id'], 'coachee'))}
+{disclosure(T[lang]['my_sessions'], f'<div class="list">{sessions_html}</div>', element_id="my-sessions", opened=True)}
 {disclosure(T[lang]['insights'], insights_html, element_id="insights")}
 {disclosure(T[lang]['account_settings'], settings_html, element_id="account-settings", opened=request.url.path in ('/account/password', '/account/delete'))}
 <script>document.querySelectorAll('form[data-confirm]').forEach(function (form) {{
@@ -1415,12 +1428,12 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         data = store.get_profile(user["id"], "coachee")
         if action == "save" and len(value.strip()) > MAX_PRACTICE_GOAL_CHARS:
             return practice_goal_error(request, user, data, value, "practice_goal_invalid")
-        if version != profile_version(data):
-            return practice_goal_error(request, user, data, value, "practice_goal_conflict")
         profile = UserProfile.from_dict(data)
+        if version != profile_version(profile.next_practice_goal):
+            return practice_goal_error(request, user, data, value, "practice_goal_conflict")
         profile.next_practice_goal = value.strip() if action == "save" else ""
         try:
-            saved = store.save_profile(user["id"], "coachee", profile.to_dict(), expected_version=version)
+            saved = store.save_profile(user["id"], "coachee", profile.to_dict(), expected_version=profile_version(data))
         except SQLAlchemyError:
             logging.getLogger("coaching_studio").exception("Saving an owner practice goal failed")
             return practice_goal_error(request, user, data, value, "practice_goal_failed")
@@ -1445,22 +1458,25 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         store.log(user["id"], "password_changed", target_user_id=user["id"])
         return set_login(RedirectResponse("/account?done=password_changed", status_code=303), store.get_user(user["id"]))
 
-    @router.get("/account/profile/{module}/{field}/{index}")
-    def edit_profile_item(request: Request, module: str, field: str, index: int):
+    @router.get("/account/profile/{module}/{field}/{key}")
+    def edit_profile_item(request: Request, module: str, field: str, key: str):
         user = checked_user(request)
         if not user:
             return login_redirect(request)
         if field not in PROFILE_FIELDS.get(module, ()):
             return forbidden(request, page_lang(request), user)
         data = get_store().get_profile(user["id"], module)
-        items = profile_items(UserProfile.from_dict(data), field)
-        if not 0 <= index < len(items):
+        if not data:
             return forbidden(request, page_lang(request), user)
-        return profile_editor(request, user, module, field, index, data, items[index])
+        items = profile_items(UserProfile.from_dict(data), field)
+        item = next((item for item in items if profile_version(item) == key), None)
+        if item is None:
+            return account_page(request, user, ("error", T[page_lang(request)]["insight_conflict"]))
+        return profile_editor(request, user, module, field, key, item)
 
     @router.post("/account/profile/item")
     def save_profile_item(request: Request, csrf: str = Form(""), module: str = Form(""), field: str = Form(""),
-                          index: int = Form(-1), version: str = Form(""), value: str = Form(""), action: str = Form("")):
+                          key: str = Form(""), value: str = Form(""), action: str = Form("")):
         user = checked_user(request, csrf)
         if not user:
             return login_redirect(request)
@@ -1471,23 +1487,27 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         data = store.get_profile(user["id"], module)
         profile = UserProfile.from_dict(data)
         items = profile_items(profile, field)
-        if version != profile_version(data):
-            return account_page(request, user, ("error", T[lang]["insight_conflict"]))
-        if not 0 <= index < len(items):
-            return forbidden(request, lang, user)
-        value = value.strip()
-        if action == "save" and (not value or len(value) > MAX_INSIGHT_CHARS or any(
-                other.casefold() == value.casefold() for i, other in enumerate(items) if i != index)):
-            return profile_editor(request, user, module, field, index, data, value, ("error", T[lang]["insight_invalid"]))
-        updated = change_insight(profile, field, index, value if action == "save" else "")
+        index = next((i for i, item in enumerate(items) if profile_version(item) == key), None)
+        conflict = ("error", T[lang]["insight_conflict"])
+        if index is None:
+            if action == "save" and value:
+                return profile_editor(request, user, module, field, None, value, conflict)
+            return account_page(request, user, conflict)
+        replacement = value.strip() if action == "save" else ""
+        if action == "save" and (not replacement or len(replacement) > MAX_INSIGHT_CHARS or any(
+                other.casefold() == replacement.casefold() for i, other in enumerate(items) if i != index)):
+            return profile_editor(request, user, module, field, key, value, ("error", T[lang]["insight_invalid"]))
+        updated = change_insight(profile, field, index, replacement)
         try:
-            saved = store.save_profile(user["id"], module, updated.to_dict(), expected_version=version)
+            saved = store.save_profile(user["id"], module, updated.to_dict(), expected_version=profile_version(data))
         except SQLAlchemyError:
             logging.getLogger("coaching_studio").exception("Saving an owner insight change failed")
-            return profile_editor(request, user, module, field, index, data, value if action == "save" else items[index],
+            return profile_editor(request, user, module, field, key, value if action == "save" else items[index],
                                   ("error", T[lang]["insight_failed"]))
         if not saved:
-            return account_page(request, user, ("error", T[lang]["insight_conflict"]))
+            if action == "save" and value:
+                return profile_editor(request, user, module, field, None, value, conflict)
+            return account_page(request, user, conflict)
         done = "insight_saved" if action == "save" else "insight_removed"
         return RedirectResponse(f"/account?done={done}#insights", status_code=303)
 
@@ -1503,10 +1523,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         data = store.get_profile(user["id"], module)
         if version != profile_version(data):
             return account_page(request, user, ("error", T[lang]["insight_conflict"]))
-        profile = UserProfile.from_dict(data)
-        for name in PROFILE_FIELDS[module]:
-            for index in reversed(range(len(profile_items(profile, name)))):
-                profile = change_insight(profile, name, index, "")
+        profile = UserProfile(next_practice_goal=UserProfile.from_dict(data).next_practice_goal)
         try:
             saved = store.save_profile(user["id"], module, profile.to_dict(), expected_version=version)
         except SQLAlchemyError:
@@ -1517,7 +1534,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         return RedirectResponse("/account?done=insights_cleared#insights", status_code=303)
 
     @router.post("/account/sessions/{session_id}/share")
-    def share_session(request: Request, session_id: str, csrf: str = Form(""), shared: str = Form("")):
+    def share_session(request: Request, session_id: str, csrf: str = Form(""), shared: str = Form(""),
+                      trainer_id: str = Form("")):
         user = checked_user(request, csrf)
         if not user:
             return login_redirect(request)
@@ -1525,7 +1543,13 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         row = store.get_session(session_id)
         if not row or row["user_id"] != user["id"] or row["module"] != "coach":
             return forbidden(request, page_lang(request), user)
-        store.set_session_shared(session_id, shared == "yes")
+        expected_trainer = user["trainer_id"]
+        if (not expected_trainer or trainer_id != str(expected_trainer)
+                or not store.set_session_shared(session_id, shared == "yes", expected_trainer_id=expected_trainer)):
+            user = store.get_user(user["id"])
+            if not user:
+                return login_redirect(request)
+            return account_page(request, user, ("error", T[page_lang(request)]["trainer_changed"]))
         store.log(user["id"], "session_shared" if shared == "yes" else "session_unshared", target_session_id=session_id)
         return RedirectResponse("/account", status_code=303)
 
@@ -1610,8 +1634,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             return login_redirect(request)
         lang = page_lang(request)
         store = get_store()
-        row = store.get_session(session_id)
-        owner = store.get_user(row["user_id"]) if row else None
+        row = store.get_session(session_id, with_owner=True)
+        owner = {"id": row["user_id"], "trainer_id": row["owner_trainer_id"], "display_name": row["owner_name"]} if row else None
         if not row or not accounts.can_view_session(user, row, owner):
             return forbidden(request, lang, user)
         if user["id"] != row["user_id"]:
@@ -1746,7 +1770,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         if failures:
             latest = failures[0]
             lines.append(f'<div class="flash error">{_e(text(lang, "ai_errors", count=len(failures)))} {_time(latest["created_at"])} · '
-                         f'{_e(latest["detail"])}<br>{_e(T[lang]["ai_errors_hint"])}</div>')
+                         f'{_e(ai_failure_detail(latest["detail"]))}<br>{_e(T[lang]["ai_errors_hint"])}</div>')
         else:
             lines.append(f'<p class="muted">{_e(T[lang]["ai_errors_none"])}</p>')
         return f'<div class="card"><h2>{_e(T[lang]["ai_service"])}</h2>{"".join(lines)}</div>'
@@ -1804,12 +1828,16 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <div class="meta">{_e(invite['code'][:6])}… · {_time(invite['created_at'])}{(' · ' + _e(text(lang, 'invite_uses_left', used=invite['uses'], max=invite['max_uses']))) if invite['max_uses'] > 1 else ''}{(' · ' + _e(T[lang]['assign_trainer']) + ': ' + _e(names.get(invite['trainer_id'], '?'))) if invite['trainer_id'] else ''}</div></div>
 <div class="actions">{revoke}</div></div>""")
 
+        def audit_detail(entry: dict) -> str:
+            detail = entry["detail"]
+            return ai_failure_detail(detail) if entry["action"] == "ai_error" else detail
+
         audit_rows = "".join(
             f'<div class="row"><div class="main"><div class="title">{_e(T[lang]["audit_actions"].get(entry["action"], entry["action"]))}</div><div class="meta">{_time(entry["created_at"])} · '
             f'{_e(names.get(entry["actor_id"], entry["actor_id"] or "system"))}'
             f'{(" → " + _e(names.get(entry["target_user_id"], entry["target_user_id"]))) if entry["target_user_id"] else ""}'
             f'{(" · " + _e(entry["target_session_id"][:8])) if entry["target_session_id"] else ""}'
-            f'{(" · " + _e(entry["detail"])) if entry["detail"] else ""}</div></div></div>'
+            f'{(" · " + _e(audit_detail(entry))) if entry["detail"] else ""}</div></div></div>'
             for entry in store.audit_entries(60))
         limits = quota.role_limits(store)
         allowance_forms = "".join(f"""<form method="post" action="/admin/allowances" class="row">{csrf}<input type="hidden" name="role" value="{role}">
@@ -1905,9 +1933,6 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         if losing_admin and store.count_admins() <= 1:
             return admin_page(request, admin_user, f'<div class="flash error">{_e(T[lang]["last_admin"])}</div>')
         store.update_user(user_id, **fields)
-        if fields["trainer_id"] != target["trainer_id"]:
-            # A share was meant for the old mentor, so a new mentor (possibly this admin) doesn't inherit it.
-            store.unshare_sessions(user_id)
         changes = ", ".join(f"{key}={value}" for key, value in fields.items() if target[key] != value)
         store.log(admin_user["id"], "user_updated", target_user_id=user_id, detail=changes)
         return admin_page(request, admin_user, f'<div class="flash ok">{_e(T[lang]["user_updated"])}</div>')

@@ -26,6 +26,7 @@ UI = {
         "coachee_placeholder": "Ask your next coaching question as the coach...",
         "send": "Send",
         "advance": "Skip Ahead",
+        "end_at_capacity": "End session",
         "reset": "New Session",
         "empty_warning": "Please type a message first.",
         "session_ended": "Session complete. Start a new session to continue.",
@@ -44,8 +45,8 @@ UI = {
         "ai_unavailable": "The AI isn't available right now, so a new session can't start. Please try again in a few minutes with New Session.",
         "new_session_failed": "Couldn't start a new session. Your current conversation and draft are still here. Try New Session again in a moment.",
         "ai_reply_error": "The AI didn't respond this time. Please try again in a moment.",
-        "context_near": "This conversation is nearing capacity. Use Skip Ahead to wrap up. Your record will be kept.",
-        "context_full": "This message would exceed the conversation's available capacity and was not sent. Your input is still here. Shorten it, or use Skip Ahead to wrap up and start a new session. The original record will be kept.",
+        "context_near": "This conversation is near its capacity. You can end the session and keep the full conversation.",
+        "context_full": "Your message was too long for the remaining capacity. It is still in the text box. Shorten it, or choose End session to keep the conversation so far.",
         "message_too_long": "Please keep each message under {limit} characters.",
         "turns_left": "Each conversation allows up to {limit} messages. You've sent {used}, so {left} left. Time to start wrapping up.",
         "turn_limit": "This conversation has used all {limit} messages it allows, so it ends here.",
@@ -54,12 +55,14 @@ UI = {
         "session_changed_elsewhere": "This conversation was continued in another tab or on another device, so here is the latest version. Your message is still in the box: send it again if it still fits.",
         "session_moved": "This conversation changed in another tab or on another device. Please refresh the page to continue.",
         "reply_not_saved": "This conversation was also continued in another tab or on another device at the same time, so this last reply wasn't saved. Please refresh the page to see the latest version.",
+        "session_save_error": "The conversation couldn't be saved. Please try again in a moment.",
         "topic_prompt": "Want a different topic? Describe the client's situation, and the AI will play that client.",
         "topic_placeholder": "e.g. a new manager who finds it hard to delegate",
         "topic_start": "Use my topic",
         "topic_empty": "Describe the topic first.",
         "topic_too_long": "Please keep the topic under {limit} characters.",
         "topic_failed": "The AI couldn't set up a client for that topic just now. Please try again in a moment.",
+        "goal_case_fallback": "The AI couldn't prepare a case for your practice goal. This session uses a built-in case.",
         "topic_crisis": "Practice clients stay within coaching. Self-harm and crisis situations need a trained professional, so please choose another topic.",
         "rate_limited": "You're sending messages quickly. Please wait a moment before the next one.",
         "signed_out": "Your sign-in has expired. Please reload the page and sign in again.",
@@ -119,6 +122,7 @@ UI = {
         "coachee_placeholder": "请以教练身份输入你的下一个提问...",
         "send": "发送",
         "advance": "跳到下一阶段",
+        "end_at_capacity": "结束会话",
         "reset": "新会话",
         "empty_warning": "请先输入内容。",
         "session_ended": "本次会话已结束，请开启新会话。",
@@ -137,8 +141,8 @@ UI = {
         "ai_unavailable": "AI 暂时无法使用，所以新会话还不能开始。请过几分钟后点击“新会话”再试。",
         "new_session_failed": "暂时无法开始新会话。当前对话和输入都还在，可以稍后再点「新会话」重试。",
         "ai_reply_error": "AI 这次没有回应，请稍后再试。",
-        "context_near": "对话接近容量，请用「跳到下一阶段」收尾。原记录会保留。",
-        "context_full": "这条消息会超出本次对话的可用容量，尚未发送，输入仍保留。请缩短消息，或用「跳到下一阶段」收尾后新开会话。原记录不会删减。",
+        "context_near": "对话接近容量，可以结束会话并保留完整记录。",
+        "context_full": "这条消息超出了剩余容量，仍留在输入框。可以缩短后再发，或点击「结束会话」保存当前记录。",
         "message_too_long": "每条消息请控制在 {limit} 字以内。",
         "turns_left": "每次对话最多可以发 {limit} 条消息。你已经发了 {used} 条，还剩 {left} 条，可以开始收尾了。",
         "turn_limit": "这次对话已经发满 {limit} 条消息的上限，到此结束。",
@@ -147,12 +151,14 @@ UI = {
         "session_changed_elsewhere": "这段对话在另一个标签页或设备上有了新内容，这里已更新为最新版本。你的消息还在输入框里，如果仍然合适，可以再发送一次。",
         "session_moved": "这段对话在另一个标签页或设备上有了变化，请刷新页面后继续。",
         "reply_not_saved": "这段对话同时在另一个标签页或设备上继续了，所以刚才这条回复没有保存。请刷新页面查看最新内容。",
+        "session_save_error": "刚才的对话没能保存，请稍后重试。",
         "topic_prompt": "想练别的话题？写下来访者的情况，AI 会改为扮演这位来访者。",
         "topic_placeholder": "例如：刚当上经理，不太会把工作交给别人",
         "topic_start": "用我的话题",
         "topic_empty": "请先写下话题。",
         "topic_too_long": "话题请控制在 {limit} 个字以内。",
         "topic_failed": "AI 暂时没能按这个话题设定来访者，请稍后再试。",
+        "goal_case_fallback": "AI 暂时没能按你的练习目标生成案例，本次使用预设案例。",
         "topic_crisis": "陪练来访者只涉及教练话题。自伤或危机情况需要专业人士处理，请换一个话题。",
         "rate_limited": "消息发送得有点快，请稍等片刻再发下一条。",
         "signed_out": "登录已过期，请刷新页面并重新登录。",
@@ -2918,7 +2924,8 @@ tts_js = r"""
 force_light_js = """() => {
     document.body.classList.remove('dark');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const micIcon = '<svg class="mic-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V8a3 3 0 1 0-6 0v4a3 3 0 0 0 3 3Z"></path><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0"></path><path d="M12 17v3"></path><path d="M9.5 20h5"></path></svg>';
+    // The language radio isn't mounted while Settings is closed.
+    const isEnglish = () => document.querySelector('.studio-header')?.lang === 'en';
 
     const focusInput = () => {
         const textarea = document.querySelector('#chat-input-msg textarea');
@@ -2936,26 +2943,20 @@ force_light_js = """() => {
         });
     };
 
-    const micLabels = () => {
-        const isEnglish = document.querySelector('input[type="radio"][value="English"]')?.checked;
-        return isEnglish
-            ? { idle: 'Start voice input', active: 'Tap again to stop' }
-            : { idle: '开始语音输入', active: '再次点击结束录音' };
-    };
-
     const setMicState = (btn, listening) => {
-        btn.innerHTML = micIcon;
         btn.classList.toggle('listening', !!listening);
-        const labels = micLabels();
-        btn.title = listening ? labels.active : labels.idle;
-        btn.setAttribute('aria-label', listening ? labels.active : labels.idle);
+        const labels = isEnglish() ? ['Start voice input', 'Tap again to stop'] : ['开始语音输入', '再次点击结束录音'];
+        const label = labels[listening ? 1 : 0];
+        btn.title = label;
+        btn.setAttribute('aria-label', label);
     };
 
     const bindMic = () => {
         const btn = document.getElementById('custom-mic-btn');
-        if (!btn || btn.dataset.bound === 'true') return;
+        if (!btn) return;
+        setMicState(btn, btn.classList.contains('listening'));
+        if (btn.dataset.bound === 'true') return;
         btn.dataset.bound = 'true';
-        setMicState(btn, false);
 
         if (!SpeechRecognition) {
             btn.style.opacity = '1';
@@ -2981,7 +2982,7 @@ force_light_js = """() => {
             const hint = hints[errorCode];
             const textarea = document.querySelector('#chat-input-msg textarea');
             if (!hint || !textarea) return;
-            const english = document.querySelector('input[type="radio"][value="English"]')?.checked;
+            const english = isEnglish();
             const original = textarea.placeholder;
             textarea.placeholder = english ? hint[0] : hint[1];
             setTimeout(() => { if (textarea.placeholder === (english ? hint[0] : hint[1])) textarea.placeholder = original; }, 7000);
@@ -2997,7 +2998,7 @@ force_light_js = """() => {
             }
 
             recognition = new SpeechRecognition();
-            recognition.lang = document.querySelector('input[type="radio"][value="English"]')?.checked ? 'en-US' : 'zh-CN';
+            recognition.lang = isEnglish() ? 'en-US' : 'zh-CN';
             recognition.continuous = false;
             recognition.interimResults = false;
             isStarting = true;
@@ -3073,6 +3074,8 @@ force_light_js = """() => {
     };
 
     bindMic();
+    const header = document.querySelector('.intro-md');
+    if (header) new MutationObserver(bindMic).observe(header, { childList: true, subtree: true });
     unlockTts();
     setTimeout(() => {
         bindMic();

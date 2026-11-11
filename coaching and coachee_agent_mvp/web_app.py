@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import datetime as dt
 import html
 import json
@@ -20,6 +21,7 @@ from fastapi.responses import RedirectResponse, Response
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 import gradio as gr  # noqa: E402
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 import accounts
@@ -97,8 +99,8 @@ def _launch_inbrowser(env: dict[str, str] | None = None) -> bool:
 default_mode = "llm"
 default_lang = "zh"
 default_module = "coach"
-RESPOND_OUTPUT_COUNT = 17
-NEXT_STAGE_OUTPUT_COUNT = 17
+RESPOND_OUTPUT_COUNT = 18
+NEXT_STAGE_OUTPUT_COUNT = 18
 # New Session, switching mode, and starting a practice on one's own topic all fill the same outputs.
 NEW_SESSION_OUTPUT_COUNT = 29
 # The practice topic band: card, prompt, topic box, button (see _topic_updates).
@@ -189,6 +191,17 @@ def _module_button_updates(active_module: str, lang_code: str):
     )
 
 
+def _capacity_wrap_up_available(session: dict) -> bool:
+    agent = session["agent"]
+    return agent.mode == "llm" and not agent.is_session_ended() and (
+        session.get("capacity_blocked", False) or bool(coaching_core.conversation_capacity(agent.context)))
+
+
+def _advance_button_update(session: dict):
+    key = "end_at_capacity" if _capacity_wrap_up_available(session) else "advance"
+    return gr.update(value=UI[session["agent"].language][key])
+
+
 def _mode_context_html(session: dict) -> str:
     agent = session["agent"]
     module_code = session["module"]
@@ -202,7 +215,7 @@ def _mode_context_html(session: dict) -> str:
     elif allowance:
         quota_pill = f' <span class="studio-quota">{s["quota_pill_unlimited"].format(used=allowance.sessions_used)}</span>'
     capacity_note = ""
-    if agent.mode == "llm" and not agent.is_session_ended() and coaching_core.conversation_capacity(agent.context):
+    if _capacity_wrap_up_available(session):
         capacity_note = f'<div class="context-capacity-note" role="status">{s["context_near"]}</div>'
     return f"""
     <section class="mode-context-card">
@@ -328,7 +341,7 @@ def _header_markdown(session: dict) -> str:
     agent = session["agent"]
     s = UI[agent.language]
     return f"""
-    <section class="studio-header">
+    <section class="studio-header" lang="{agent.language}">
         <img class="studio-mark" src="{HEADER_ICON_SRC}" alt="" aria-hidden="true">
         <div class="studio-title-group">
             <div class="studio-title">{s["coach_name"]}</div>
@@ -498,6 +511,19 @@ def _save(session: dict) -> bool:
     return True
 
 
+def _save_agent_change(session: dict, before: dict) -> bool:
+    """Keep the page's agent aligned with the stored conversation if a turn couldn't be saved."""
+    agent = session["agent"]
+    try:
+        if _save(session):
+            return True
+    except SQLAlchemyError as exc:
+        logger.error("Saving a conversation failed (%s)", type(exc).__name__)
+        gr.Warning(UI[agent.language]["session_save_error"])
+    agent.__dict__.update(before)
+    return False
+
+
 # A version no stored session has, so the next action reloads the conversation (see _save).
 _STALE = dt.datetime(1970, 1, 1)
 
@@ -586,6 +612,8 @@ def _open_session(user: dict, module_code: str, mode_code: str, lang_code: str, 
         return _unavailable_session(user, module_code, lang_code, UI[lang_code][key], reason="ai")
     if version is None:
         return _unavailable_session(user, module_code, lang_code, UI[lang_code]["session_moved"], reason="conflict")
+    if isinstance(agent, CoacheeAgent) and agent.used_builtin_case and agent.user_profile.next_practice_goal:
+        gr.Info(UI[lang_code]["goal_case_fallback"])
     session["version"] = version
     return session
 
@@ -648,8 +676,7 @@ def _ensure_session(session: dict | None, user: dict, module_sel: str, mode_sel:
 def _append_opening_prompt(agent):
     """The AI's next prompt (a session's opening, or the next stage after Skip Ahead). Raises if the AI can't answer."""
     api_key = _safe_key()
-    if agent.mode == "llm" and not api_key and not (
-            isinstance(agent, CoacheeAgent) and agent.is_session_ended()):
+    if agent.mode == "llm" and not api_key and not agent.is_session_ended():
         prompt = _llm_config_message(agent.language)
     else:
         prompt = agent.get_stage_prompt(api_key=api_key or None)
@@ -700,7 +727,7 @@ def initial_load(session: dict, module_sel: str, mode_sel: str, lang_sel: str, r
     return (
         out["chat"], out["tracker"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
         out["msg"], out["tts"], *out["memory"], out["module"], out["lang"], out["mode"],
-        _memory_title(agent.language), welcome, *_language_control_updates(agent.language),
+        _memory_title(agent.language), welcome, *_language_control_updates(session),
         *out["rating"], *out["topic"], session,
     )
 
@@ -745,6 +772,7 @@ def _respond_outputs(message_update, chat_history, agent, session, tts_update=No
         memory_updates[0],
         memory_updates[1],
         memory_updates[2],
+        _advance_button_update(session),
         *_rating_updates(session),
         *_topic_updates(session),
         session,
@@ -840,6 +868,8 @@ def _action_card_outcome_text(agent, session_id: str | None = None) -> str:
         key = "card_interrupted"
     s = account_pages.T[agent.language]
     notice = s.get(key, s["card_unknown"])
+    if result.get("status") == "none":
+        return notice
     if session_id:
         return f'{notice}\n\n[{s["card_history"]}](/sessions/{session_id})'
     return f'{notice}\n\n[{s["card_history"]}](/account)'
@@ -923,7 +953,7 @@ def _finish_session(session: dict, api_key: str) -> str | None:
         elif outcome == "card_busy":
             session["version"] = _STALE
         card_text = _action_card_outcome_text(agent, session["id"])
-    if agent.mode == "llm" and api_key:
+    if agent.mode == "llm" and api_key and _user_turns(agent):
         threading.Thread(target=_learn_from_session, args=(session, api_key), daemon=True).start()
     return card_text
 
@@ -980,6 +1010,7 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
             return
         if (agent.mode == "llm" and coaching_core.conversation_capacity(agent.context, user_msg) == "full"
                 and not (session["module"] == "coach" and safety.looks_like_crisis(user_msg))):
+            session["capacity_blocked"] = True
             gr.Warning(s["context_full"])
             yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
             return
@@ -1006,7 +1037,7 @@ def _stream_reply(user_msg, chat_history, agent, session):
     chat_history = list(chat_history or [])
     chat_history.append({"role": "user", "content": user_msg})
     yield _streaming_outputs(list(chat_history), session)
-    old_state = agent.current_state
+    before = copy.deepcopy(agent.__dict__)
     skipped_before = set(getattr(agent, "skipped_stages", set()))
 
     api_key = _safe_key()
@@ -1025,6 +1056,7 @@ def _stream_reply(user_msg, chat_history, agent, session):
             for coach_response in agent.stream_response(user_msg, api_key=api_key or None):
                 yield _streaming_outputs(chat_history + [{"role": "assistant", "content": coach_response}], session)
         except coaching_core.ContextCapacityError:
+            session["capacity_blocked"] = True
             gr.Warning(UI[agent.language]["context_full"])
             chat_history.pop()
             yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
@@ -1036,21 +1068,23 @@ def _stream_reply(user_msg, chat_history, agent, session):
             yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
             return
 
-    if agent.current_state != old_state:
-        gr.Info(_stage_change_notice(agent, session["module"], skipped_before))
-
-    if not _save(session):
-        store = get_store()
-        latest = store.get_session(session["id"])
-        restored = _restore_session(latest, store.get_user(session["user_id"])) if latest else None
-        if restored and latest["status"] != "abandoned":
-            session = restored
-            agent = session["agent"]
-        else:
-            agent.context = json.loads(latest["state"])["context"] if latest else []
+    if not _save_agent_change(session, before):
+        if session.get("version") == _STALE:
+            store = get_store()
+            latest = store.get_session(session["id"])
+            restored = _restore_session(latest, store.get_user(session["user_id"])) if latest else None
+            if restored and latest["status"] != "abandoned":
+                session = restored
+                agent = session["agent"]
+            else:
+                agent.context = json.loads(latest["state"])["context"] if latest else []
         yield _respond_outputs(gr.update(value=user_msg, interactive=not agent.is_session_ended()),
                                _chat_history_from_context(agent, session.get("id")), agent, session)
         return
+
+    session.pop("capacity_blocked", None)
+    if agent.current_state != before["current_state"]:
+        gr.Info(_stage_change_notice(agent, session["module"], skipped_before))
 
     chat_history.append({"role": "assistant", "content": coach_response})
     tts_update = gr.update(value=_tts_payload(coach_response))
@@ -1074,9 +1108,13 @@ def _end_at_limit(chat_history, session, api_key, tts_update):
     gr.Info(UI[agent.language][notice].format(limit=MAX_USER_TURNS_PER_SESSION))
     # The notice and the last reply first: a practice review takes a few seconds to write.
     yield _respond_outputs(gr.update(value="", interactive=False), list(chat_history), agent, session, tts_update)
-    chat_history.append({"role": "assistant", "content": agent.end_at_limit(MAX_USER_TURNS_PER_SESSION, api_key)})
-    if _save(session):
+    before = copy.deepcopy(agent.__dict__)
+    closing = agent.end_at_limit(MAX_USER_TURNS_PER_SESSION, api_key)
+    if _save_agent_change(session, before):
+        chat_history.append({"role": "assistant", "content": closing})
         yield from _close_turn(chat_history, session, api_key, gr.update())
+    else:
+        yield _respond_outputs(gr.update(interactive=True), chat_history, agent, session)
 
 
 def _close_turn(chat_history, session, api_key, tts_update):
@@ -1130,48 +1168,42 @@ def next_stage(chat_history, session, module_sel, mode_sel, lang_sel, request: g
 def _advance_stage(chat_history, session):
     agent = session["agent"]
     s = UI[agent.language]
+    finish_at_capacity = _capacity_wrap_up_available(session)
 
-    old_state = agent.current_state
-    old_sub = agent.current_sub_phase
-    old_turns = agent.turns_in_current_stage
-    old_complete = agent.session_complete
-
-    if hasattr(agent, "manual_advance_guard"):
+    if not finish_at_capacity and hasattr(agent, "manual_advance_guard"):
         blocker = agent.manual_advance_guard()
         if blocker:
             gr.Warning(blocker)
             return _next_stage_outputs(gr.update(), chat_history, agent, session)
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
-    if not agent.force_next_state():
+    before = copy.deepcopy(agent.__dict__)
+    if finish_at_capacity:
+        agent.session_complete = True
+    elif not agent.force_next_state():
         gr.Info(s["session_ended"])
         return _next_stage_outputs(gr.update(value="", interactive=False), chat_history, agent, session, memory_updates=(m_s, m_g, m_f))
 
     if session["module"] == "coachee" and not agent.is_session_ended():
         # In practice the person is the coach: the tracker moves on and they ask the next question themselves.
-        _save(session)
+        _save_agent_change(session, before)
         return _next_stage_outputs(gr.update(), chat_history, agent, session, memory_updates=(m_s, m_g, m_f))
 
     try:
         new_prompt = _append_opening_prompt(agent)
     except coaching_core.ContextCapacityError:
-        agent.current_state = old_state
-        agent.current_sub_phase = old_sub
-        agent.turns_in_current_stage = old_turns
-        agent.session_complete = old_complete
-        gr.Warning(s["context_full"])
+        agent.__dict__.update(before)
+        session["capacity_blocked"] = True
+        gr.Warning(s["context_near"])
         return _next_stage_outputs(gr.update(), chat_history, agent, session)
     except Exception:
         logger.exception("Next-stage prompt failed")
-        agent.current_state = old_state
-        agent.current_sub_phase = old_sub
-        agent.turns_in_current_stage = old_turns
-        agent.session_complete = old_complete
+        agent.__dict__.update(before)
         gr.Warning(s["ai_reply_error"])
         return _next_stage_outputs(gr.update(), chat_history, agent, session)
 
     chat_history = list(chat_history or [])
-    if not _save(session):
+    if not _save_agent_change(session, before):
         return _next_stage_outputs(gr.update(), chat_history, agent, session)
     chat_history.append({"role": "assistant", "content": new_prompt})
 
@@ -1186,7 +1218,7 @@ def _advance_stage(chat_history, session):
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
     return _next_stage_outputs(
-        gr.update(value="", interactive=not is_ended),
+        gr.update(interactive=False) if finish_at_capacity else gr.update(value="", interactive=not is_ended),
         chat_history,
         agent,
         session,
@@ -1231,7 +1263,7 @@ def reset_session(lang_sel, module_sel, mode_sel, session=None, request: gr.Requ
 
 def _new_session_outputs(session: dict):
     out = _session_start_outputs(session)
-    controls = _language_control_updates(session["agent"].language)
+    controls = _language_control_updates(session)
     return (
         out["chat"], out["tracker"], out["tts"], out["header"], out["coach_btn"], out["coachee_btn"], out["mode_context"],
         out["msg"], *out["memory"], out["module"], out["mode"], out["lang"],
@@ -1252,11 +1284,11 @@ def start_with_topic(topic: str, lang_sel, mode_sel, session=None, request: gr.R
     return _navigate_session(user, "coachee", _safe_mode(mode_sel), lc, session, explicit=True, topic=topic)
 
 
-def _language_control_updates(language: str):
-    s = UI[language]
+def _language_control_updates(session: dict):
+    s = UI[session["agent"].language]
     return (
         gr.update(value=s["send"]),
-        gr.update(value=s["advance"]),
+        _advance_button_update(session),
         gr.update(value=s["reset"]),
         gr.update(label=s["settings"], open=False),
         gr.update(value=s["mode_hint"]),
@@ -1273,19 +1305,20 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
     with _agent_lock(agent):
         if lc == agent.language:
             pass  # The language control can update when restoring a conversation.
-        elif agent.translate_history(new_lang=lc, api_key=_safe_key() or None):
-            agent.set_language(lc)
-            if not (session["module"] == "coachee" and agent.is_session_ended()):
-                _save(session)
         else:
-            # Stay in the conversation's language (the language choice switches back) rather than mixing the two.
-            gr.Warning(UI[lc]["translate_failed"].format(language=UI[lc]["lang_" + agent.language]))
-            lc = agent.language
-            new_lang = _lang_selector(lc)
+            before = copy.deepcopy(agent.__dict__)
+            if agent.translate_history(new_lang=lc, api_key=_safe_key() or None):
+                agent.set_language(lc)
+                if not (session["module"] == "coachee" and agent.is_session_ended()):
+                    _save_agent_change(session, before)
+            else:
+                gr.Warning(UI[lc]["translate_failed"].format(language=UI[lc]["lang_" + agent.language]))
+    lc = agent.language
+    new_lang = _lang_selector(lc)
     s = UI[lc]
-    copy = _session_ui(agent, session["module"])
+    labels = _session_ui(agent, session["module"])
     coach_btn, coachee_btn = _module_button_updates(session["module"], lc)
-    send, advance, reset, settings, hint, tts_enabled = _language_control_updates(lc)
+    send, advance, reset, settings, hint, tts_enabled = _language_control_updates(session)
 
     m_s, m_g, m_f = _memory_ui_updates(agent, lc)
     return (
@@ -1295,7 +1328,7 @@ def switch_lang(new_lang, session, module_sel, mode_sel, request: gr.Request = N
         coach_btn,
         coachee_btn,
         _mode_context_html(session),
-        gr.update(placeholder=copy["placeholder"], interactive=not agent.is_session_ended() and not session.get("unavailable")),
+        gr.update(placeholder=labels["placeholder"], interactive=not agent.is_session_ended() and not session.get("unavailable")),
         send, advance, reset, settings, hint,
         gr.update(label=s["language"], value=new_lang),
         gr.update(label=s["mode"], choices=_mode_choices(lc), value=_mode_label(default_mode, lc)),
@@ -1468,6 +1501,8 @@ with gr.Blocks(
 
     rating_outputs = [rating_card, rating_prompt, rating_row]
     topic_outputs = [topic_card, topic_prompt, topic_input, topic_btn]
+    turn_outputs = [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md,
+                    memory_footer_md, next_btn, *rating_outputs, *topic_outputs, session_state]
 
     language_outputs = [send_btn, next_btn, reset_btn, settings_sheet, settings_hint, tts_toggle]
     new_session_outputs = [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg,
@@ -1485,21 +1520,21 @@ with gr.Blocks(
     send_btn.click(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
+        turn_outputs,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     msg.submit(
         respond,
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
+        turn_outputs,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     next_btn.click(
         next_stage,
         [chatbot, session_state, module_state, mode_radio, lang_radio],
-        [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md, memory_footer_md, *rating_outputs, *topic_outputs, session_state],
+        turn_outputs,
         **LLM_EVENT,
     ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 

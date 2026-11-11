@@ -17,8 +17,8 @@ PROFILE_FIELDS = {
 LIST_FIELDS = ("strengths", "growth_areas")
 
 
-def profile_version(data: dict | None) -> str:
-    """Content version for forms and conditional writes; legacy JSON needs no migration."""
+def profile_version(data: dict | str | None) -> str:
+    """Fingerprint stored profile data or the original text of an editable field."""
     return hashlib.sha256(json.dumps(data, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
@@ -99,11 +99,18 @@ def merge_analysis(profile: UserProfile, analysis: dict, now: datetime.datetime 
         # Keep owner replacements before applying the existing eight-item cap.
         return _merge_items(changes.get("kept", []), remaining)
 
+    def merge_summary(name, generated):
+        current = getattr(profile, name)
+        changes = profile.corrections.get(name, {})
+        removed = {item.casefold() for item in changes.get("removed", [])}
+        generated = generated.strip() if isinstance(generated, str) else ""
+        if changes.get("kept") or not generated or generated.casefold() in removed:
+            return current
+        return generated
+
     return UserProfile(
-        coaching_style_insights=(profile.coaching_style_insights if profile.corrections.get("coaching_style_insights")
-                                 else analysis.get("coaching_style") or profile.coaching_style_insights),
-        learning_patterns=(profile.learning_patterns if profile.corrections.get("learning_patterns")
-                           else analysis.get("learning_patterns") or profile.learning_patterns),
+        coaching_style_insights=merge_summary("coaching_style_insights", analysis.get("coaching_style")),
+        learning_patterns=merge_summary("learning_patterns", analysis.get("learning_patterns")),
         strengths=merge_list("strengths"),
         growth_areas=merge_list("growth_areas"),
         last_updated=now.strftime("%Y-%m-%d %H:%M UTC"),

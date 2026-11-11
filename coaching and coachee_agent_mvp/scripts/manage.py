@@ -14,6 +14,8 @@ import getpass
 from pathlib import Path
 import sys
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -42,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("list-users", help="List accounts.")
 
     args = parser.parse_args(argv)
+    load_dotenv(ROOT / ".env")
     store = db.Store(db.database_url())
 
     if args.command == "create-admin":

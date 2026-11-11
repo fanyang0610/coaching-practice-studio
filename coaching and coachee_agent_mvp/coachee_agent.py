@@ -34,47 +34,71 @@ REVIEW_UNAVAILABLE = {
           "saved on the Account page.",
     "zh": "本次练习已结束，但 AI 暂时没能写出点评。你的对话已保存在账户页面。",
 }
+SCORE_UNAVAILABLE = {"en": "Unavailable", "zh": "暂不可用"}
+_REVIEW_TOTAL = re.compile(r"^(?:Score|最后得分)\s*[:：]\s*(.*)$", re.I)
+
+
+def _plain_review_line(line: str) -> str:
+    return re.sub(r"^(?:#{1,6}|[-*+•])\s+", "", line.replace("**", "").strip())
 
 
 def review_score(review: str) -> int | None:
-    # Prefer the result line over a score quoted in the prose; keep old total-only formats readable.
-    plain = (review or "").replace("**", "")
-    match = re.search(r"^\s*(?:Score|最后得分)\s*[:：]\s*(\d{1,3})\s*/\s*100", plain, re.M | re.I)
-    if not match:
-        match = re.search(r"(\d{1,3})\s*/\s*100", plain)
+    # An explicit unavailable total takes precedence over numbers mentioned in the feedback.
+    for line in (review or "").splitlines():
+        total = _REVIEW_TOTAL.fullmatch(_plain_review_line(line))
+        if total:
+            match = re.match(r"(\d{1,3})\s*/\s*100", total[1])
+            if match:
+                return min(int(match[1]), 100)
+            if total[1] in SCORE_UNAVAILABLE.values():
+                return None
+    # Older reviews can have their total in the middle of a line.
+    match = re.search(r"(\d{1,3})\s*/\s*100", (review or "").replace("**", ""))
     return min(int(match.group(1)), 100) if match else None
 
 
 def _normalize_review_scores(review: str, language: str) -> str:
-    """New AI reviews need five valid parts. The app supplies their total, never a turn-count cap."""
+    """Sum valid stage scores and keep written feedback when the score is unavailable."""
     names = ("目标合同", "现实探索", "可能方案", "行动承诺", "结束回顾") if language == "zh" else (
         "Contract", "Reality", "Possibilities", "Commitment", "Closing")
     label = "分阶段得分" if language == "zh" else "Stage scores"
     total_label = "最后得分" if language == "zh" else "Score"
+    names_pattern = "|".join(re.escape(name) for name in names)
+    heading = re.compile(re.escape(label) + r"(?:\s*[:：]\s*(.*))?", re.I)
+    stage_item = re.compile(rf"(?:{names_pattern})\s+[-+]?\d", re.I)
     parts = r"\s*[·•|]\s*".join(re.escape(name) + r"\s+(\d{1,2})\s*/\s*20" for name in names)
-    pattern = re.compile(re.escape(label) + r"\s*[:：]\s*" + parts, re.I)
+    pattern = re.compile(parts, re.I)
     lines = review.splitlines()
-    stage_lines = [(i, line.replace("**", "").strip()) for i, line in enumerate(lines)
-                   if re.match(re.escape(label) + r"\s*[:：]", line.replace("**", "").strip(), re.I)]
-    if len(stage_lines) != 1:
-        raise ValueError("Practice review needs one five-stage score breakdown.")
-    index, stage_line = stage_lines[0]
-    match = pattern.fullmatch(stage_line)
-    if not match or any(int(n) > 20 for n in match.groups()):
-        raise ValueError("Practice review stage scores must be integers from 0 to 20.")
-    scores = [int(n) for n in match.groups()]
-    separator = "：" if language == "zh" else ": "
-    lines[index] = label + separator + " · ".join(f"{name} {score}/20" for name, score in zip(names, scores))
-    # Discard model-written totals, including a missing or mistaken sum, and insert the computed result once.
-    total_line = re.compile(r"(?:Score|最后得分)\s*[:：]", re.I)
-    result = []
-    for i, line in enumerate(lines):
-        if total_line.match(line.replace("**", "").strip()):
+    plain = [_plain_review_line(line) for line in lines]
+    blocks = []
+    omit = set()
+    for index, line in enumerate(plain):
+        match = heading.fullmatch(line)
+        if not match:
             continue
-        result.append(line)
-        if i == index:
-            result.append(f"{total_label}{separator}{sum(scores)}/100")
-    return "\n".join(result)
+        values = [match[1]] if match[1] else []
+        end = index + 1
+        if not values:
+            while end < len(plain) and stage_item.match(plain[end]):
+                values.append(plain[end])
+                end += 1
+        blocks.append(pattern.fullmatch(" · ".join(values)))
+        omit.update(range(index, end))
+
+    match = blocks[0] if len(blocks) == 1 else None
+    scores = [int(n) for n in match.groups()] if match else []
+    separator = "：" if language == "zh" else ": "
+    feedback = [line for i, line in enumerate(lines) if i not in omit and not _REVIEW_TOTAL.match(plain[i])]
+    if scores and all(n <= 20 for n in scores):
+        index = min(omit)
+        insert_at = sum(not _REVIEW_TOTAL.match(line) for line in plain[:index])
+        breakdown = label + separator + " · ".join(f"{name} {score}/20" for name, score in zip(names, scores))
+        feedback[insert_at:insert_at] = [breakdown, f"{total_label}{separator}{sum(scores)}/100"]
+    elif any(line.strip() for line in feedback):
+        feedback.append(total_label + separator + SCORE_UNAVAILABLE[language])
+    else:
+        raise ValueError("Practice review contains neither feedback nor valid scores.")
+    return "\n".join(feedback).strip()
 
 
 def can_retry_review(row: dict, state: dict) -> bool:
@@ -133,6 +157,7 @@ class CoacheeAgent:
         self.metrics = CoachingMetrics()
         self.scenario = random.choice(SCENARIOS)
         self._llm_scenario_ready = False
+        self.used_builtin_case = False
         self._stage_fact_cursor = {state: set() for state in CoachingState}
         self.user_profile = user_profile
         # Called with (model, prompt_tokens, completion_tokens) after each model call; set by the web app.
@@ -463,6 +488,7 @@ class CoacheeAgent:
                 raise
             # An unreadable case: keep the built-in case chosen at the start, so the practice session still opens.
             logger.warning("Generating a practice case failed; using a built-in one", exc_info=True)
+            self.used_builtin_case = True
         self._llm_scenario_ready = True
 
     def _topic_instructions(self) -> str:
@@ -802,9 +828,7 @@ class CoacheeAgent:
                 for _ in range(2):
                     try:
                         review = self._build_llm_final_review(api_key)
-                        if review_score(review) is None:
-                            raise ValueError("Practice review did not contain a score.")
-                        self.review_failed = False
+                        self.review_failed = review_score(review) is None
                         return review
                     except Exception:
                         logger.warning("Writing the practice review failed", exc_info=True)

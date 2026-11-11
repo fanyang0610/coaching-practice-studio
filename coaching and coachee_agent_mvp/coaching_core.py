@@ -1,5 +1,6 @@
 import enum
 import functools
+from http import HTTPStatus
 import json
 import logging
 import os
@@ -177,16 +178,19 @@ def _report_failure(exc: Exception) -> None:
 
 
 def failure_summary(exc: Exception) -> str:
-    """A short description of a failed request for the admin, e.g. "402: Insufficient credits". Error messages come
-    from the provider and never contain the conversation."""
-    status = getattr(exc, "status_code", None)
-    body = getattr(exc, "body", None)
-    message = ""
-    if isinstance(body, dict):
-        error = body.get("error", body)
-        message = error.get("message", "") if isinstance(error, dict) else str(error)
-    message = message or getattr(exc, "message", "") or str(exc) or type(exc).__name__
-    return f"{status}: {message}" if status else f"{type(exc).__name__}: {message}"
+    return ai_failure_detail(getattr(exc, "status_code", None))
+
+
+def ai_failure_detail(status: int | str | None) -> str:
+    """Describe the HTTP status without storing or displaying the provider's response text."""
+    if isinstance(status, str):
+        status = status.partition(":")[0]
+    try:
+        code = HTTPStatus(int(status))
+    except (TypeError, ValueError):
+        return "AI request failed"
+    label = "Insufficient credits" if code == HTTPStatus.PAYMENT_REQUIRED else code.phrase
+    return f"{code.value}: {label}"
 
 
 def openrouter_credit_left(api_key: str, base_url: str | None = None, timeout: float = 5) -> float | None:

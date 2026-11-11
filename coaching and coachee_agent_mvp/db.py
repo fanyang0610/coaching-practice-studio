@@ -218,14 +218,18 @@ class Store:
 
     def create_user(self, email: str, display_name: str, password_hash: str, role: str = "user",
                     trainer_id: int | None = None, consented: bool = False) -> int:
-        now = utcnow()
         with self.engine.begin() as conn:
-            result = conn.execute(users.insert().values(
-                email=email.strip().lower(), display_name=display_name.strip(), password_hash=password_hash,
-                role=role, trainer_id=trainer_id, status="active", consented_at=now if consented else None,
-                created_at=now,
-            ))
-            return result.inserted_primary_key[0]
+            return self._insert_user(conn, email, display_name, password_hash, role, trainer_id, consented)
+
+    @staticmethod
+    def _insert_user(conn, email, display_name, password_hash, role, trainer_id, consented):
+        now = utcnow()
+        result = conn.execute(users.insert().values(
+            email=email.strip().lower(), display_name=display_name.strip(), password_hash=password_hash,
+            role=role, trainer_id=trainer_id, status="active", consented_at=now if consented else None,
+            created_at=now,
+        ))
+        return result.inserted_primary_key[0]
 
     def get_user(self, user_id: int) -> dict | None:
         return self._one(sa.select(users).where(users.c.id == user_id))
@@ -241,7 +245,13 @@ class Store:
 
     def update_user(self, user_id: int, **fields) -> None:
         with self.engine.begin() as conn:
+            if "trainer_id" in fields:
+                previous_trainer = conn.execute(sa.select(users.c.trainer_id).where(users.c.id == user_id)
+                                                .with_for_update()).scalar_one_or_none()
             conn.execute(users.update().where(users.c.id == user_id).values(**fields))
+            if "trainer_id" in fields and fields["trainer_id"] != previous_trainer:
+                conn.execute(coaching_sessions.update().where(coaching_sessions.c.user_id == user_id,
+                             coaching_sessions.c.shared_with_trainer.is_(True)).values(shared_with_trainer=False))
 
     def delete_user(self, user_id: int) -> None:
         with self.engine.begin() as conn:
@@ -279,14 +289,18 @@ class Store:
             return None
         return invite
 
-    def consume_invite(self, code: str) -> bool:
-        """Count one use of an invite, atomically. False if it was used up or revoked meanwhile."""
+    def register_from_invite(self, code: str, email: str, display_name: str, password_hash: str) -> int | None:
+        """Use the invite only if creating the account succeeds."""
+        email = email.strip().lower()
         stmt = invites.update().where(
             invites.c.code == code, invites.c.revoked.is_(False), invites.c.uses < invites.c.max_uses,
-            invites.c.expires_at >= utcnow(),
-        ).values(uses=invites.c.uses + 1)
+            invites.c.expires_at >= utcnow(), sa.or_(invites.c.email.is_(None), invites.c.email == email),
+        ).values(uses=invites.c.uses + 1).returning(invites.c.role, invites.c.trainer_id)
         with self.engine.begin() as conn:
-            return conn.execute(stmt).rowcount == 1
+            invite = conn.execute(stmt).first()
+            if not invite:
+                return None
+            return self._insert_user(conn, email, display_name, password_hash, invite.role, invite.trainer_id, True)
 
     def list_invites(self, created_by: int | None = None) -> list[dict]:
         stmt = sa.select(invites).order_by(invites.c.created_at.desc())
@@ -312,15 +326,19 @@ class Store:
             return None
         return row["user_id"]
 
-    def consume_password_reset(self, token: str) -> int | None:
-        user_id = self.reset_user_id(token)
-        if user_id is None:
-            return None
+    def reset_password(self, token: str, password_hash: str) -> int | None:
+        """Change the password and mark the reset link used in one transaction."""
+        now = utcnow()
         stmt = password_resets.update().where(
             password_resets.c.token_hash == _hash_token(token), password_resets.c.used_at.is_(None),
-        ).values(used_at=utcnow())
+            password_resets.c.expires_at >= now,
+        ).values(used_at=now).returning(password_resets.c.user_id)
         with self.engine.begin() as conn:
-            return user_id if conn.execute(stmt).rowcount == 1 else None
+            user_id = conn.execute(stmt).scalar_one_or_none()
+            if user_id is None:
+                return None
+            conn.execute(users.update().where(users.c.id == user_id).values(password_hash=password_hash))
+            return user_id
 
     # Coaching sessions -----------------------------------------------------
 
@@ -467,21 +485,26 @@ class Store:
         with self.engine.begin() as conn:
             conn.execute(stmt.values(status="abandoned", updated_at=_version_stamp()))
 
-    def set_session_shared(self, session_id: str, shared: bool) -> None:
+    def set_session_shared(self, session_id: str, shared: bool, *, expected_trainer_id: int | None = None) -> bool:
         with self.engine.begin() as conn:
-            conn.execute(coaching_sessions.update().where(coaching_sessions.c.id == session_id).values(
-                shared_with_trainer=shared))
+            if expected_trainer_id is not None:
+                if self.is_sqlite:
+                    conn.exec_driver_sql("BEGIN IMMEDIATE")
+                owner = (sa.select(users.c.trainer_id).join(coaching_sessions, coaching_sessions.c.user_id == users.c.id)
+                         .where(coaching_sessions.c.id == session_id).with_for_update(of=users))
+                if conn.execute(owner).scalar_one_or_none() != expected_trainer_id:
+                    return False
+            return conn.execute(coaching_sessions.update().where(coaching_sessions.c.id == session_id).values(
+                shared_with_trainer=shared)).rowcount == 1
 
-    def unshare_sessions(self, user_id: int) -> None:
-        """Make all of a person's shared sessions private again, e.g. when their mentor changes."""
-        with self.engine.begin() as conn:
-            conn.execute(coaching_sessions.update().where(coaching_sessions.c.user_id == user_id).values(
-                shared_with_trainer=False))
-
-    def get_session(self, session_id: str) -> dict | None:
-        row = self._one(sa.select(coaching_sessions, session_results.c.score, session_results.c.card)
-                         .outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id)
-                         .where(coaching_sessions.c.id == session_id))
+    def get_session(self, session_id: str, *, with_owner: bool = False) -> dict | None:
+        stmt = (sa.select(coaching_sessions, session_results.c.score, session_results.c.card)
+                .outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id)
+                .where(coaching_sessions.c.id == session_id))
+        if with_owner:
+            stmt = stmt.join(users, users.c.id == coaching_sessions.c.user_id).add_columns(
+                users.c.trainer_id.label("owner_trainer_id"), users.c.display_name.label("owner_name"))
+        row = self._one(stmt)
         return _with_card(row) if row else None
 
     def _resumable_query(self, user_id: int, module: str | None):

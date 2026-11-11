@@ -1,7 +1,6 @@
 import os
 
 from coach_agent import CoachAgent
-from coaching_core import CoachingState
 
 
 def main():
@@ -15,7 +14,10 @@ def main():
     print(f"\n[Coach - {agent.current_state.name} ({agent.mode})]: {agent.generate_response('')}")
 
     while True:
-        user_input = input("\n[Client]: ")
+        try:
+            user_input = input("\n[Client]: ")
+        except (EOFError, KeyboardInterrupt):
+            user_input = "quit"
 
         if user_input.lower() in ["quit", "exit"]:
             print("Ending session. Goodbye!")
@@ -33,6 +35,8 @@ def main():
                 print(f"\n[Coach - {agent.current_state.name} ({agent.mode})]: {prompt}")
             except Exception as exc:
                 print(f"--- {exc} ---")
+            if agent.is_session_ended():
+                break
             continue
 
         if user_input.lower().startswith("mode "):
@@ -54,7 +58,7 @@ def main():
         except Exception as exc:
             print(f"--- {exc} ---")
 
-        if agent.current_state == CoachingState.CLOSING:
+        if agent.is_session_ended():
             break
 
 
