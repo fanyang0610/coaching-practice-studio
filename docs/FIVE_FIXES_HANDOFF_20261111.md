@@ -100,6 +100,8 @@
 
 所改文件：`coaching and coachee_agent_mvp/coach_agent.py`、`coaching and coachee_agent_mvp/tests.py`、本文件。local commit subject：`fix: require a next step for new action cards`（SHA由主对话读git获得，避免为记录自身SHA再提交）。
 
+统一整合时的必要测试同步：主对话在`53b9166`运行331项检查，唯一ERROR来自旧容量测试`TestFullConversation.test_near_capacity_can_wrap_up_using_the_entire_original`的仅目标JSON替身。该测试检查接近容量仍可使用全文收尾，不检查语义抽取；将替身改为`{"goal":"Rest","next_step":"Take a walk"}`并增加下一步断言，保留原目标断言、79,000个“中”的上下文和每次请求包含全文的检查。仅改这一测试及本交接，产品规则未变；所属`TestFullConversation`组**8项全部通过**，日志在`output/playwright/fix4-action-card-20261111/long-conversation-test-sync.log`。没有产品代码变化，复用第4项已有双端/启动器验证，未重新截图、调用真实模型或重跑全套（由主对话复核）。本地commit subject：`test: align capacity fixture with actionable card requirement`；六个既有修复提交与原有未提交文件均保留，未推送或部署。
+
 下一项提示：继续共享checkout；本项未改`web_app.py`、账户页面、数据库或任何提示词，只调整新卡提取的共同返回条件。已有`none`结果按原设计不可恢复，旧版仅目标卡照常保留和展示。第1项19个回复输出/索引10的`retry_message`、第2项分析前画像版本读取、第3项历史分页均保留。保留既有未提交文件及全部`output/`；本轮完成后停止，未开始第5项。
 
 ## 第5项：已完成，等待最终统一发布

@@ -4376,11 +4376,13 @@ class TestFullConversation(unittest.TestCase):
                 original = list(agent.context)
                 self.assertEqual(core.conversation_capacity(agent.context), "near")
                 calls = []
-                replies = ["Goodbye.", '{"goal":"Rest"}'] if cls is CoachAgent else [_review_fixture()]
+                replies = ["Goodbye.", '{"goal":"Rest","next_step":"Take a walk"}'] if cls is CoachAgent else [_review_fixture()]
                 with patch.object(core, "_shared_client", return_value=_fake_llm_client(replies, calls)):
                     if cls is CoachAgent:
                         agent._get_llm_closing_summary("fake")
-                        self.assertEqual(agent.action_card("fake")["goal"], "Rest")
+                        card = agent.action_card("fake")
+                        self.assertEqual(card["goal"], "Rest")
+                        self.assertEqual(card["next_step"], "Take a walk")
                     else:
                         agent._build_llm_final_review("fake")
                 self.assertEqual(agent.context, original)
