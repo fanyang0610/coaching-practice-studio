@@ -128,6 +128,9 @@ T = {
         "insight_invalid": "Use a non-empty insight of up to 2,000 characters, different from the other items in this section.",
         "insight_hint": "Your edits are kept for future practice. Removed wording won't be added back automatically; similar wording may still appear as a new observation.",
         "coaching_style_insights": "Approach",
+        "client_coaching_style_insights": "Conversation observations",
+        "client_strengths": "Resources you described",
+        "client_growth_areas": "Questions to explore",
         "learning_patterns": "Learning patterns",
         "growth_areas": "Areas for challenge",
         "cancel_insight": "Back to insights",
@@ -401,6 +404,9 @@ T = {
         "insight_invalid": "请输入不超过 2,000 字符的非空洞察，且不要与同类其他条目重复。",
         "insight_hint": "你的修改会保留供后续练习使用。已移除的原文不会自动加回，近义表述仍可能作为新观察出现。",
         "coaching_style_insights": "思考方式",
+        "client_coaching_style_insights": "会话观察",
+        "client_strengths": "表达过的资源",
+        "client_growth_areas": "仍想探索的问题",
         "learning_patterns": "学习方式",
         "growth_areas": "挑战方向",
         "cancel_insight": "返回洞察",
@@ -1305,7 +1311,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <form method="post" action="/account/profile/item" class="inline">{hidden}
 <button class="quiet danger" name="action" value="remove" type="submit">{_e(T[lang]['remove_insight'])}</button></form></div></div>''')
             if rows:
-                sections.append(f'<h3>{_e(T[lang][name])}</h3><div class="list">{"".join(rows)}</div>')
+                label = T[lang][f"client_{name}" if module == "coach" else name]
+                sections.append(f'<h3>{_e(label)}</h3><div class="list">{"".join(rows)}</div>')
         if not sections:
             return f'<div><div class="eyebrow">{_e(heading)}</div><p class="muted">{_e(T[lang]["no_insights"])}</p></div>'
         return f"""<div><div class="eyebrow">{_e(heading)}</div>
@@ -1321,7 +1328,8 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
     def profile_editor(request, user, module, name, key, value, flash=None):
         lang = page_lang(request)
         heading = T[lang]["module_coachee" if module == "coachee" else "module_coach"]
-        field = f'''<label for="insight-value">{_e(T[lang][name])}</label>
+        label = T[lang][f"client_{name}" if module == "coach" else name]
+        field = f'''<label for="insight-value">{_e(label)}</label>
 <textarea id="insight-value" name="value" maxlength="{MAX_INSIGHT_CHARS}" {"required" if key else "readonly"}>{_e(value)}</textarea>'''
         back = f'<a class="button secondary" href="/account#insights">{_e(T[lang]["cancel_insight"])}</a>'
         if key:

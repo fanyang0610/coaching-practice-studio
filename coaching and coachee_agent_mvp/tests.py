@@ -952,6 +952,13 @@ class TestCoacheeAgent(unittest.TestCase):
 
 
 class TestMemoryPrivacy(unittest.TestCase):
+    def test_client_insights_skip_sessions_without_human_statements(self):
+        agent = CoachAgent(mode="llm", language="en")
+        agent.context = [{"role": "coach", "content": "What matters most?"}, {"role": "client", "content": "  "}]
+        with patch("coach_agent._build_client") as build:
+            self.assertEqual(agent.analyze_session_for_memory("isolated-fake"), {})
+        build.assert_not_called()
+
     def test_profile_merge_keeps_newest_items_without_duplicates(self):
         profile = UserProfile(strengths=["Listening", "Clarity"], growth_areas=["Silence"], session_count=2)
 
@@ -3592,6 +3599,50 @@ class TestInsightControls(unittest.TestCase):
             current["agent"].get_stage_prompt("isolated-fake")
         self.assertNotIn("尊重来访者节奏", calls[-1]["messages"][0]["content"])
 
+    def test_client_observations_are_saved_shown_and_used_from_the_current_profile(self):
+        samples = (
+            ("en", "I can leave my phone in the kitchen tonight.", "In this session, considered leaving the phone in the kitchen.",
+             "Resources you described", "Questions to explore"),
+            ("zh", "今晚我可以把手机留在厨房。", "本次提到今晚可以把手机留在厨房。", "表达过的资源", "仍想探索的问题"),
+        )
+        for lang, statement, resource, resources_label, questions_label in samples:
+            with self.subTest(lang=lang):
+                self.store.delete_profiles(self.user["id"])
+                previous = self.store.resumable_session(self.user["id"], "coach")
+                if previous:
+                    self.store.delete_session(previous["id"])
+                session = self.web._open_session(self.user, "coach", "template", lang)
+                agent = session["agent"]
+                agent.context = [{"role": "coach", "content": "AI-only listening and goal-setting claim"},
+                                 {"role": "client", "content": statement}]
+                analysis = {"coaching_style": "", "strengths": [resource], "growth_areas": []}
+                calls = []
+                fake = _fake_llm_client([json.dumps(analysis), "什么会有帮助？" if lang == "zh" else "What would help?"], calls)
+                with patch("coach_agent._build_client", return_value=fake):
+                    self.web._learn_from_session(session, "isolated-fake")
+                    # Restoring loads the just-saved profile, rather than a snapshot from the session JSON.
+                    restored = self.web._restore_session(self.store.get_session(session["id"]), self.user)
+                    restored["agent"].context = [{"role": "client", "content": statement}]
+                    list(restored["agent"]._get_llm_response("isolated-fake"))
+                self.assertEqual(json.loads(calls[0]["messages"][1]["content"]), [
+                    {"speaker": "AI Coach", "content": "AI-only listening and goal-setting claim"},
+                    {"speaker": "Human Client", "content": statement}])
+                saved = self.store.get_profile(self.user["id"], "coach")
+                self.assertEqual(saved["strengths"], [resource])
+                self.assertEqual(saved["growth_areas"], [])
+                self.assertEqual(saved["session_count"], 1)
+                self.assertIsNone(self.store.get_profile(self.user["id"], "coachee"))
+                self.assertEqual(restored["agent"].user_profile.to_dict(), saved)
+                self.assertIn(resource, calls[1]["messages"][0]["content"])
+                memory = self.web._memory_ui_updates(restored["agent"], lang)
+                self.assertIn(resources_label, memory[0])
+                self.assertIn(questions_label, memory[1])
+                page = self.client.get(f"/account?lang={lang}").text
+                self.assertIn(resources_label, page)
+                link = re.search(r'href="(/account/profile/coach/strengths/[^\"]+)"', page)[1]
+                self.assertIn(resources_label, self.client.get(link).text)
+                self.assertIn(resource, page)
+
     def test_next_practice_case_uses_current_profile_without_rewriting_the_old_case(self):
         session = self.web._open_session(self.user, "coachee", "template", "en")
         old_case = session["agent"].scenario
@@ -4297,6 +4348,10 @@ class TestFullConversation(unittest.TestCase):
                     sent = "\n".join(m["content"] for m in call["messages"])
                     positions = [sent.index(m["content"]) for m in before]
                     self.assertEqual(positions, sorted(positions))
+                if cls is CoachAgent:
+                    self.assertEqual(json.loads(calls[2]["messages"][1]["content"]), [
+                        {"speaker": "Human Client" if m["role"] == "client" else "AI Coach", "content": m["content"]}
+                        for m in before])
 
     def test_long_turn_saves_and_refreshes_both_roles(self):
         for module in ("coach", "coachee"):
