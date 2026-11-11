@@ -591,14 +591,24 @@ class Store:
                 .order_by(coaching_sessions.c.created_at.desc()).limit(limit))
         return self._all(stmt)
 
-    def ai_sessions_since(self, user_id: int, since: dt.datetime, module: str, *, completed: bool = False) -> tuple[int, dt.datetime | None]:
-        """(count, earliest timestamp) of AI sessions in a module started, or finished, since a time."""
+    def ai_sessions_since(self, user_id: int, since: dt.datetime, module: str, *, completed: bool = False,
+                          below_limit: int | None = None) -> tuple[int, dt.datetime | None]:
+        """Count AI starts/finishes after `since`, and the earliest timestamp.
+
+        With `below_limit`, return the timestamp whose expiry leaves the count below that limit instead.
+        None means no expiry is needed, or a nonpositive limit cannot recover by waiting.
+        """
         column = coaching_sessions.c.completed_at if completed else coaching_sessions.c.created_at
-        stmt = sa.select(sa.func.count(), sa.func.min(column)).where(
+        scope = (
             coaching_sessions.c.user_id == user_id, coaching_sessions.c.mode == "llm", coaching_sessions.c.module == module,
-            column >= since)
+            column > since)
+        stmt = sa.select(sa.func.count(), sa.func.min(column)).where(*scope)
         with self.engine.connect() as conn:
             count, earliest = conn.execute(stmt).one()
+            if below_limit is not None:
+                earliest = (conn.execute(sa.select(column).where(*scope).order_by(column)
+                                         .offset(count - below_limit).limit(1)).scalar_one()
+                            if 0 < below_limit <= count else None)
             return count, earliest
 
     # Profiles ----------------------------------------------------------------
@@ -645,13 +655,28 @@ class Store:
     def tokens_since(self, user_id: int, since: dt.datetime) -> int:
         return self.token_usage_since(user_id, since)[0]
 
-    def token_usage_since(self, user_id: int, since: dt.datetime) -> tuple[int, dt.datetime | None]:
-        """(tokens used, earliest usage time) since a time."""
-        stmt = sa.select(sa.func.coalesce(sa.func.sum(usage_events.c.prompt_tokens + usage_events.c.completion_tokens), 0),
-                         sa.func.min(usage_events.c.created_at)).where(
-            usage_events.c.user_id == user_id, usage_events.c.created_at >= since)
+    def token_usage_since(self, user_id: int, since: dt.datetime, *,
+                          below_limit: int | None = None) -> tuple[int, dt.datetime | None]:
+        """Tokens used after `since`, and the earliest usage time.
+
+        With `below_limit`, return the usage timestamp whose expiry leaves the total below that limit.
+        """
+        amount = usage_events.c.prompt_tokens + usage_events.c.completion_tokens
+        scope = (usage_events.c.user_id == user_id, usage_events.c.created_at > since)
+        stmt = sa.select(sa.func.coalesce(sa.func.sum(amount), 0), sa.func.min(usage_events.c.created_at)).where(*scope)
         with self.engine.connect() as conn:
             total, earliest = conn.execute(stmt).one()
+            if below_limit is not None:
+                earliest = None
+                if 0 < below_limit <= total:
+                    remaining = int(total)
+                    timeline = (sa.select(usage_events.c.created_at, sa.func.sum(amount)).where(*scope)
+                                .group_by(usage_events.c.created_at).order_by(usage_events.c.created_at))
+                    for timestamp, released in conn.execute(timeline):
+                        remaining -= int(released)
+                        if remaining < below_limit:
+                            earliest = timestamp
+                            break
             return int(total), earliest
 
     def usage_by_user_since(self, since: dt.datetime) -> dict[int, int]:

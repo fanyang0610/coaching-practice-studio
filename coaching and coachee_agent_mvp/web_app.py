@@ -558,7 +558,9 @@ def _unavailable_notice(user: dict, module_code: str, lang_code: str) -> str | N
     if allowance.blocked_reason is None:
         return None
     s = UI[lang_code]
-    notice = s[f"quota_{allowance.blocked_reason}"].format(hours=allowance.hours_until_available())
+    hours = allowance.hours_until_available()
+    notice = (s["quota_disabled"] if hours is None
+              else s[f"quota_{allowance.blocked_reason}"].format(hours=hours))
     other = "coachee" if module_code == "coach" else "coach"
     if quota.allowance(store, user, other).blocked_reason is None:
         notice += " " + s["quota_other_mode"].format(mode=_module_label(other, lang_code))

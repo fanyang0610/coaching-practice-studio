@@ -12,6 +12,7 @@ from __future__ import annotations
 import collections
 from dataclasses import dataclass
 import datetime as dt
+import math
 import threading
 import time
 
@@ -56,7 +57,7 @@ class Allowance:
     starts_used: int
     token_limit: int | None
     tokens_used: int
-    # When the oldest counted item drops out of the 24-hour window, per limit.
+    # When enough counted usage expires to get below each limit.
     sessions_free_at: dt.datetime | None = None
     starts_free_at: dt.datetime | None = None
     tokens_free_at: dt.datetime | None = None
@@ -76,12 +77,22 @@ class Allowance:
             return "tokens"
         return None
 
-    def hours_until_available(self, now: dt.datetime | None = None) -> int:
-        free_at = {"sessions": self.sessions_free_at, "starts": self.starts_free_at, "tokens": self.tokens_free_at}.get(self.blocked_reason)
-        if free_at is None:
-            return 24
-        seconds = (free_at - (now or db.utcnow())).total_seconds()
-        return max(1, -(-int(seconds) // 3600))
+    def hours_until_available(self, now: dt.datetime | None = None) -> int | None:
+        """Wait for every active limit; None means waiting alone cannot restore access."""
+        recovery_times = []
+        for limit, used, free_at in (
+            (self.session_limit, self.sessions_used, self.sessions_free_at),
+            (self.start_limit, self.starts_used, self.starts_free_at),
+            (self.token_limit, self.tokens_used, self.tokens_free_at),
+        ):
+            if limit is not None and used >= limit:
+                if free_at is None:
+                    return None
+                recovery_times.append(free_at)
+        if not recovery_times:
+            return 0
+        seconds = (max(recovery_times) - (now or db.utcnow())).total_seconds()
+        return max(1, math.ceil(seconds / 3600))
 
 
 def allowance(store: db.Store, user: dict, module: str = "coach", now: dt.datetime | None = None) -> Allowance:
@@ -95,12 +106,12 @@ def allowance(store: db.Store, user: dict, module: str = "coach", now: dt.dateti
     sessions_used = starts_used = tokens_used = 0
     sessions_free_at = starts_free_at = tokens_free_at = None
     if session_limit is not None:
-        sessions_used, earliest = store.ai_sessions_since(user["id"], since, module, completed=True)
+        sessions_used, earliest = store.ai_sessions_since(user["id"], since, module, completed=True, below_limit=session_limit)
         sessions_free_at = earliest + WINDOW if earliest else None
-        starts_used, earliest = store.ai_sessions_since(user["id"], since, module)
+        starts_used, earliest = store.ai_sessions_since(user["id"], since, module, below_limit=start_limit)
         starts_free_at = earliest + WINDOW if earliest else None
     if token_limit is not None:
-        tokens_used, earliest = store.token_usage_since(user["id"], since)
+        tokens_used, earliest = store.token_usage_since(user["id"], since, below_limit=token_limit)
         tokens_free_at = earliest + WINDOW if earliest else None
     return Allowance(module, session_limit, sessions_used, start_limit, starts_used, token_limit, tokens_used,
                      sessions_free_at, starts_free_at, tokens_free_at)

@@ -1898,7 +1898,8 @@ class TestStoredSessions(unittest.TestCase):
         session = web_app._open_session(store.get_user(user["id"]), "coach", "llm", "en")
 
         notice = session["unavailable"]
-        self.assertIn("You can start a new one in about 24 h", notice)
+        self.assertIn("Please contact an administrator", notice)
+        self.assertNotIn("about 24 h", notice)
         self.assertIn("still has sessions left today", notice)
         self.assertNotIn("id", session)
         self.assertEqual(store.list_sessions(user["id"]), [])
@@ -1919,6 +1920,34 @@ class TestStoredSessions(unittest.TestCase):
             list(web_app.respond("hello", [], session, "coach", "AI", "English", request))
 
         self.assertEqual(session["agent"].mode, "template")
+
+    def test_quota_notice_and_new_session_agree_at_the_recovery_time(self):
+        web_app, store, user, _ = _signed_in()
+        now = db.dt.datetime(2026, 11, 11, 8)
+        for hours, tokens in ((23.5, 1_000), (1, 500_000)):
+            with patch.object(db, "utcnow", return_value=now - db.dt.timedelta(hours=hours)):
+                store.record_usage(user["id"], None, "fictional", tokens, 0)
+        for lang in ("en", "zh"):
+            for module in ("coach", "coachee"):
+                with patch.object(db, "utcnow", return_value=now):
+                    session = web_app._open_session(user, module, "llm", lang)
+                self.assertIn("23", session["unavailable"])
+                self.assertNotIn("id", session)
+                self.assertFalse(web_app._session_start_outputs(session)["msg"]["interactive"])
+        self.assertEqual(store.list_sessions(user["id"]), [])
+        restored_at = now + db.dt.timedelta(hours=23)
+        with patch.object(db, "utcnow", return_value=restored_at), patch.object(web_app, "_append_opening_prompt"):
+            for module in ("coach", "coachee"):
+                self.assertIsNone(web_app._unavailable_notice(user, module, "en"))
+                session = web_app._open_session(user, module, "llm", "en")
+                self.assertIn("id", session)
+                self.assertTrue(web_app._session_start_outputs(session)["msg"]["interactive"])
+        for fields in ({"daily_session_limit": 0}, {"daily_token_limit": 0}):
+            store.update_user(user["id"], daily_session_limit=None, daily_token_limit=None)
+            store.update_user(user["id"], **fields)
+            for lang in ("en", "zh"):
+                notice = web_app._unavailable_notice(store.get_user(user["id"]), "coach", lang)
+                self.assertEqual(notice, web_app.UI[lang]["quota_disabled"])
 
     def test_crisis_message_gets_safety_reply_without_a_model_call(self):
         import safety
@@ -2289,6 +2318,128 @@ class TestQuota(unittest.TestCase):
         if completed:
             self.store.save_session(session_id, state={"context": []}, status="completed", stage="CLOSING",
                                     user_turns=5, language="en", mode="llm")
+        return session_id
+
+    def _session_at(self, user, started_at, completed_at=None, module="coach"):
+        with patch.object(db, "_version_stamp", return_value=started_at):
+            session_id = self._session(user, module)
+        if completed_at is not None:
+            with patch.object(db, "_version_stamp", return_value=completed_at):
+                self.store.save_session(session_id, state={"context": []}, status="completed", stage="CLOSING",
+                                        user_turns=5, language="en", mode="llm")
+
+    def _usage_at(self, user, at, tokens):
+        with patch.object(db, "utcnow", return_value=at):
+            self.store.record_usage(user["id"], None, "fictional", tokens // 2, tokens - tokens // 2)
+
+    def test_token_recovery_waits_for_enough_usage_to_expire(self):
+        import quota
+
+        now = db.dt.datetime(2026, 11, 11, 8)
+        user = self._user()
+        self._usage_at(user, now - db.dt.timedelta(hours=23.5), 1_000)
+        self._usage_at(user, now - db.dt.timedelta(hours=1), 500_000)
+        for module in quota.MODULES:
+            value = quota.allowance(self.store, user, module, now)
+            self.assertEqual((value.tokens_used, value.hours_until_available(now)), (501_000, 23))
+            self.assertEqual(value.tokens_free_at, now + db.dt.timedelta(hours=23))
+            after_one_hour = quota.allowance(self.store, user, module, now + db.dt.timedelta(hours=1))
+            self.assertEqual((after_one_hour.blocked_reason, after_one_hour.tokens_used), ("tokens", 500_000))
+            before = value.tokens_free_at - db.dt.timedelta(microseconds=1)
+            self.assertEqual(quota.allowance(self.store, user, module, before).blocked_reason, "tokens")
+            restored = quota.allowance(self.store, user, module, value.tokens_free_at)
+            self.assertIsNone(restored.blocked_reason)
+            self.assertEqual(restored.hours_until_available(value.tokens_free_at), 0)
+
+    def test_token_recovery_requires_total_strictly_below_limit(self):
+        import quota
+
+        now = db.dt.datetime(2026, 11, 11, 8, 0, 0, 123456)
+        user = self._user()
+        # The first expiry leaves exactly 400k, which must still block. Equal timestamps expire together.
+        for hours, tokens in ((24, 900_000), (23, 100_000), (22, 60_000), (22, 40_000), (2, 300_000)):
+            self._usage_at(user, now - db.dt.timedelta(hours=hours), tokens)
+        value = quota.allowance(self.store, user, now=now)
+        self.assertEqual((value.tokens_used, value.hours_until_available(now)), (500_000, 2))
+        self.assertEqual(quota.allowance(self.store, user, now=now + db.dt.timedelta(hours=1)).blocked_reason, "tokens")
+        self.assertIsNone(quota.allowance(self.store, user, now=now + db.dt.timedelta(hours=2)).blocked_reason)
+
+    def test_lowered_limits_wait_for_enough_sessions_and_starts_to_expire(self):
+        import quota
+
+        now = db.dt.datetime(2026, 11, 11, 8)
+        user = self._user(daily_session_limit=2)
+        for index, hours in enumerate((23, 22, 21, 20, 19, 18)):
+            at = now - db.dt.timedelta(hours=hours)
+            self._session_at(user, at, at if index < 4 else None)
+        value = quota.allowance(self.store, user, now=now)
+        self.assertEqual((value.sessions_used, value.starts_used), (4, 6))
+        self.assertEqual((value.sessions_free_at, value.starts_free_at), (now + db.dt.timedelta(hours=3),) * 2)
+        self.assertEqual(value.hours_until_available(now), 3)
+        self.assertIsNotNone(quota.allowance(self.store, user, now=now + db.dt.timedelta(hours=2)).blocked_reason)
+        restored = quota.allowance(self.store, user, now=now + db.dt.timedelta(hours=3))
+        self.assertEqual((restored.sessions_used, restored.starts_used, restored.blocked_reason), (1, 3, None))
+        self.assertIsNone(quota.allowance(self.store, user, "coachee", now).blocked_reason)
+
+    def test_recovery_waits_for_all_limits_not_only_the_first_reason(self):
+        import quota
+
+        now = db.dt.datetime(2026, 11, 11, 8)
+        for token_hours, expected_hours in ((1, 4), (5, 5)):
+            with self.subTest(token_hours=token_hours):
+                user = self._user(daily_session_limit=1, daily_token_limit=100)
+                self._session_at(user, now - db.dt.timedelta(hours=23), now - db.dt.timedelta(hours=22))
+                self._session_at(user, now - db.dt.timedelta(hours=20))
+                self._session_at(user, now - db.dt.timedelta(hours=19))
+                self._usage_at(user, now - db.dt.timedelta(hours=24-token_hours), 100)
+                value = quota.allowance(self.store, user, now=now)
+                self.assertEqual(value.blocked_reason, "sessions")
+                self.assertEqual((value.sessions_free_at, value.starts_free_at, value.tokens_free_at),
+                                 tuple(now + db.dt.timedelta(hours=h) for h in (2, 4, token_hours)))
+                self.assertEqual(value.hours_until_available(now), expected_hours)
+                before = now + db.dt.timedelta(hours=expected_hours, microseconds=-1)
+                self.assertIsNotNone(quota.allowance(self.store, user, now=before).blocked_reason)
+                self.assertIsNone(quota.allowance(self.store, user, now=now + db.dt.timedelta(hours=expected_hours)).blocked_reason)
+
+    def test_zero_allowance_has_no_automatic_recovery(self):
+        import quota
+
+        for fields in ({"daily_session_limit": 0}, {"daily_token_limit": 0}):
+            user = self._user(**fields)
+            value = quota.allowance(self.store, user)
+            self.assertIsNotNone(value.blocked_reason)
+            self.assertIsNone(value.hours_until_available())
+
+    def test_recovery_rounds_up_fractional_seconds(self):
+        import quota
+
+        now = db.dt.datetime(2026, 11, 11, 8)
+        user = self._user(daily_token_limit=100)
+        self._usage_at(user, now - db.dt.timedelta(hours=23) + db.dt.timedelta(microseconds=1), 100)
+        self.assertEqual(quota.allowance(self.store, user, now=now).hours_until_available(now), 2)
+
+    def test_role_limits_overrides_and_unlimited_recovery(self):
+        import quota
+
+        now = db.dt.datetime(2026, 11, 11, 8)
+        quota.save_role_limits(self.store, "user", 1, None, 100)
+        user = self._user()
+        self._session_at(user, now - db.dt.timedelta(hours=23), now - db.dt.timedelta(hours=23))
+        self._usage_at(user, now - db.dt.timedelta(hours=20), 100)
+        self.assertEqual(quota.allowance(self.store, user, now=now).hours_until_available(now), 4)
+        self.assertEqual(quota.allowance(self.store, user, "coachee", now).hours_until_available(now), 4)
+        self.store.update_user(user["id"], daily_session_limit=3, daily_token_limit=200)
+        user = self.store.get_user(user["id"])
+        for module in quota.MODULES:
+            value = quota.allowance(self.store, user, module, now)
+            self.assertIsNone(value.blocked_reason)
+            self.assertEqual(value.hours_until_available(now), 0)
+        admin = self._user("admin")
+        self._usage_at(admin, now, 2_000_000)
+        self.assertIsNone(quota.allowance(self.store, admin, now=now).blocked_reason)
+        self.store.update_user(admin["id"], daily_token_limit=100)
+        value = quota.allowance(self.store, self.store.get_user(admin["id"]), now=now)
+        self.assertEqual(value.hours_until_available(now), 24)
 
     def test_ai_coach_and_coachee_lab_have_separate_allowances(self):
         import quota
