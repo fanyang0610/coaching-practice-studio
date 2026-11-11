@@ -1187,7 +1187,7 @@ def _advance_stage(chat_history, session):
         agent.session_complete = True
     elif not agent.force_next_state():
         gr.Info(s["session_ended"])
-        return _next_stage_outputs(gr.update(value="", interactive=False), chat_history, agent, session, memory_updates=(m_s, m_g, m_f))
+        return _next_stage_outputs(gr.update(interactive=False), chat_history, agent, session, memory_updates=(m_s, m_g, m_f))
 
     if session["module"] == "coachee" and not agent.is_session_ended():
         # In practice the person is the coach: the tracker moves on and they ask the next question themselves.
@@ -1223,7 +1223,7 @@ def _advance_stage(chat_history, session):
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
     return _next_stage_outputs(
-        gr.update(interactive=False) if finish_at_capacity else gr.update(value="", interactive=not is_ended),
+        gr.update(interactive=not is_ended),
         chat_history,
         agent,
         session,

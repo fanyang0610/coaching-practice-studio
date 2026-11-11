@@ -617,6 +617,48 @@ class TestWebAppLayout(unittest.TestCase):
         self.assertEqual(agent.current_state, CoachingState.CLOSING)
         self.assertEqual(result[0]["interactive"], False)
         self.assertEqual(store.get_session(session["id"])["status"], "completed")
+
+    def test_manual_advance_preserves_drafts_during_progress_endings_and_failures(self):
+        import coaching_core
+
+        for module in ("coach", "coachee"):
+            for outcome in ("advance", "end", "already_ended", "model_error", "capacity_error", "save_error", "capacity_close"):
+                with self.subTest(module=module, outcome=outcome):
+                    web, _, user, _ = _signed_in()
+                    session = web._open_session(user, module, "template", "en")
+                    agent = session["agent"]
+                    if outcome != "advance":
+                        agent.current_state = CoachingState.CLOSING
+                    if module == "coachee":
+                        agent.metrics.stage_questions[agent.current_state] = 1
+                    agent.session_complete = outcome == "already_ended"
+                    if outcome == "capacity_close":
+                        agent.mode = "llm"
+                        session["capacity_blocked"] = True
+                    history = web._chat_history_from_context(agent)
+
+                    def prompt(current):
+                        if outcome == "model_error":
+                            raise RuntimeError("isolated next-stage failure")
+                        if outcome == "capacity_error":
+                            raise coaching_core.ContextCapacityError("isolated next-stage capacity failure")
+                        text = "A simulated final review or goodbye" if current.is_session_ended() else "A next-stage question"
+                        current.context.append({"role": current.assistant_role, "content": text})
+                        return text
+
+                    with patch.object(web, "_append_opening_prompt", side_effect=prompt), \
+                            patch.object(web, "_save", return_value=outcome != "save_error"), \
+                            patch.object(web, "_finish_session", return_value=None), \
+                            patch.object(web, "_safe_key", return_value=""), \
+                            patch.object(web.gr, "Info"), patch.object(web.gr, "Warning"), \
+                            patch.object(web.logger, "exception"):
+                        result = web._advance_stage(history, session)
+
+                    self.assertEqual(len(result), web.NEXT_STAGE_OUTPUT_COUNT)
+                    self.assertNotIn("value", result[0])  # Skip Ahead never submits the composer's text.
+                    ended = outcome in ("end", "already_ended", "capacity_close")
+                    self.assertEqual(result[0].get("interactive", True), not ended)
+                    self.assertEqual(agent.is_session_ended(), ended)
     def test_browser_auto_open_can_be_disabled_for_screenshot_runs(self):
         from web_app import _launch_inbrowser
 
