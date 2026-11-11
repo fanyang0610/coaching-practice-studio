@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 import threading
 from typing import Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -100,6 +100,10 @@ T = {
         "trainer_changed": "Your mentor has changed. Review the current mentor before sharing.",
         "no_trainer": "You don't have a mentor. Only you can see your sessions.",
         "your_trainer": "Your mentor: {name}",
+        "history_earlier": "Earlier records",
+        "history_newer": "Newer records",
+        "history_page": "Page {page} of {pages}",
+        "history_pages": "Session history pages",
         "action_cards": "Your action cards",
         "no_action_cards": "Finish an AI Coach session to get an action card with your goal and next step.",
         "practice_scores": "Practice scores",
@@ -369,6 +373,10 @@ T = {
         "trainer_changed": "你的导师已变更。请先确认当前导师，再决定是否分享。",
         "no_trainer": "你还没有导师。只有你本人能看到你的会话。",
         "your_trainer": "你的导师：{name}",
+        "history_earlier": "更早记录",
+        "history_newer": "较新记录",
+        "history_page": "第 {page} / {pages} 页",
+        "history_pages": "会话历史翻页",
         "action_cards": "你的行动卡",
         "no_action_cards": "完成一次 AI教练 会话，就会得到一张写有目标和下一步的行动卡。",
         "practice_scores": "练习得分",
@@ -645,6 +653,7 @@ button.danger { background:var(--paper); color:var(--warn); border:1px solid #e8
 .pill { display:inline-block; font-size:12px; font-weight:800; padding:2px 10px; border-radius:999px; background:var(--tint); color:var(--deep); white-space:nowrap; }
 .pill.gold { background:rgba(240,185,90,0.24); color:#7a5414; }
 .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.history-pagination { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; justify-content:space-between; margin:16px 0; }
 form.inline { display:inline; margin:0; }
 .grid2 { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }
 .grid2 > .card { margin-bottom:0; }
@@ -825,7 +834,10 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             ) + "</nav>"
         flash_html = f'<div class="flash {flash[0]}" role="status">{_e(flash[1])}</div>' if flash else ""
         other = "en" if lang == "zh" else "zh"
-        switch = (f'<p class="lang"><a href="?lang={other}">{"English" if other == "en" else "中文"}</a> · '
+        switch_query = {"lang": other}
+        if request.url.path in ("/account", "/mentor") and "page" in request.query_params:
+            switch_query["page"] = request.query_params["page"]
+        switch = (f'<p class="lang"><a href="?{_e(urlencode(switch_query))}">{"English" if other == "en" else "中文"}</a> · '
                   f'<a href="/help">{_e(T[lang]["help"])}</a> · <a href="/privacy">{_e(T[lang]["privacy"])}</a></p>')
         page = f"""<!doctype html><html lang="{'zh-CN' if lang == 'zh' else 'en'}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -1235,6 +1247,26 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 
     # Account --------------------------------------------------------------------
 
+    def history_page(request: Request, total: int, size: int) -> tuple[int, int]:
+        pages = max(1, (total + size - 1) // size)
+        try:
+            page = int(request.query_params.get("page", "1"))
+        except ValueError:
+            page = 1
+        return max(1, min(page, pages)), pages
+
+    def history_pagination(lang: str, path: str, section: str, page: int, pages: int) -> str:
+        if pages == 1:
+            return ""
+        links = []
+        for number, key in ((page - 1, "history_newer"), (page + 1, "history_earlier")):
+            if 1 <= number <= pages:
+                href = f"{path}?{urlencode({'lang': lang, 'page': number})}#{section}"
+                links.append(f'<a class="button secondary" href="{_e(href)}">{_e(T[lang][key])}</a>')
+        return (f'<nav class="history-pagination" aria-label="{_e(T[lang]["history_pages"])}">'
+                f'<span class="muted">{_e(text(lang, "history_page", page=page, pages=pages))}</span>'
+                f'<div class="actions">{"".join(links)}</div></nav>')
+
     def session_row(lang: str, row: dict, *, owner_name: str | None = None, share_form: str = "", link: bool = True,
                     results: bool = False) -> str:
         """One session in a list. results=True adds its score or next step; the admin's list leaves them out."""
@@ -1366,7 +1398,9 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         trainer_line = (f'{_e(text(lang, "your_trainer", name=trainer["display_name"]))}<br>{_e(T[lang]["trainer_sees_practice"])}'
                         if trainer else _e(T[lang]["no_trainer"]))
         rows = []
-        for row in store.list_sessions(user["id"]):
+        page, pages = history_page(request, store.count_sessions(user["id"]), 100)
+        pagination = history_pagination(lang, "/account", "my-sessions", page, pages)
+        for row in store.list_sessions(user["id"], limit=100, offset=(page - 1) * 100):
             share_form = ""
             if row["module"] == "coach" and trainer:
                 label = T[lang]["unshare" if row["shared_with_trainer"] else "share"]
@@ -1398,7 +1432,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 <form method="post" action="/logout" class="inline">{csrf_field(request)}<button class="secondary" type="submit">{_e(T[lang]['sign_out'])}</button></form></div>
 {progress_cards(lang, user["id"])}
 {practice_goal_block(request, store.get_profile(user['id'], 'coachee'))}
-{disclosure(T[lang]['my_sessions'], f'<div class="list">{sessions_html}</div>', element_id="my-sessions", opened=True)}
+{disclosure(T[lang]['my_sessions'], f'{pagination}<div class="list">{sessions_html}</div>{pagination}', element_id="my-sessions", opened=True)}
 {disclosure(T[lang]['insights'], insights_html, element_id="insights")}
 {disclosure(T[lang]['account_settings'], settings_html, element_id="account-settings", opened=request.url.path in ('/account/password', '/account/delete'))}
 <script>document.querySelectorAll('form[data-confirm]').forEach(function (form) {{
@@ -1734,12 +1768,15 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             f'<div class="row"><div class="main"><div class="title">{_e(t["display_name"])}</div>'
             f'<div class="meta">{_e(t["email"])} · {_e(text(lang, "tokens_24h", n=usage.get(t["id"], 0)))}</div></div></div>'
             for t in trainees) or f'<p class="muted">{_e(T[lang]["no_trainees"])}</p>'
-        sessions = "".join(session_row(lang, row, owner_name=row["owner_name"], results=True) for row in store.trainer_visible_sessions(user["id"]))
+        page, pages = history_page(request, store.count_trainer_visible_sessions(user["id"]), 200)
+        pagination = history_pagination(lang, "/mentor", "trainee-sessions", page, pages)
+        sessions = "".join(session_row(lang, row, owner_name=row["owner_name"], results=True)
+                           for row in store.trainer_visible_sessions(user["id"], limit=200, offset=(page - 1) * 200))
         sessions = sessions or f'<p class="muted">{_e(T[lang]["no_sessions"])}</p>'
         body = f"""{extra}<p class="flash info">{_e(T[lang]['mentor_hint'])}</p>
 {disclosure(T[lang]['trainees'], f'<div class="list">{trainee_rows}</div>', element_id="trainees", opened=True)}
 {disclosure(T[lang]['invite_trainee'], invite_form(request, lang, '/mentor/invites', roles=('user',), trainers=[]), element_id="invite-trainee")}
-{disclosure(T[lang]['trainee_sessions'], f'<div class="list">{sessions}</div>', element_id="trainee-sessions", opened=True)}"""
+{disclosure(T[lang]['trainee_sessions'], f'{pagination}<div class="list">{sessions}</div>{pagination}', element_id="trainee-sessions", opened=True)}"""
         return render(request, lang, T[lang]["trainer"], body, user=user, current="trainer")
 
     @router.get("/mentor")

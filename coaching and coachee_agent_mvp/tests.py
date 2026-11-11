@@ -2786,6 +2786,105 @@ class TestAccountPages(unittest.TestCase):
         self.assertNotIn("Your mentor can review", solo)
         self.assertIn("Your mentor can review", learner)
 
+    def _history_sessions(self, user_id, count, module="coach", shared=False):
+        # Equal timestamps exercise the tie-breaker at the page boundary on both databases.
+        stamp = db.utcnow()
+        state = {"context": [{"role": "client", "content": "Fictional older conversation."}],
+                 "session_complete": True}
+        ids = [self.store.create_session(user_id, module, "en", "llm", "CLOSING", state) for _ in range(count)]
+        with self.store.engine.begin() as conn:
+            conn.execute(db.coaching_sessions.update().where(db.coaching_sessions.c.id.in_(ids)).values(
+                created_at=stamp, status="completed", shared_with_trainer=shared))
+        return sorted(ids, reverse=True)
+
+    def test_account_history_pages_reach_old_records_and_owner_controls(self):
+        uid = self._person("history-owner@example.com")
+        ids = self._history_sessions(uid, 101)
+        stranger = self._person("history-other@example.com")
+        hidden = self._history_sessions(stranger, 1)[0]
+        owner = self._sign_in("history-owner@example.com")
+        other = self._sign_in("history-other@example.com")
+        for lang, earlier, newer, number in (("en", "Earlier records", "Newer records", "Page 2 of 2"),
+                                             ("zh", "更早记录", "较新记录", "第 2 / 2 页")):
+            with self.subTest(lang=lang):
+                first = owner.get(f"/account?lang={lang}").text
+                second = owner.get(f"/account?lang={lang}&page=2").text
+                self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', first), ids[:100])
+                self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', second), ids[100:])
+                self.assertIn(f'/account?lang={lang}&amp;page=2#my-sessions', first)
+                self.assertIn(f'/account?lang={lang}&amp;page=1#my-sessions', second)
+                self.assertIn(earlier, first)
+                self.assertIn(newer, second)
+                self.assertIn(number, second)
+                self.assertNotIn(hidden, first + second)
+                switch = "zh" if lang == "en" else "en"
+                self.assertIn(f'href="?lang={switch}&amp;page=2"', second)
+                detail = owner.get(f"/sessions/{ids[-1]}").text
+                self.assertIn("Fictional older conversation.", detail)
+                self.assertIn(f'/sessions/{ids[-1]}/retry-action-card', detail)
+                self.assertIn(f'/account/sessions/{ids[-1]}/delete', second)
+                self.assertEqual(other.get(f"/sessions/{ids[-1]}").status_code, 403)
+        self.assertEqual(len(owner.get("/account/export").json()["sessions"]), 101)
+        self.assertEqual(other.post(f"/account/sessions/{ids[-1]}/delete",
+                                   data={"csrf": self._csrf(other)}).status_code, 403)
+        owner.post(f"/account/sessions/{ids[-1]}/delete", data={"csrf": self._csrf(owner)})
+        self.assertIsNone(self.store.get_session(ids[-1]))
+        # Deleting the only row on the last page leaves a usable first page.
+        self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', owner.get("/account?page=2").text), ids[:100])
+
+    def test_mentor_history_pages_keep_visibility_and_stable_order(self):
+        mentor = self._person("history-mentor@example.com", role="trainer")
+        trainee = self._person("history-trainee@example.com", trainer_id=mentor)
+        ids = self._history_sessions(trainee, 201, module="coachee")
+        # A shared coach session is visible, but private coaching and another mentor's records are not.
+        with self.store.engine.begin() as conn:
+            conn.execute(db.coaching_sessions.update().where(db.coaching_sessions.c.id == ids[-1]).values(
+                module="coach", shared_with_trainer=True))
+        other = self._person("history-outside@example.com")
+        hidden = self._history_sessions(trainee, 1) + self._history_sessions(other, 1, module="coachee")
+        hidden += self._history_sessions(other, 1, shared=True)
+        client = self._sign_in("history-mentor@example.com")
+        for lang in ("en", "zh"):
+            with self.subTest(lang=lang):
+                first = client.get(f"/mentor?lang={lang}").text
+                second = client.get(f"/mentor?lang={lang}&page=2").text
+                self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', first), ids[:200])
+                self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', second), ids[200:])
+                self.assertIn(f'/mentor?lang={lang}&amp;page=2#trainee-sessions', first)
+                self.assertIn(f'/mentor?lang={lang}&amp;page=1#trainee-sessions', second)
+                self.assertNotIn('page=3#trainee-sessions', second)
+                self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', client.get(f"/mentor?lang={lang}&page=1").text), ids[:200])
+                for sid in hidden:
+                    self.assertNotIn(sid, first + second)
+                    self.assertEqual(client.get(f"/sessions/{sid}").status_code, 403)
+        detail = client.get(f"/sessions/{ids[-1]}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn("Fictional older conversation.", detail.text)
+        self.assertNotIn("retry-action-card", detail.text)
+        self.assertEqual(client.post(f"/account/sessions/{ids[-1]}/delete",
+                                     data={"csrf": self._csrf(client)}).status_code, 403)
+        # Unsharing or reassignment still removes access from later pages and direct detail links.
+        self.store.set_session_shared(ids[-1], False)
+        self.assertEqual(client.get(f"/sessions/{ids[-1]}").status_code, 403)
+        self.store.update_user(trainee, trainer_id=None)
+        self.assertNotIn('/sessions/', client.get("/mentor?page=2").text)
+
+    def test_history_page_numbers_handle_empty_invalid_and_out_of_range_values(self):
+        mentor = self._person("page-mentor@example.com", role="trainer")
+        client = self._sign_in("page-mentor@example.com")
+        for path in ("/account", "/mentor"):
+            for page in ("", "0", "-1", "abc", "1.5", "9" * 100):
+                with self.subTest(path=path, page=page):
+                    response = client.get(f"{path}?lang=en&page={page}")
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn("No sessions yet", response.text)
+                    self.assertNotIn('class="history-pagination"', response.text)
+        ids = self._history_sessions(mentor, 101)
+        for page in ("", "0", "-1", "abc", "1.5"):
+            self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', client.get(f"/account?page={page}").text), ids[:100])
+        for page in ("3", "9" * 100):
+            self.assertEqual(re.findall(r'href="/sessions/([^"?]+)"', client.get(f"/account?page={page}").text), ids[100:])
+
     def test_member_and_mentor_see_scores_and_action_cards_but_the_admin_does_not(self):
         self._person("owner@example.com", role="admin")
         trainer = self._person("trainer@example.com", role="trainer")

@@ -525,23 +525,37 @@ class Store:
                 .order_by(coaching_sessions.c.updated_at.desc()).limit(1))
         return self._one(stmt)
 
-    def list_sessions(self, user_id: int, limit: int = 100) -> list[dict]:
-        """A person's sessions, newest first, each with its score or action card when it has one."""
-        stmt = (sa.select(*_session_summary_columns(), session_results.c.score, session_results.c.card)
+    def _account_sessions_query(self, user_id: int):
+        return (sa.select(*_session_summary_columns(), session_results.c.score, session_results.c.card)
                 .select_from(coaching_sessions.outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id))
-                .where(coaching_sessions.c.user_id == user_id)
-                .order_by(coaching_sessions.c.created_at.desc()).limit(limit))
+                .where(coaching_sessions.c.user_id == user_id))
+
+    def count_sessions(self, user_id: int) -> int:
+        with self.engine.connect() as conn:
+            return conn.execute(self._account_sessions_query(user_id).with_only_columns(sa.func.count())).scalar_one()
+
+    def list_sessions(self, user_id: int, limit: int = 100, *, offset: int = 0) -> list[dict]:
+        """A person's sessions, newest first, each with its score or action card when it has one."""
+        stmt = self._account_sessions_query(user_id).order_by(
+            coaching_sessions.c.created_at.desc(), coaching_sessions.c.id.desc()).limit(limit).offset(offset)
         return [_with_card(row) for row in self._all(stmt)]
 
-    def trainer_visible_sessions(self, trainer_id: int, limit: int = 200) -> list[dict]:
-        """Practice sessions of the trainer's trainees, plus coaching sessions they chose to share."""
-        stmt = (sa.select(*_session_summary_columns(), users.c.display_name.label("owner_name"),
+    def _trainer_sessions_query(self, trainer_id: int):
+        return (sa.select(*_session_summary_columns(), users.c.display_name.label("owner_name"),
                           session_results.c.score, session_results.c.card)
                 .select_from(coaching_sessions.join(users, users.c.id == coaching_sessions.c.user_id)
                              .outerjoin(session_results, session_results.c.session_id == coaching_sessions.c.id))
                 .where(users.c.trainer_id == trainer_id,
-                       sa.or_(coaching_sessions.c.module == "coachee", coaching_sessions.c.shared_with_trainer.is_(True)))
-                .order_by(coaching_sessions.c.created_at.desc()).limit(limit))
+                       sa.or_(coaching_sessions.c.module == "coachee", coaching_sessions.c.shared_with_trainer.is_(True))))
+
+    def count_trainer_visible_sessions(self, trainer_id: int) -> int:
+        with self.engine.connect() as conn:
+            return conn.execute(self._trainer_sessions_query(trainer_id).with_only_columns(sa.func.count())).scalar_one()
+
+    def trainer_visible_sessions(self, trainer_id: int, limit: int = 200, *, offset: int = 0) -> list[dict]:
+        """Practice sessions of the trainer's trainees, plus coaching sessions they chose to share."""
+        stmt = self._trainer_sessions_query(trainer_id).order_by(
+            coaching_sessions.c.created_at.desc(), coaching_sessions.c.id.desc()).limit(limit).offset(offset)
         return [_with_card(row) for row in self._all(stmt)]
 
     # Session results -----------------------------------------------------------
