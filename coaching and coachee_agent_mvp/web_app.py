@@ -45,6 +45,7 @@ from web_assets import (
     global_viewport_style,
     head,
     remember_lang_js,
+    restore_draft_js,
     scroll_js,
     space_status_js,
     tts_js,
@@ -99,8 +100,8 @@ def _launch_inbrowser(env: dict[str, str] | None = None) -> bool:
 default_mode = "llm"
 default_lang = "zh"
 default_module = "coach"
-RESPOND_OUTPUT_COUNT = 18
-NEXT_STAGE_OUTPUT_COUNT = 18
+RESPOND_OUTPUT_COUNT = 19
+NEXT_STAGE_OUTPUT_COUNT = 19
 # New Session, switching mode, and starting a practice on one's own topic all fill the same outputs.
 NEW_SESSION_OUTPUT_COUNT = 29
 # The practice topic band: card, prompt, topic box, button (see _topic_updates).
@@ -757,7 +758,7 @@ def _welcome_html(lang_code: str) -> str:
     """
 
 
-def _respond_outputs(message_update, chat_history, agent, session, tts_update=None, memory_updates=None):
+def _respond_outputs(message_update, chat_history, agent, session, tts_update=None, memory_updates=None, retry_message=""):
     if tts_update is None:
         tts_update = gr.update()
     if memory_updates is None:
@@ -773,6 +774,7 @@ def _respond_outputs(message_update, chat_history, agent, session, tts_update=No
         memory_updates[1],
         memory_updates[2],
         _advance_button_update(session),
+        gr.update(value=retry_message),
         *_rating_updates(session),
         *_topic_updates(session),
         session,
@@ -783,12 +785,12 @@ def _next_stage_outputs(message_update, chat_history, agent, session, tts_update
     return _respond_outputs(message_update, chat_history, agent, session, tts_update, memory_updates)
 
 
-def _streaming_outputs(chat_history, session):
-    """Mid-reply update: the transcript changes and the practice topic band goes (a question has been asked); the other
-    panels are left untouched."""
+def _streaming_outputs(chat_history, session, *, clear_message=False):
+    """Update the reply and hide the topic band. Only the first update clears the submitted message;
+    subsequent updates leave the person's next draft alone."""
     untouched = (gr.update(),) * (RESPOND_OUTPUT_COUNT - 3 - TOPIC_OUTPUT_COUNT)
     topic = (gr.update(visible=False),) + (gr.update(),) * (TOPIC_OUTPUT_COUNT - 1)
-    return (gr.update(value=""), chat_history) + untouched + topic + (session,)
+    return (gr.update(value="") if clear_message else gr.update(), chat_history) + untouched + topic + (session,)
 
 
 def _learn_from_session(session: dict, api_key: str):
@@ -989,7 +991,7 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
 
     if agent.is_session_ended():
         gr.Info(s["session_ended"])
-        yield _respond_outputs(gr.update(value="", interactive=False), chat_history, agent, session)
+        yield _respond_outputs(gr.update(interactive=False), chat_history, agent, session)
         return
 
     if not _message_limiter.allow(user["id"]):
@@ -1012,7 +1014,7 @@ def respond(message, chat_history, session, module_sel, mode_sel, lang_sel, requ
                 and not (session["module"] == "coach" and safety.looks_like_crisis(user_msg))):
             session["capacity_blocked"] = True
             gr.Warning(s["context_full"])
-            yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
+            yield _respond_outputs(gr.update(), chat_history, agent, session)
             return
         yield from _stream_reply(user_msg, chat_history, agent, session)
     finally:
@@ -1036,7 +1038,7 @@ def _stage_change_notice(agent, module_code: str, skipped_before: set[int]) -> s
 def _stream_reply(user_msg, chat_history, agent, session):
     chat_history = list(chat_history or [])
     chat_history.append({"role": "user", "content": user_msg})
-    yield _streaming_outputs(list(chat_history), session)
+    yield _streaming_outputs(list(chat_history), session, clear_message=True)
     before = copy.deepcopy(agent.__dict__)
     skipped_before = set(getattr(agent, "skipped_stages", set()))
 
@@ -1059,13 +1061,13 @@ def _stream_reply(user_msg, chat_history, agent, session):
             session["capacity_blocked"] = True
             gr.Warning(UI[agent.language]["context_full"])
             chat_history.pop()
-            yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
+            yield _respond_outputs(gr.update(), chat_history, agent, session, retry_message=user_msg)
             return
         except Exception:
             logger.exception("Model reply failed")
             gr.Warning(UI[agent.language]["ai_reply_error"])
             chat_history.pop()
-            yield _respond_outputs(gr.update(value=user_msg), chat_history, agent, session)
+            yield _respond_outputs(gr.update(), chat_history, agent, session, retry_message=user_msg)
             return
 
     if not _save_agent_change(session, before):
@@ -1078,8 +1080,8 @@ def _stream_reply(user_msg, chat_history, agent, session):
                 agent = session["agent"]
             else:
                 agent.context = json.loads(latest["state"])["context"] if latest else []
-        yield _respond_outputs(gr.update(value=user_msg, interactive=not agent.is_session_ended()),
-                               _chat_history_from_context(agent, session.get("id")), agent, session)
+        yield _respond_outputs(gr.update(interactive=not agent.is_session_ended()),
+                               _chat_history_from_context(agent, session.get("id")), agent, session, retry_message=user_msg)
         return
 
     session.pop("capacity_blocked", None)
@@ -1107,7 +1109,7 @@ def _end_at_limit(chat_history, session, api_key, tts_update):
     notice = "turn_limit_review" if session["module"] == "coachee" else "turn_limit"
     gr.Info(UI[agent.language][notice].format(limit=MAX_USER_TURNS_PER_SESSION))
     # The notice and the last reply first: a practice review takes a few seconds to write.
-    yield _respond_outputs(gr.update(value="", interactive=False), list(chat_history), agent, session, tts_update)
+    yield _respond_outputs(gr.update(interactive=False), list(chat_history), agent, session, tts_update)
     before = copy.deepcopy(agent.__dict__)
     closing = agent.end_at_limit(MAX_USER_TURNS_PER_SESSION, api_key)
     if _save_agent_change(session, before):
@@ -1127,7 +1129,7 @@ def _close_turn(chat_history, session, api_key, tts_update):
         session["allowance"] = quota.allowance(get_store(), get_store().get_user(session["user_id"]), session["module"])
         if _makes_action_card(session):
             # Show the closing words first; the action card follows a moment later.
-            yield _respond_outputs(gr.update(value="", interactive=False), list(chat_history), agent, session, tts_update)
+            yield _respond_outputs(gr.update(interactive=False), list(chat_history), agent, session, tts_update)
             tts_update = gr.update()
         card_text = _finish_session(session, api_key)
         if card_text:
@@ -1135,7 +1137,7 @@ def _close_turn(chat_history, session, api_key, tts_update):
 
     m_s, m_g, m_f = _memory_ui_updates(agent, agent.language)
     yield _respond_outputs(
-        gr.update(value="", interactive=not is_ended),
+        gr.update(interactive=not is_ended),
         chat_history,
         agent,
         session,
@@ -1496,13 +1498,14 @@ with gr.Blocks(
                             reset_btn = gr.Button(UI["zh"]["reset"], variant="secondary", elem_id="reset-btn")
 
                 tts_text = gr.Textbox(visible=False, elem_id="tts-text")
+                retry_message = gr.Textbox(visible=False)
 
         welcome_html = gr.HTML("", elem_id="welcome-host", js_on_load=welcome_js)
 
     rating_outputs = [rating_card, rating_prompt, rating_row]
     topic_outputs = [topic_card, topic_prompt, topic_input, topic_btn]
     turn_outputs = [msg, chatbot, tracker, tts_text, intro_md, mode_context_md, memory_strengths_md, memory_growth_md,
-                    memory_footer_md, next_btn, *rating_outputs, *topic_outputs, session_state]
+                    memory_footer_md, next_btn, retry_message, *rating_outputs, *topic_outputs, session_state]
 
     language_outputs = [send_btn, next_btn, reset_btn, settings_sheet, settings_hint, tts_toggle]
     new_session_outputs = [chatbot, tracker, tts_text, intro_md, coach_module_btn, coachee_module_btn, mode_context_md, msg,
@@ -1522,6 +1525,7 @@ with gr.Blocks(
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
         turn_outputs,
         **LLM_EVENT,
+    ).then(None, [msg, retry_message], [msg, retry_message], js=restore_draft_js
     ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     msg.submit(
@@ -1529,6 +1533,7 @@ with gr.Blocks(
         [msg, chatbot, session_state, module_state, mode_radio, lang_radio],
         turn_outputs,
         **LLM_EVENT,
+    ).then(None, [msg, retry_message], [msg, retry_message], js=restore_draft_js
     ).then(None, [tts_text, tts_toggle, lang_radio], None, js=tts_js).then(None, None, None, js=scroll_js)
 
     next_btn.click(

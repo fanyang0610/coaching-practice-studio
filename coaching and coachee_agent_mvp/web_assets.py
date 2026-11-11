@@ -2774,6 +2774,13 @@ global_viewport_style = """
 """
 
 
+# A failed send may be retried, but the person may already be writing the next message.
+# Read the current browser value after the reply, then consume the one-time retry text.
+restore_draft_js = """(draft, retry) => [
+    retry && !draft ? retry : {__type__: "update"},
+    ""
+]"""
+
 scroll_js = """
 () => {
     requestAnimationFrame(() => {

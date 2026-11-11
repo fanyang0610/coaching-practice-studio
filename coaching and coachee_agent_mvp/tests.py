@@ -1387,6 +1387,70 @@ class TestHostedAccessAndLimits(unittest.TestCase):
         self.assertEqual(outputs[0][1][-1], {"role": "user", "content": "I want more focus."})
         self.assertEqual(outputs[-1][1][-1]["role"], "assistant")
 
+    def test_reply_clears_submitted_text_once_and_preserves_next_draft_in_both_modes(self):
+        for module in ("coach", "coachee"):
+            for ended in (False, True):
+                with self.subTest(module=module, ended=ended):
+                    web, _, user, request = _signed_in()
+                    session = web._open_session(user, module, "template", "en")
+                    agent = session["agent"]
+
+                    def stream(message, **kwargs):
+                        yield "First words"
+                        agent.context.extend([{"role": agent.user_role, "content": message},
+                                              {"role": agent.assistant_role, "content": "Complete reply"}])
+                        agent.session_complete = ended
+                        yield "Complete reply"
+
+                    with patch.object(agent, "stream_response", side_effect=stream):
+                        outputs = list(web.respond("Submitted text", [], session, module, "Template", "English", request))
+                    self.assertEqual(outputs[0][0]["value"], "")
+                    self.assertGreaterEqual(len(outputs), 4)
+                    self.assertTrue(all("value" not in out[0] for out in outputs[1:]))
+                    self.assertEqual(outputs[-1][0]["interactive"], not ended)
+
+    def test_partial_model_failure_preserves_new_draft_and_offers_original_for_retry(self):
+        for module in ("coach", "coachee"):
+            with self.subTest(module=module):
+                web, store, user, request = _signed_in()
+                session = web._open_session(user, module, "template", "en")
+                agent = session["agent"]
+                history = web._chat_history_from_context(agent)
+                before = store.get_session(session["id"])["state"]
+
+                def fail(message, **kwargs):
+                    yield "Partial reply"
+                    raise RuntimeError("isolated model failure")
+
+                with patch.object(agent, "stream_response", side_effect=fail), \
+                        patch.object(web.gr, "Warning"), patch.object(web.logger, "exception"):
+                    outputs = list(web.respond("Retry this message", history, session, module, "Template", "English", request))
+                self.assertTrue(all("value" not in out[0] for out in outputs[1:]))
+                self.assertEqual(outputs[-1][10]["value"], "Retry this message")
+                self.assertEqual(outputs[-1][1], history)
+                self.assertEqual(store.get_session(session["id"])["state"], before)
+
+    def test_browser_retry_restores_only_an_empty_composer_and_consumes_retry_text(self):
+        import subprocess
+        import web_assets
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        source = "const restore = (" + web_assets.restore_draft_js + ");" + """
+            console.log(JSON.stringify([
+                restore('', 'Submitted text'),
+                restore('DRAFT: my next question should stay here.', 'Submitted text'),
+                restore('', ''),
+                restore(' ', 'Submitted text')
+            ]));
+        """
+        result = subprocess.run([node, "-e", source], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(result.stdout), [
+            ["Submitted text", ""], [{"__type__": "update"}, ""],
+            [{"__type__": "update"}, ""], [{"__type__": "update"}, ""],
+        ])
+
     def test_database_write_failure_keeps_the_draft_without_adding_a_turn(self):
         web, store, user, request = _signed_in()
         session = web._open_session(user, "coach", "template", "en")
@@ -1399,7 +1463,8 @@ class TestHostedAccessAndLimits(unittest.TestCase):
         with patch.object(web.gr, "Warning") as warning, self.assertLogs("coaching_studio", level="ERROR"):
             failed = list(web.respond("Keep this draft.", history, session, "coach", "Template", "English", request))[-1]
         warning.assert_called_once_with(web.UI["en"]["session_save_error"])
-        self.assertEqual(failed[0]["value"], "Keep this draft.")
+        self.assertNotIn("value", failed[0])
+        self.assertEqual(failed[10]["value"], "Keep this draft.")
         self.assertEqual(failed[1], history)
         self.assertEqual(agent.to_dict(), original)
         self.assertEqual(json.loads(store.get_session(session["id"])["state"]), original)
@@ -1509,7 +1574,8 @@ class TestHostedAccessAndLimits(unittest.TestCase):
                     outputs = list(web_app.respond("hello", [], session, "coach", "AI", "English", request))
 
         self.assertEqual(warning.call_args.args[0], web_app.UI["en"]["ai_reply_error"])
-        self.assertEqual(outputs[-1][0]["value"], "hello")
+        self.assertNotIn("value", outputs[-1][0])
+        self.assertEqual(outputs[-1][10]["value"], "hello")
         self.assertEqual(outputs[-1][1], [])
 
 
@@ -3839,7 +3905,7 @@ class TestFullConversation(unittest.TestCase):
                         module, "AI", "中文", request))[-1]
                 model.assert_not_called()
                 warning.assert_called_with(web.UI["zh"]["context_full"])
-                self.assertEqual(result[0]["value"], "中" * 2000)
+                self.assertNotIn("value", result[0])
                 self.assertEqual(store.get_session(session["id"])["state"], original)
 
     def test_actual_request_guard_and_provider_capacity_error(self):
@@ -3942,7 +4008,8 @@ class TestFullConversation(unittest.TestCase):
                     output = list(web.respond("Keep this unsent correction.", web._chat_history_from_context(agent), session,
                         module, "AI", "English", request))[-1]
                 self.assertEqual(agent.to_dict(), before)
-                self.assertEqual(output[0]["value"], "Keep this unsent correction.")
+                self.assertNotIn("value", output[0])
+                self.assertEqual(output[10]["value"], "Keep this unsent correction.")
                 warning.assert_called_with(web.UI["en"]["context_full"])
                 self.assertEqual(json.loads(store.get_session(session["id"])["state"]), before)
                 self.assertEqual(web._advance_button_update(session)["value"], web.UI["en"]["end_at_capacity"])
@@ -4434,7 +4501,7 @@ class TestProviderAndRegionSupport(unittest.TestCase):
             self.skipTest("node is not installed")
         with tempfile.TemporaryDirectory() as folder:
             scripts = {name: "(" + getattr(web_assets, name) + ")" for name in ("force_light_js", "tts_js", "scroll_js",
-                                                                              "remember_lang_js")}
+                                                                              "remember_lang_js", "restore_draft_js")}
             # An HTML block's js_on_load is a function body that receives the block as `element`.
             scripts["welcome_js"] = "(function (element) {" + web_assets.welcome_js + "})"
             scripts["space_status_js"] = web_assets.space_status_js  # a whole <script>, not an expression
