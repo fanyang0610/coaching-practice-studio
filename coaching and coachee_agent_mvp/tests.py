@@ -3111,6 +3111,21 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertIsNone(empty)
         self.assertIn("never invent", calls[0]["messages"][0]["content"])
 
+    def test_action_card_requires_a_next_step_but_not_the_other_fields(self):
+        for lang in ("en", "zh"):
+            for data, expected in (
+                ({"goal": "弄清楚自己为什么拖着不写报告", "next_step": "", "by_when": "", "support": ""}, None),
+                ({"goal": "Understand the delay", "next_step": " \n\t "}, None),
+                ({}, None),
+                ({"by_when": "Tomorrow", "support": "A friend"}, None),
+                ({"next_step": "  写下报告的三个要点  "},
+                 {"goal": "", "next_step": "写下报告的三个要点", "by_when": "", "support": ""}),
+            ):
+                with self.subTest(lang=lang, data=data):
+                    agent = CoachAgent(mode="llm", language=lang)
+                    with patch("coach_agent._build_client", return_value=_fake_llm_client([json.dumps(data)], [])):
+                        self.assertEqual(agent.action_card("isolated-fake"), expected)
+
     def test_opening_follows_up_on_the_last_plan(self):
         calls = []
         agent = CoachAgent(mode="llm", language="en")
@@ -3891,6 +3906,69 @@ class TestActionCardRecovery(unittest.TestCase):
                         with patch.object(CoachAgent, "action_card") as model:
                             self.client.post(path + "/retry-action-card", data=self.form(saved))
                         model.assert_not_called()
+
+    def test_initial_close_and_history_recovery_use_the_extracted_next_step(self):
+        import account_pages
+
+        for lang in ("en", "zh"):
+            for recovery in (False, True):
+                for extracted in ({"goal": "弄清楚自己为什么拖着不写报告", "next_step": ""},
+                                  {"next_step": "Write three report points"}, {}):
+                    with self.subTest(lang=lang, recovery=recovery, extracted=extracted):
+                        row = self.finished(lang, legacy=recovery)
+                        path = f'/sessions/{row["id"]}'
+                        fake = _fake_llm_client([json.dumps(extracted)], [])
+                        has_step = bool(extracted.get("next_step"))
+                        expected_status = "ready" if has_step else "none"
+                        with patch("coach_agent._build_client", return_value=fake), \
+                                patch.object(self.web, "_safe_key", return_value="isolated-fake"), \
+                                patch.object(self.web, "_learn_from_session"):
+                            if recovery:
+                                response = self.client.post(path + "/retry-action-card", data=self.form(row),
+                                                            follow_redirects=False)
+                                self.assertEqual(response.status_code, 303)
+                                self.assertIn("card=card_saved" if has_step else "card=card_none", response.headers["location"])
+                            else:
+                                notice = self.web._finish_session(self.web._restore_session(row, self.user), "isolated-fake")
+                                self.assertIn(self.web.UI[lang]["card_saved"] if has_step else account_pages.T[lang]["card_none"], notice)
+                        saved = self.store.get_session(row["id"])
+                        state = json.loads(saved["state"])
+                        self.assertEqual(state["action_card_result"]["status"], expected_status)
+                        self.assertEqual(bool(saved["card"]), has_step)
+                        self.assertEqual(state["context"], json.loads(row["state"])["context"])
+                        self.assertEqual((saved["completed_at"], saved["user_turns"]), (row["completed_at"], row["user_turns"]))
+                        page = self.client.get(f"{path}?lang={lang}").text
+                        agent = self.web._restore_session(saved, self.user)["agent"]
+                        bubble = self.web._chat_history_from_context(agent, row["id"])[-1]["content"]
+                        if has_step:
+                            self.assertEqual(saved["card"], {"goal": "", "next_step": extracted["next_step"], "by_when": "", "support": ""})
+                            self.assertIn(extracted["next_step"], page)
+                            self.assertIn(extracted["next_step"], bubble)
+                            self.assertIn(self.web.UI[lang]["card_saved"], bubble)
+                        else:
+                            self.assertIsNone(saved["card"])
+                            self.assertIn(account_pages.T[lang]["card_none"], page)
+                            self.assertEqual(bubble, account_pages.T[lang]["card_none"])
+                            self.assertNotIn(self.web.UI[lang]["card_saved"], bubble)
+                        self.assertNotIn(f'action="{path}/retry-action-card"', page)
+
+    def test_saved_legacy_goal_only_card_remains_visible_and_is_not_regenerated(self):
+        card = {"goal": "OLD_CARD: understand the delay", "next_step": "", "by_when": "", "support": ""}
+        for lang in ("en", "zh"):
+            with self.subTest(lang=lang):
+                row = self.finished(lang, legacy=True)
+                self.store.save_session_result(row["id"], self.user["id"], "coach", card=card)
+                row = self.store.get_session(row["id"])
+                session = self.web._restore_session(row, self.user)
+                with patch.object(CoachAgent, "action_card") as model, patch.object(self.web, "_learn_from_session"):
+                    self.assertEqual(self.attempt(row), "card_busy")
+                    notice = self.web._finish_session(session, "isolated-fake")
+                    model.assert_not_called()
+                self.assertEqual(self.store.get_session(row["id"]), row)
+                self.assertIn(card["goal"], notice)
+                self.assertIn(card["goal"], self.web._chat_history_from_context(session["agent"])[-1]["content"])
+                self.assertIn(card["goal"], self.client.get(f'/sessions/{row["id"]}?lang={lang}').text)
+                self.assertIn(card["goal"], self.client.get(f'/account?lang={lang}').text)
 
     def test_save_failure_rolls_back_card_and_can_recover(self):
         import sqlalchemy as sa

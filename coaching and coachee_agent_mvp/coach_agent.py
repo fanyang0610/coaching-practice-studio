@@ -584,7 +584,7 @@ Coach lines with the rhythm to aim for, from other conversations (don't reuse th
             raise Exception(f"LLM error: {exc}")
 
     def action_card(self, api_key: str) -> dict | None:
-        """The plan the client arrived at, as {goal, next_step, by_when, support}, or None if there isn't one yet."""
+        """The client's committed next step, as {goal, next_step, by_when, support}, or None without one."""
         client = _build_client(api_key, on_usage=self.on_usage)
         lang_instr = "English" if self.language == "en" else "Simplified Chinese (简体中文)"
         transcript = "\n".join(
@@ -602,7 +602,7 @@ Coach lines with the rhythm to aim for, from other conversations (don't reuse th
         )
         data = _json_completion(client, messages=[{"role": "system", "content": prompt}], max_tokens=300, temperature=0.2)
         card = {key: str(data.get(key) or "").strip()[:300] for key in ACTION_CARD_FIELDS}
-        return card if card["goal"] or card["next_step"] else None
+        return card if card["next_step"] else None
 
     def analyze_session_for_memory(self, api_key: str) -> dict:
         """Analyze the session history to extract new user insights."""
