@@ -125,4 +125,24 @@
 
 最终整合提示：本项可复用上述19项SQLite、14项PostgreSQL及中英文双端验证；主对话再统一做整合检查。前四项本地提交和全部既有未提交文件、证据已保留。第1项手动推进草稿路径未由本项改动，主对话计划交回原第1项对话补齐；本轮停止，不开始该补修或任何推送、发布、部署。
 
-## 最终整合与发布：待开始
+## 最终整合与发布：整合通过，统一发布待执行
+
+2026-11-11：五项已在用户要求的五个独立对话中按顺序处理，创建/继续均指定`gpt-6.1-sol`与`xhigh`。后续复核的手动推进遗漏与旧容量测试替身，分别交回原第1、4项对话串行补齐，未另开并行修复。
+
+- 当前整合的全套 **331项检查通过**（16.800秒）。第一次整合只发现一个旧容量测试使用仅目标JSON而仍期望卡片成功，已按第4项新契约补上具体下一步并保留79000字原文、完整请求及目标断言；相关长对话8项通过，再次整合331项全过。未通过放宽产品条件来消除失败。
+- 第1项及补修、其他四项的桌面1440×1200与手机390×844行为核对，采用各项已完成的有效结果，不在末尾重复全站截图。存储相关临时PostgreSQL检查分别为第2项8项、第3项6项、第5项14项，均已通过并清理临时数据库。本轮代码修复的真实模型调用为0。
+- 最后一次产品代码变更后的本地启动器已在第1项补修中重编译，未启动连接真实数据。无需为随后仅测试/文档改动重复编译。未改模型配置、依赖、表结构或真实用户记录。
+- 发布前本地所有运行代码均已提交；原有`.gitignore`、应用`docs/HANDOFF.md`及未跟踪的原交接、自查与`output/`证据继续保留，不纳入统一发布提交。发布包复用现有`SPACE_FILES`及`web_app.py -> app.py`映射，GitHub只推送一次，Hugging Face只上传一次。
+- 发布前只读核对：既有线上`/ping`、`/healthz`、中英文登录页均200且预期内容正常。新版发布后仍需确认GitHub自动版本、Hugging Face新运行提交与健康页。
+- 整合日志：`output/playwright/final-five-fixes-20261111/integration-tests.log`；首次失败日志单独保留为`integration-tests-before-fixture-sync.log`。本轮不额外承诺真实模型评分可靠性、训练有效性或真机语音结果。
+
+本轮功能及测试提交：
+
+- `e63bfc913738ddc3dca267fdcf9b41be5a251703` — fix: preserve next-message drafts during AI replies
+- `92d6d785cf4888b8082e51c3d2cc4fb42c694f51` — fix: discard insight analysis after owner changes
+- `8778c5450f58e7852d7d500b4484406e5537ef16` — fix: add navigation to earlier session history
+- `be43b8c3dd1f3dd4a13637ec9fd18645e21135a7` — fix: require a next step for new action cards
+- `af0c471e69fe18bb5997808249a9c027fc1c353f` — fix: calculate when all usage limits recover
+- `53b9166fbe2dd889d37ce2455a56edceef73093d` — fix: preserve drafts when advancing coaching stages
+- `45aa3011adb571347a6f03fb86f7623745b8e69e` — test: align capacity fixture with actionable card requirement
+
