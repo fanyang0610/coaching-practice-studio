@@ -644,7 +644,8 @@ def _restore_session(row: dict, user: dict) -> dict | None:
             saved = row if "card" in row else get_store().get_session(row["id"])
             card = (saved or {}).get("card")
             agent.action_card_result = {"status": "ready", "card": card} if card else {"status": "unknown"}
-    return _attach({"module": row["module"], "agent": agent, "id": row["id"], "version": row["updated_at"]}, user)
+    return _attach({"module": row["module"], "agent": agent, "id": row["id"], "version": row["updated_at"],
+                    "rating": get_store().session_rating(row["id"])}, user)
 
 
 def _resume_mode(user: dict, module_code: str, mode_code: str, lang_code: str) -> dict:

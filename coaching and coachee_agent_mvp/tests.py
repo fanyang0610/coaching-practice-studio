@@ -4739,6 +4739,92 @@ class TestFullConversation(unittest.TestCase):
 
 
 class TestSessionRating(unittest.TestCase):
+    def _finished_sessions(self, language):
+        import gradio as gr
+        import web_app
+
+        temp = tempfile.TemporaryDirectory(prefix="studio-rating-test-")
+        self.addCleanup(temp.cleanup)
+        store = db.Store(f"sqlite:///{temp.name}/fictional.db")
+        self.addCleanup(store.engine.dispose)
+        web_app.set_store(store)
+        uid = store.create_user("rating@example.test", "Fictional owner", "unused")
+        user, request = store.get_user(uid), gr.Request(username=str(uid))
+        sessions = {}
+        for module in ("coach", "coachee"):
+            session = web_app._open_session(user, module, "template", language)
+            session["agent"].session_complete = True
+            self.assertTrue(web_app._save(session))
+            sessions[module] = session
+        return web_app, store, user, request, sessions
+
+    def test_saved_ratings_survive_restore_reload_and_module_switch_without_writes(self):
+        for language in ("zh", "en"):
+            with self.subTest(language=language):
+                web, store, user, request, sessions = self._finished_sessions(language)
+                scores = {"coach": 1, "coachee": 5}
+                for module, session in sessions.items():
+                    web.rate_session(str(scores[module]), session, request)
+                before = {module: store.get_session(session["id"]) for module, session in sessions.items()}
+                with store.engine.connect() as conn:
+                    ratings_before = conn.execute(db.sa.select(db.session_ratings)).all()
+
+                for module, original in sessions.items():
+                    with self.subTest(module=module):
+                        direct = web._restore_session(store.get_session(original["id"]), user)
+                        store.remember_module(user["id"], module)
+                        loaded = web.initial_load(None, module, "Template", web._lang_selector(language), request)
+                        other = "coachee" if module == "coach" else "coach"
+                        away = web.select_module(other, web._lang_selector(language), "Template", loaded[-1], request)[-1]
+                        returned = web.select_module(module, web._lang_selector(language), "Template", away, request)
+                        for restored, updates in ((direct, web._rating_updates(direct)),
+                                                  (loaded[-1], loaded[-8:-5]),
+                                                  (returned[-1], returned[-8:-5])):
+                            self.assertEqual(restored["id"], original["id"])
+                            self.assertEqual(restored["rating"], scores[module])
+                            self.assertTrue(updates[0]["visible"])
+                            self.assertIn(web.UI[language]["rating_thanks"], updates[1]["value"])
+                            self.assertFalse(updates[2]["visible"])
+
+                self.assertEqual({module: store.get_session(session["id"]) for module, session in sessions.items()}, before)
+                with store.engine.connect() as conn:
+                    self.assertEqual(conn.execute(db.sa.select(db.session_ratings)).all(), ratings_before)
+
+    def test_unrated_restored_sessions_still_accept_their_own_rating(self):
+        for language in ("zh", "en"):
+            for module in ("coach", "coachee"):
+                with self.subTest(language=language, module=module):
+                    web, store, user, request, sessions = self._finished_sessions(language)
+                    other = "coachee" if module == "coach" else "coach"
+                    web.rate_session("4", sessions[other], request)
+                    before = {key: store.get_session(session["id"]) for key, session in sessions.items()}
+                    with store.engine.connect() as conn:
+                        other_rating = conn.execute(db.sa.select(db.session_ratings)).one()
+                    direct = web._restore_session(store.get_session(sessions[module]["id"]), user)
+                    store.remember_module(user["id"], module)
+                    loaded = web.initial_load(None, module, "Template", web._lang_selector(language), request)
+                    away = web.select_module(other, web._lang_selector(language), "Template", loaded[-1], request)[-1]
+                    returned = web.select_module(module, web._lang_selector(language), "Template", away, request)
+                    for restored, updates in ((direct, web._rating_updates(direct)),
+                                              (loaded[-1], loaded[-8:-5]),
+                                              (returned[-1], returned[-8:-5])):
+                        self.assertEqual(restored["id"], sessions[module]["id"])
+                        self.assertIsNone(restored["rating"])
+                        self.assertTrue(updates[0]["visible"] and updates[2]["visible"])
+                        self.assertIn(web.UI[language]["rating_question"], updates[1]["value"])
+                    self.assertIsNone(store.session_rating(sessions[module]["id"]))
+                    rated = web.rate_session("2", returned[-1], request)
+                    self.assertFalse(rated[2]["visible"])
+                    self.assertEqual(store.session_rating(sessions[module]["id"]), 2)
+                    reopened = web.initial_load(None, module, "Template", web._lang_selector(language), request)
+                    self.assertEqual(reopened[-1]["rating"], 2)
+                    self.assertIn(web.UI[language]["rating_thanks"], reopened[-7]["value"])
+                    self.assertFalse(reopened[-6]["visible"])
+                    self.assertEqual({key: store.get_session(session["id"]) for key, session in sessions.items()}, before)
+                    with store.engine.connect() as conn:
+                        self.assertEqual(conn.execute(db.sa.select(db.session_ratings).where(
+                            db.session_ratings.c.session_id == sessions[other]["id"])).one(), other_rating)
+
     def test_a_finished_session_asks_how_useful_it_was_and_keeps_the_answer(self):
         web_app, store, user, request = _signed_in()
         session = web_app._open_session(user, "coachee", "template", "en")
