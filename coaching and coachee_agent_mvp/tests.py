@@ -3210,6 +3210,113 @@ class TestAccountPages(unittest.TestCase):
         self.assertEqual(self.client.get(f"/invite/{code}").status_code, 410)
         self.assertIn("2 of 2 used", client.get("/admin?lang=en").text)
 
+    def test_admin_invite_history_reaches_oldest_and_keeps_revoke_authorization(self):
+        import datetime as dt
+        import html
+
+        admin = self._person("invite-admin@example.com", role="admin")
+        client = self._sign_in("invite-admin@example.com")
+        codes = [self.store.create_invite(admin, email=f"invite-{n}@example.com") for n in range(51)]
+        oldest = codes[0]
+        with self.store.engine.begin() as conn:
+            conn.execute(db.invites.update().where(db.invites.c.code == oldest).values(
+                created_at=db.utcnow() - dt.timedelta(days=1)))
+        for lang, earlier, newer, number in (("en", "Earlier records", "Newer records", "Page 2 of 2"),
+                                             ("zh", "更早记录", "较新记录", "第 2 / 2 页")):
+            with self.subTest(lang=lang):
+                first = client.get(f"/admin?lang={lang}").text
+                href = html.unescape(re.search(r'href="(/admin\?[^\"]*page=2#invites)"', first)[1])
+                second = client.get(href).text
+                self.assertEqual(len(re.findall(r'action="/admin/invites/[^/]+/revoke"', first)), 50)
+                self.assertNotIn(f'/admin/invites/{oldest}/revoke', first)
+                self.assertIn(f'/admin/invites/{oldest}/revoke', second)
+                self.assertIn(earlier, first)
+                self.assertIn(newer, second)
+                self.assertIn(number, second)
+                self.assertIn(f'/admin?lang={lang}&amp;page=1#invites', second)
+                switch = "zh" if lang == "en" else "en"
+                self.assertIn(f'href="?lang={switch}&amp;page=2"', second)
+        self.assertIn('name="password"', self.client.get(f"/invite/{oldest}").text)
+        for role in ("user", "trainer"):
+            email = f"invite-{role}@example.com"
+            self._person(email, role=role)
+            other = self._sign_in(email)
+            self.assertEqual(other.get('/admin?page=2', follow_redirects=False).status_code, 303)
+            self.assertEqual(other.post(f'/admin/invites/{oldest}/revoke', data={"csrf": self._csrf(other)},
+                                        follow_redirects=False).status_code, 303)
+            self.assertIsNotNone(self.store.usable_invite(oldest))
+        for csrf in ("", "invalid-csrf"):
+            self.assertEqual(client.post(f'/admin/invites/{oldest}/revoke', data={"csrf": csrf},
+                                         follow_redirects=False).status_code, 303)
+            self.assertIsNotNone(self.store.usable_invite(oldest))
+        self.assertEqual(self.client.post(f'/admin/invites/{oldest}/revoke',
+                                         follow_redirects=False).status_code, 303)
+        self.assertIsNotNone(self.store.usable_invite(oldest))
+        response = client.post(f'/admin/invites/{oldest}/revoke', data={"csrf": self._csrf(client)},
+                               follow_redirects=False)
+        self.assertEqual((response.status_code, response.headers['location']), (303, '/admin'))
+        self.assertTrue(self.store.get_invite(oldest)['revoked'])
+        self.assertIsNone(self.store.usable_invite(oldest))
+        second = client.get('/admin?lang=en&page=2').text.split('id="invites"', 1)[1].split('</details>', 1)[0]
+        self.assertIn('<span class="pill">revoked</span>', second)
+        self.assertNotIn('/revoke', second)
+        self.assertEqual(self.client.get(f'/invite/{oldest}').status_code, 410)
+        form = {"name": "Old Invite", "email": "invite-0@example.com", "password": "a-long-password",
+                "confirm": "a-long-password", "consent": "yes"}
+        self.assertEqual(self.client.post(f'/invite/{oldest}', data=form).status_code, 410)
+        self.assertIsNone(self.store.get_user_by_email('invite-0@example.com'))
+
+    def test_admin_invite_history_keeps_used_expired_revoked_and_partial_group_states(self):
+        import datetime as dt
+        import account_pages
+
+        admin = self._person("state-admin@example.com", role="admin")
+        mentor = self._person("state-mentor@example.com", role="trainer")
+        partial = self.store.create_invite(admin, trainer_id=mentor, max_uses=3)
+        self.store.register_from_invite(partial, "group-first@example.com", "Group First", "hash")
+        used = self.store.create_invite(admin)
+        self.store.register_from_invite(used, "used@example.com", "Used", "hash")
+        expired = self.store.create_invite(admin, days_valid=-1)
+        revoked = self.store.create_invite(admin)
+        self.store.revoke_invite(revoked)
+        with self.store.engine.begin() as conn:
+            conn.execute(db.invites.update().values(created_at=db.utcnow() - dt.timedelta(days=2)))
+        for _ in range(50):
+            self.store.create_invite(admin)
+        client = self._sign_in("state-admin@example.com")
+        for lang in ("en", "zh"):
+            section = client.get(f'/admin?lang={lang}&page=2').text.split('id="invites"', 1)[1].split('</details>', 1)[0]
+            for code, state in ((partial, 'open'), (used, 'used'), (expired, 'expired'), (revoked, 'revoked')):
+                with self.subTest(lang=lang, state=state):
+                    row = next(row for row in section.split('<div class="row">')[1:] if code[:6] in row)
+                    self.assertIn(f'<span class="pill">{account_pages.T[lang][state]}</span>', row)
+                    self.assertEqual(f'/admin/invites/{code}/revoke' in row, state == 'open')
+            self.assertIn(account_pages.T[lang]['invite_uses_left'].format(used=1, max=3), section)
+            self.assertIn('State-Mentor', section)
+        self.assertIsNotNone(self.store.usable_invite(partial))
+
+    def test_admin_invite_pages_handle_empty_fifty_ties_and_invalid_numbers(self):
+        admin = self._person("page-admin@example.com", role="admin")
+        client = self._sign_in("page-admin@example.com")
+        for lang in ('en', 'zh'):
+            empty = client.get(f'/admin?lang={lang}&page=99')
+            self.assertEqual(empty.status_code, 200)
+            self.assertIn('<div class="list"><p class="muted">—</p></div>', empty.text)
+            self.assertNotIn('class="history-pagination"', empty.text)
+        codes = [self.store.create_invite(admin) for _ in range(50)]
+        self.assertNotIn('class="history-pagination"', client.get('/admin').text)
+        codes.append(self.store.create_invite(admin))
+        with self.store.engine.begin() as conn:
+            conn.execute(db.invites.update().values(created_at=db.utcnow()))
+        ordered = sorted(codes, reverse=True)
+        self.assertEqual([row['code'] for row in self.store.list_invites(created_by=admin)], ordered)
+        for page in ('', '0', '-1', 'abc', '1.5', '1', '2', '3', '9' * 100):
+            with self.subTest(page=page):
+                response = client.get(f'/admin?lang=en&page={page}')
+                self.assertEqual(response.status_code, 200)
+                expected = ordered[50:] if page in ('2', '3', '9' * 100) else ordered[:50]
+                self.assertEqual(re.findall(r'action="/admin/invites/([^/]+)/revoke"', response.text), expected)
+
     def test_invite_size_and_length_stay_within_bounds(self):
         import account_pages
 

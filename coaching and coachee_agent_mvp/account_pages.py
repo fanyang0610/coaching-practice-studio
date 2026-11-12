@@ -841,7 +841,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         flash_html = f'<div class="flash {flash[0]}" role="status">{_e(flash[1])}</div>' if flash else ""
         other = "en" if lang == "zh" else "zh"
         switch_query = {"lang": other}
-        if request.url.path in ("/account", "/mentor") and "page" in request.query_params:
+        if request.url.path in ("/account", "/mentor", "/admin") and "page" in request.query_params:
             switch_query["page"] = request.query_params["page"]
         switch = (f'<p class="lang"><a href="?{_e(urlencode(switch_query))}">{"English" if other == "en" else "中文"}</a> · '
                   f'<a href="/help">{_e(T[lang]["help"])}</a> · <a href="/privacy">{_e(T[lang]["privacy"])}</a></p>')
@@ -1261,7 +1261,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             page = 1
         return max(1, min(page, pages)), pages
 
-    def history_pagination(lang: str, path: str, section: str, page: int, pages: int) -> str:
+    def history_pagination(lang: str, path: str, section: str, page: int, pages: int, *, label: str | None = None) -> str:
         if pages == 1:
             return ""
         links = []
@@ -1269,7 +1269,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             if 1 <= number <= pages:
                 href = f"{path}?{urlencode({'lang': lang, 'page': number})}#{section}"
                 links.append(f'<a class="button secondary" href="{_e(href)}">{_e(T[lang][key])}</a>')
-        return (f'<nav class="history-pagination" aria-label="{_e(T[lang]["history_pages"])}">'
+        return (f'<nav class="history-pagination" aria-label="{_e(label or T[lang]["history_pages"])}">'
                 f'<span class="muted">{_e(text(lang, "history_page", page=page, pages=pages))}</span>'
                 f'<div class="actions">{"".join(links)}</div></nav>')
 
@@ -1856,8 +1856,11 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
 </div><div class="actions" style="margin-top:10px"><button class="quiet" type="submit">{_e(T[lang]['update'])}</button></form>
 <form method="post" action="/admin/users/{person['id']}/reset-link" class="inline">{csrf}<button class="quiet" type="submit">{_e(T[lang]['reset_link'])}</button></form></div></div></div>""")
 
+        invites = store.list_invites()
+        page, pages = history_page(request, len(invites), 50)
+        pagination = history_pagination(lang, "/admin", "invites", page, pages, label=T[lang]["invites"])
         invite_rows = []
-        for invite in store.list_invites()[:50]:
+        for invite in invites[(page - 1) * 50:page * 50]:
             if invite["revoked"]:
                 state = T[lang]["revoked"]
             elif invite["uses"] >= invite["max_uses"]:
@@ -1911,7 +1914,7 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         audit_body = '<div class="list">' + (audit_rows or '<p class="muted">—</p>') + '</div>'
         body = f"""{warning}{extra}{ai_service_card(lang, now)}
 {disclosure(T[lang]['invite_someone'], invite_form(request, lang, '/admin/invites', roles=accounts.ROLES, trainers=trainers), element_id="create-invite")}
-{disclosure(T[lang]['invites'], f'<div class="list">{invite_list}</div>', element_id="invites")}
+{disclosure(T[lang]['invites'], f'{pagination}<div class="list">{invite_list}</div>{pagination}', element_id="invites")}
 {disclosure(T[lang]['allowances'], allowance_body, element_id="allowances")}
 {disclosure(T[lang]['users'], members_body, element_id="users")}
 {disclosure(T[lang]['recent_sessions'], recent_body, element_id="recent-sessions")}

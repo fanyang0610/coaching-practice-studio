@@ -332,7 +332,7 @@ class Store:
             return self._insert_user(conn, email, display_name, password_hash, invite.role, invite.trainer_id, True)
 
     def list_invites(self, created_by: int | None = None) -> list[dict]:
-        stmt = sa.select(invites).order_by(invites.c.created_at.desc())
+        stmt = sa.select(invites).order_by(invites.c.created_at.desc(), invites.c.code.desc())
         if created_by is not None:
             stmt = stmt.where(invites.c.created_by == created_by)
         return self._all(stmt)
