@@ -1053,7 +1053,10 @@ def _stream_reply(user_msg, chat_history, agent, session):
         coach_response = safety.CRISIS_REPLY[agent.language]
         agent.context.append({"role": agent.user_role, "content": user_msg})
         agent.context.append({"role": agent.assistant_role, "content": coach_response})
-        get_store().log(session["user_id"], "safety_flag", target_user_id=session["user_id"], target_session_id=session["id"])
+        try:
+            get_store().log(session["user_id"], "safety_flag", target_user_id=session["user_id"], target_session_id=session["id"])
+        except SQLAlchemyError:
+            logger.exception("Recording a safety flag failed")
     elif agent.mode == "llm" and not api_key:
         coach_response = _llm_config_message(agent.language)
         agent.context.append({"role": agent.user_role, "content": user_msg})

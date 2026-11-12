@@ -2061,6 +2061,115 @@ class TestStoredSessions(unittest.TestCase):
         self.assertEqual(store.tokens_since(user["id"], db.utcnow() - db.dt.timedelta(minutes=5)), 120)
 
 
+class TestSafetyReplyAuditBoundary(unittest.TestCase):
+    def _session(self, language):
+        import gradio as gr
+        import quota
+        import web_app as web
+
+        temp = tempfile.TemporaryDirectory(prefix="studio-safety-audit-test-")
+        self.addCleanup(temp.cleanup)
+        store = db.Store(f"sqlite:///{temp.name}/fictional.db")
+        self.addCleanup(store.engine.dispose)
+        web.set_store(store)
+        web._message_limiter = quota.MessageRateLimiter()
+        uid = store.create_user("safety@example.test", "Fictional owner", "unused")
+        user = store.get_user(uid)
+        session = web._open_session(user, "coach", "llm", language)
+        return web, store, user, gr.Request(username=str(uid)), session
+
+    def _disable_audit(self, store):
+        # A real SQLite OperationalError confined to audit inserts; session reads/writes still work.
+        with store.engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE audit_log RENAME TO unavailable_audit_log")
+
+    def test_fixed_reply_is_saved_and_refreshed_with_or_without_audit_failure(self):
+        import safety
+
+        for lang, message in (("zh", "我想自杀，已经不想活了"), ("en", "Honestly I want to kill myself")):
+            for audit_fails in (False, True):
+                with self.subTest(language=lang, audit_fails=audit_fails):
+                    web, store, user, request, session = self._session(lang)
+                    agent = session["agent"]
+                    history = web._chat_history_from_context(agent)
+                    before_version = session["version"]
+                    if audit_fails:
+                        self._disable_audit(store)
+                    logs = self.assertLogs("coaching_studio", level="ERROR") if audit_fails else self.assertNoLogs("coaching_studio", level="ERROR")
+                    with logs as recorded, patch.object(agent, "stream_response") as stream, \
+                            patch("coaching_core._build_client") as model:
+                        outputs = list(web.respond(message, history, session, "coach", "AI", lang, request))
+                        refreshed = web.initial_load(None, "coach", "AI", lang, request)
+                    stream.assert_not_called()
+                    model.assert_not_called()
+                    expected = history + [{"role": "user", "content": message},
+                                          {"role": "assistant", "content": safety.CRISIS_REPLY[lang]}]
+                    self.assertEqual(outputs[-1][1], expected)
+                    self.assertEqual(refreshed[0], expected)
+                    self.assertEqual(refreshed[-1]["id"], session["id"])
+                    self.assertEqual(outputs[0][0]["value"], "")
+                    self.assertTrue(all("value" not in output[0] for output in outputs[1:]))
+                    self.assertEqual(outputs[-1][10]["value"], "")
+                    row = store.get_session(session["id"])
+                    self.assertEqual(json.loads(row["state"]), agent.to_dict())
+                    self.assertEqual(row["user_turns"], 1)
+                    self.assertNotEqual(row["updated_at"], before_version)
+                    self.assertEqual(refreshed[-1]["version"], row["updated_at"])
+                    if audit_fails:
+                        self.assertIn("Recording a safety flag failed", recorded.output[0])
+                        self.assertIn("OperationalError", recorded.output[0])
+                    else:
+                        entries = store.audit_entries()
+                        self.assertEqual(len(entries), 1)
+                        self.assertEqual(entries[0]["action"], "safety_flag")
+                        self.assertEqual(entries[0]["actor_id"], user["id"])
+                        self.assertEqual(entries[0]["target_user_id"], user["id"])
+                        self.assertEqual(entries[0]["target_session_id"], session["id"])
+
+    def test_audit_failure_keeps_real_save_failure_and_conflict_recovery(self):
+        for failure in ("database", "conflict"):
+            with self.subTest(failure=failure):
+                web, store, user, request, session = self._session("en")
+                agent = session["agent"]
+                history = web._chat_history_from_context(agent)
+                original = store.get_session(session["id"])
+                self._disable_audit(store)
+                save = store.save_session
+
+                def racing_save(*args, **kwargs):
+                    other = web._restore_session(store.get_session(session["id"]), user)
+                    other["agent"].context.extend([{"role": "client", "content": "OTHER TAB"},
+                                                    {"role": "coach", "content": "Saved elsewhere."}])
+                    with patch.object(store, "save_session", side_effect=save):
+                        self.assertTrue(web._save(other))
+                    return save(*args, **kwargs)
+
+                if failure == "database":
+                    with store.engine.begin() as conn:
+                        conn.exec_driver_sql("CREATE TRIGGER reject_save BEFORE UPDATE ON coaching_sessions "
+                                             "BEGIN SELECT RAISE(ABORT, 'isolated write failure'); END")
+                with patch.object(store, "save_session", side_effect=racing_save if failure == "conflict" else save), \
+                        patch.object(web.gr, "Warning") as warning, self.assertLogs("coaching_studio", level="ERROR"), \
+                        patch.object(agent, "stream_response") as stream, patch("coaching_core._build_client") as model:
+                    outputs = list(web.respond("Honestly I want to kill myself", history, session, "coach", "AI", "en", request))
+                stream.assert_not_called()
+                model.assert_not_called()
+                warning.assert_called_once_with(web.UI["en"]["reply_not_saved" if failure == "conflict" else "session_save_error"])
+                self.assertEqual(outputs[-1][10]["value"], "Honestly I want to kill myself")
+                self.assertNotIn("value", outputs[-1][0])
+                row = store.get_session(session["id"])
+                if failure == "database":
+                    self.assertEqual(row, original)
+                    self.assertEqual(agent.to_dict(), json.loads(original["state"]))
+                    self.assertEqual(outputs[-1][1], history)
+                else:
+                    self.assertEqual(outputs[-1][1][-1]["content"], "Saved elsewhere.")
+                    self.assertEqual(json.loads(row["state"]), outputs[-1][-1]["agent"].to_dict())
+                    self.assertNotIn("Honestly I want to kill myself", row["state"])
+                refreshed = web.initial_load(None, "coach", "AI", "en", request)
+                self.assertEqual(refreshed[0], outputs[-1][1])
+
+
 class TestAgentPersistence(unittest.TestCase):
     def test_coach_agent_round_trips_through_json(self):
         agent = CoachAgent(mode="template", language="en")
