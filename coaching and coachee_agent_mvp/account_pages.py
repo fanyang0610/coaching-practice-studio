@@ -1629,9 +1629,10 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         store = get_store()
         if confirm.strip() != "DELETE":
             return account_page(request, user, ("error", T[lang]["delete_confirm_wrong"]))
-        if user["role"] == "admin" and store.count_admins() <= 1:
+        try:
+            store.delete_user(user["id"])
+        except db.LastAdminError:
             return account_page(request, user, ("error", T[lang]["last_admin"]))
-        store.delete_user(user["id"])
         store.log(user["id"], "account_deleted", target_user_id=user["id"])
         response = RedirectResponse("/login", status_code=303)
         clear_login(response)
@@ -1974,10 +1975,10 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
             "daily_session_limit": int(daily_session_limit) if daily_session_limit.strip().isdigit() else None,
             "daily_token_limit": int(daily_token_limit) if daily_token_limit.strip().isdigit() else None,
         }
-        losing_admin = target["role"] == "admin" and target["status"] == "active" and (fields["role"] != "admin" or fields["status"] != "active")
-        if losing_admin and store.count_admins() <= 1:
+        try:
+            store.update_user(user_id, **fields)
+        except db.LastAdminError:
             return admin_page(request, admin_user, f'<div class="flash error">{_e(T[lang]["last_admin"])}</div>')
-        store.update_user(user_id, **fields)
         changes = ", ".join(f"{key}={value}" for key, value in fields.items() if target[key] != value)
         store.log(admin_user["id"], "user_updated", target_user_id=user_id, detail=changes)
         return admin_page(request, admin_user, f'<div class="flash ok">{_e(T[lang]["user_updated"])}</div>')

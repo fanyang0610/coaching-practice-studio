@@ -197,6 +197,10 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+class LastAdminError(ValueError):
+    """A change would remove the last active administrator."""
+
+
 class Store:
     def __init__(self, url: str):
         self.url = url
@@ -245,6 +249,8 @@ class Store:
 
     def update_user(self, user_id: int, **fields) -> None:
         with self.engine.begin() as conn:
+            if "role" in fields or "status" in fields:
+                self._protect_last_admin(conn, user_id, fields)
             if "trainer_id" in fields:
                 previous_trainer = conn.execute(sa.select(users.c.trainer_id).where(users.c.id == user_id)
                                                 .with_for_update()).scalar_one_or_none()
@@ -255,7 +261,30 @@ class Store:
 
     def delete_user(self, user_id: int) -> None:
         with self.engine.begin() as conn:
+            self._protect_last_admin(conn, user_id)
             conn.execute(users.delete().where(users.c.id == user_id))
+
+    def _protect_last_admin(self, conn, user_id: int, fields: dict | None = None) -> None:
+        """Serialize role/status changes and deletions before reading the current user/count.
+
+        None means deletion. The lock lasts through the caller's commit/rollback and is shared
+        by every Store/process using this database; locking only the target row allows write skew.
+        """
+        if self.is_sqlite:
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
+        else:
+            # Database-local transaction advisory lock, reserved for active-admin membership.
+            conn.execute(sa.text("SELECT pg_advisory_xact_lock(1129337683, 1)"))
+        current = conn.execute(sa.select(users).where(users.c.id == user_id)).mappings().first()
+        if not current or current["role"] != "admin" or current["status"] != "active":
+            return
+        if fields is not None and (fields.get("role", current["role"]) == "admin"
+                                   and fields.get("status", current["status"]) == "active"):
+            return
+        count = conn.execute(sa.select(sa.func.count()).select_from(users).where(
+            users.c.role == "admin", users.c.status == "active")).scalar_one()
+        if count <= 1:
+            raise LastAdminError()
 
     def count_admins(self) -> int:
         stmt = sa.select(sa.func.count()).select_from(users).where(users.c.role == "admin", users.c.status == "active")

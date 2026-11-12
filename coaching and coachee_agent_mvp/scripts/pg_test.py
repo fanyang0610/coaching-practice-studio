@@ -7,6 +7,7 @@ Needs uv (https://docs.astral.sh/uv/). It downloads Python 3.12 and pgserver int
 
 TestStoredSessions drives the app's own handlers, so the check that an old tab can't overwrite newer turns (which
 relies on updated_at keeping its microseconds) runs on Postgres too.
+Pass unittest names to run only a targeted subset, e.g. scripts/pg_test.py tests.TestLastAdminProtection.
 """
 
 import itertools
@@ -41,8 +42,8 @@ def postgres_store(self, url):
 db.Store.__init__ = postgres_store
 import tests  # noqa: E402
 
-suite = unittest.TestSuite()
-for case in (tests.TestStore, tests.TestAccounts, tests.TestQuota, tests.TestStoredSessions):
-    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
+names = sys.argv[1:] or ["tests.TestStore", "tests.TestAccounts", "tests.TestQuota", "tests.TestStoredSessions",
+                         "tests.TestLastAdminProtection"]
+suite = unittest.defaultTestLoader.loadTestsFromNames(names)
 result = unittest.TextTestRunner(verbosity=1).run(suite)
 sys.exit(0 if result.wasSuccessful() else 1)

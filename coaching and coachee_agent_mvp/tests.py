@@ -4916,6 +4916,148 @@ class TestLanguageAndLocalisation(unittest.TestCase):
                 self.assertNotIn(label.lower(), ("trainee", "learner", "学员"))
 
 
+class TestLastAdminProtection(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import web_app
+
+        cls.web_app = web_app
+        cls.secret = "last-admin-test-secret"
+        cls.app = web_app.create_app(store=db.Store("sqlite://"), env={"STUDIO_SECRET_KEY": cls.secret})
+
+    def setUp(self):
+        # A file-backed database gives concurrent requests independent SQLite connections.
+        # scripts/pg_test.py replaces Store construction with a fresh real PostgreSQL database.
+        self.folder = tempfile.TemporaryDirectory(prefix="last-admin-")
+        self.store = db.Store(f"sqlite:///{self.folder.name}/test.db")
+        self.web_app.set_store(self.store)
+        self.ids = [self.store.create_user(f"admin{i}@example.test", f"Admin {i}", "unused", role="admin")
+                    for i in range(2)]
+        self.addCleanup(self.folder.cleanup)
+        self.addCleanup(self.store.engine.dispose)
+
+    def _client(self, uid):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.app)
+        cookie = accounts.make_session_cookie(self.store.get_user(uid), self.secret)
+        client.cookies.set(accounts.SESSION_COOKIE, cookie)
+        return client, accounts.csrf_token(cookie, self.secret)
+
+    def _post(self, client, csrf, uid, action, lang="en"):
+        if action == "delete":
+            return client.post(f"/account/delete?lang={lang}", data={"csrf": csrf, "confirm": "DELETE"},
+                               follow_redirects=False)
+        return client.post(f"/admin/users/{uid}?lang={lang}", data={"csrf": csrf,
+                           "role": "user" if action == "demote" else "admin",
+                           "status": "disabled" if action == "disable" else "active"}, follow_redirects=False)
+
+    def _race(self, actions):
+        from concurrent.futures import ThreadPoolExecutor
+        from html import unescape
+        import threading
+        import account_pages
+
+        clients = [self._client(uid) for uid in self.ids]
+        barrier = threading.Barrier(2, timeout=10)
+        original_update, original_delete = self.store.update_user, self.store.delete_user
+
+        def update(*args, **kwargs):
+            barrier.wait()
+            return original_update(*args, **kwargs)
+
+        def delete(*args, **kwargs):
+            barrier.wait()
+            return original_delete(*args, **kwargs)
+
+        # Both real routes have authorized their requests before either mutation starts.
+        # No counts, lock results, database writes, or HTTP responses are fabricated.
+        with patch.object(self.store, "update_user", side_effect=update), \
+                patch.object(self.store, "delete_user", side_effect=delete), ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self._post, *clients[i], uid, actions[i]) for i, uid in enumerate(self.ids)]
+            responses = [future.result(timeout=20) for future in futures]
+
+        refused = [account_pages.T["en"]["last_admin"] in unescape(response.text) for response in responses]
+        self.assertEqual(sum(refused), 1)
+        self.assertEqual(self.store.count_admins(), 1)
+        self.assertEqual([r.status_code for r in responses],
+                         [200 if refused[i] or actions[i] != "delete" else 303 for i in range(2)])
+        self.assertEqual(len(self.store.audit_entries()), 1)  # Only the successful change is logged.
+        for i, uid in enumerate(self.ids):
+            row = self.store.get_user(uid)
+            if refused[i]:
+                self.assertEqual((row["role"], row["status"]), ("admin", "active"))
+                self.assertEqual(clients[i][0].get("/admin", follow_redirects=False).status_code, 200)
+            else:
+                self.assertEqual(clients[i][0].get("/admin", follow_redirects=False).status_code, 303)
+                if actions[i] == "delete":
+                    self.assertIsNone(row)
+                elif actions[i] == "demote":
+                    self.assertEqual(row["role"], "user")
+                else:
+                    self.assertEqual(row["status"], "disabled")
+
+    def test_concurrent_self_demotions(self):
+        self._race(("demote", "demote"))
+
+    def test_concurrent_self_disabling(self):
+        self._race(("disable", "disable"))
+
+    def test_concurrent_self_deletions(self):
+        self._race(("delete", "delete"))
+
+    def test_concurrent_demotion_and_disabling(self):
+        self._race(("demote", "disable"))
+
+    def test_concurrent_demotion_and_deletion(self):
+        self._race(("demote", "delete"))
+
+    def test_concurrent_disabling_and_deletion(self):
+        self._race(("disable", "delete"))
+
+    def test_last_admin_errors_preserve_all_fields_and_data(self):
+        from html import unescape
+        import account_pages
+
+        uid = self.ids[0]
+        self.store.update_user(self.ids[1], status="disabled")
+        sid = self.store.create_session(uid, "coach", "en", "llm", "CONTRACT", {"context": []})
+        before = self.store.get_user(uid)
+        client, csrf = self._client(uid)
+        for lang in ("en", "zh"):
+            for action in ("demote", "disable", "delete"):
+                with self.subTest(lang=lang, action=action):
+                    response = self._post(client, csrf, uid, action, lang)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(account_pages.T[lang]["last_admin"], unescape(response.text))
+                    self.assertEqual(self.store.get_user(uid), before)
+                    self.assertIsNotNone(self.store.get_session(sid))
+        self.assertEqual(self.store.audit_entries(), [])
+
+    def test_storage_checks_current_role_and_rolls_back_other_changes(self):
+        uid, other = self.ids
+        self.store.update_user(uid, role="user")
+        stale = self.store.get_user(uid)  # A route may have authenticated this ordinary member already.
+        self.store.update_user(uid, role="admin")
+        self.store.update_user(other, role="user")
+        before = self.store.get_user(uid)
+        self.assertEqual(stale["role"], "user")
+        for fields in ({"role": "user"}, {"status": "disabled"}):
+            with self.assertRaises(db.LastAdminError):
+                self.store.update_user(uid, daily_token_limit=7, **fields)
+            self.assertEqual(self.store.get_user(uid), before)
+        with self.assertRaises(db.LastAdminError):
+            self.store.delete_user(uid)
+        self.assertEqual(self.store.get_user(uid), before)
+        # Keeping the role/status permits normal edits; an inactive admin is not an effective admin.
+        self.store.update_user(uid, role="admin", status="active", daily_token_limit=9)
+        self.assertEqual(self.store.get_user(uid)["daily_token_limit"], 9)
+        self.store.update_user(other, role="admin", status="disabled")
+        self.store.delete_user(other)
+        self.assertIsNone(self.store.get_user(other))
+        self.assertEqual(self.store.count_admins(), 1)
+
+
 class TestSelfServiceAndAdminControls(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
