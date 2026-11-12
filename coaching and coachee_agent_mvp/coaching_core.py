@@ -442,7 +442,15 @@ def _translate_texts(api_key: str, texts: list[str], target_lang: str, on_usage=
     translated = data.get("translations") if isinstance(data, dict) else data
     if not isinstance(translated, list) or len(translated) != len(texts):
         raise ValueError("Translation did not return one string per message.")
-    return [_clean_response_language(str(text), target_lang) for text in translated]
+    cleaned = []
+    for text in translated:
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("Translation returned an invalid or empty message.")
+        text = _clean_response_language(text, target_lang)
+        if not text:
+            raise ValueError("Translation returned an empty message after language cleanup.")
+        cleaned.append(text)
+    return cleaned
 
 
 def _content_text(content) -> str:

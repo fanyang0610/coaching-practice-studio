@@ -3522,6 +3522,124 @@ class TestSessionTakeaways(unittest.TestCase):
         self.assertEqual(again[15], "")
 
 
+class TestTranslationPersistence(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="studio-translation-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.fixture_count = 0
+
+    def _saved_conversation(self, module, language="en", ended=False):
+        import gradio as gr
+        import web_app
+        from coach_data import TRANSLATE_EN_TO_ZH
+
+        self.fixture_count += 1
+        store = db.Store(f"sqlite:///{self.temp.name}/{self.fixture_count}.db")
+        self.addCleanup(store.engine.dispose)
+        web_app.set_store(store)
+        uid = store.create_user("translation@example.test", "Fictional", "unused")
+        user = store.get_user(uid)
+        request = gr.Request(username=str(uid))
+        session = web_app._open_session(user, module, "template", language)
+        agent = session["agent"]
+        agent.mode = "llm"
+        template_en, template_zh = next(iter(TRANSLATE_EN_TO_ZH.items()))
+        template = template_en if language == "en" else template_zh
+        agent.context = [
+            {"role": agent.assistant_role, "content": template},
+            {"role": agent.user_role, "content": "My human words stay exactly as written. 我的话保留原文。"},
+            {"role": agent.assistant_role, "content": "A unique first reply." if language == "en" else "第一条独特回复。", "stage": 1},
+            {"role": agent.assistant_role, "content": "A unique last reply." if language == "en" else "最后一条独特回复。"},
+        ]
+        if ended:
+            agent.session_complete = True
+        self.assertTrue(web_app._save(session))
+        return web_app, store, user, request, session, template_en, template_zh
+
+    def test_invalid_translation_preserves_entire_saved_conversation_and_refresh(self):
+        import copy
+
+        # A valid first item must not be applied when any later item is invalid.
+        invalid_items = ("", " \n\t", None, 7, False, {}, [], "Still English.", "（an English explanation）")
+        for module in ("coach", "coachee"):
+            count = 2 if module == "coach" else 3  # coach templates are translated locally
+            payloads = [{"translations": ["有效翻译。"] * (count - 1) + [item]} for item in invalid_items]
+            payloads.extend(({"translations": []}, {"translations": ["有效翻译。"] * (count - 1)},
+                             {"translations": ["有效翻译。"] * (count + 1)}, {"translations": "错误类型"},
+                             {}, None, 7))
+            for payload in payloads:
+                with self.subTest(module=module, payload=payload):
+                    web, store, user, request, session, _, _ = self._saved_conversation(module)
+                    agent = session["agent"]
+                    before_agent = copy.deepcopy(agent.to_dict())
+                    before_row = store.get_session(session["id"])
+                    before_version = session["version"]
+                    calls = []
+                    with patch.object(web, "_safe_key", return_value="fake-key"), \
+                            patch("coaching_core._build_client", return_value=_fake_llm_client([json.dumps(payload)], calls)), \
+                            patch.object(web.gr, "Warning") as warning, \
+                            patch.object(web, "_save", wraps=web._save) as save, \
+                            self.assertLogs("coaching_studio", level="WARNING"):
+                        switched = web.switch_lang("中文", session, module, "AI", request=request)
+                        reopened = web.initial_load(None, module, "AI", "中文", request)
+                    self.assertEqual(len(calls), 1)
+                    save.assert_not_called()
+                    warning.assert_called_once_with(web.UI["zh"]["translate_failed"].format(language=web.UI["zh"]["lang_en"]))
+                    self.assertEqual(agent.to_dict(), before_agent)
+                    self.assertEqual(session["version"], before_version)
+                    self.assertEqual(store.get_session(session["id"]), before_row)
+                    self.assertEqual(reopened[-1]["id"], session["id"])
+                    self.assertEqual(reopened[-1]["agent"].to_dict(), before_agent)
+                    self.assertEqual(switched[0], reopened[0])
+                    self.assertEqual(switched[12]["value"], "English")
+                    self.assertEqual(reopened[12]["value"], "English")
+
+    def test_valid_translation_applies_all_ai_messages_and_preserves_human_words(self):
+        for module in ("coach", "coachee"):
+            for source, target in (("en", "zh"), ("zh", "en")):
+                with self.subTest(module=module, target=target):
+                    web, store, user, request, session, template_en, template_zh = self._saved_conversation(module, source)
+                    agent = session["agent"]
+                    human = dict(agent.context[1])
+                    template = template_zh if target == "zh" else template_en
+                    texts = ["第一条有效译文。", "最后一条有效译文。"] if target == "zh" else ["First valid translation.", "Last valid translation."]
+                    expected = [template, *texts]
+                    supplied = texts if module == "coach" else expected
+                    calls = []
+                    with patch.object(web, "_safe_key", return_value="fake-key"), \
+                            patch("coaching_core._build_client", return_value=_fake_llm_client([json.dumps({"translations": supplied})], calls)), \
+                            patch.object(web.gr, "Warning") as warning:
+                        switched = web.switch_lang(web._lang_selector(target), session, module, "AI", request=request)
+                        reopened = web.initial_load(None, module, "AI", web._lang_selector(source), request)
+                    warning.assert_not_called()
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(len(json.loads(calls[0]["messages"][-1]["content"])), len(supplied))
+                    self.assertEqual([msg["content"] for msg in agent.context if msg["role"] == agent.assistant_role], expected)
+                    self.assertEqual(agent.context[1], human)
+                    self.assertEqual(agent.context[2]["stage"], 1)
+                    self.assertEqual(agent.mode, "llm")
+                    self.assertEqual(store.get_session(session["id"])["language"], target)
+                    self.assertEqual(json.loads(store.get_session(session["id"])["state"]), agent.to_dict())
+                    self.assertEqual(reopened[-1]["id"], session["id"])
+                    self.assertEqual(reopened[-1]["agent"].to_dict(), agent.to_dict())
+                    self.assertEqual(switched[0], reopened[0])
+
+    def test_completed_practice_translation_keeps_existing_review_save_boundary(self):
+        web, store, user, request, session, _, _ = self._saved_conversation("coachee", ended=True)
+        before = store.get_session(session["id"])
+        with patch.object(web, "_safe_key", return_value="fake-key"), \
+                patch("coaching_core._build_client", return_value=_fake_llm_client([
+                    json.dumps({"translations": ["开场译文。", "第一条译文。", "结束回顾译文。"]})], [])), \
+                patch.object(web, "_save", wraps=web._save) as save:
+            web.switch_lang("中文", session, "coachee", "AI", request=request)
+        save.assert_not_called()
+        self.assertEqual(session["agent"].language, "zh")
+        self.assertEqual(session["agent"].context[-1]["content"], "结束回顾译文。")
+        self.assertEqual(store.get_session(session["id"]), before)
+        restored = web._restore_session(before, user)
+        self.assertEqual(restored["agent"].language, "en")
+
+
 class TestInsightControls(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
