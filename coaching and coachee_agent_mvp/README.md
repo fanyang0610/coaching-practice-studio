@@ -22,10 +22,12 @@ fullWidth: true
 - 两种模式分别保存会话；账户页提供历史、符合条件的行动卡恢复、失败点评重试、洞察逐条修正和一个可自行设置的下次练习目标。
 - 分配的导师可查看陪练记录；被教练会话默认仅自己可见，需本人主动分享。可下载个人数据、删除会话或账户。
 
-截至 2026-11-13，应用功能版本为 v2.7.4。后续源码说明和线上部署分别记录，GitHub 文档更新不会自动更新本 Space。
+本次应用功能版本为 v2.8.0，新增帮助页“更新动态”。源码说明和线上部署分别记录，GitHub 文档更新不会自动更新本 Space。
 
 AI 分数、反馈和洞察仅作练习参考，尚未证明评分稳定或训练有效。下次练习目标用于准备新案例，不自动判断进步。本应用不提供专业认证、心理治疗或危机援助。语音输入与朗读取决于设备和浏览器。
 
 [使用与隐私帮助](https://fanyang0610-coaching-practice-studio.hf.space/help?lang=zh) · [源码、本地安装与维护指南](https://github.com/fanyang0610/coaching-practice-studio)
+
+帮助页提供“更新动态”，用中英文简要介绍近期功能和修复，并链接到 GitHub 完整更新记录。摘要随应用部署更新。
 
 This independent, free, non-commercial app supports coaching practice in English and Simplified Chinese. [Read the full English introduction](https://github.com/fanyang0610/coaching-practice-studio/blob/main/coaching%20and%20coachee_agent_mvp/README.en.md) or [open Help](https://fanyang0610-coaching-practice-studio.hf.space/help?lang=en).

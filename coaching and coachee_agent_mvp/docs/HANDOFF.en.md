@@ -4,9 +4,9 @@ English · [简体中文](HANDOFF.md)
 
 ## Current state · 13 November 2026
 
-The application feature baseline is GitHub [v2.7.4](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.4) / `4fb3a63`. The latest recorded Space deployment is [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879). All six fixes and both application release batches are complete. Earlier stop instructions, pending-release statements and local follow-up notes below describe their own time. This documentation and GitHub release-process update does not change the application or deploy the Space.
+This feature release is [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0), adding What's new to Help. The hosted baseline before this release is v2.7.4 / GitHub `4fb3a63`, Space [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879). The user authorized committing, GitHub publication and Space deployment. Actual deployments and source references are in the [Space commit history](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main). Earlier stop instructions, pending releases and local notes below describe their own time.
 
-Start with the [Chinese README](../../README.md) or [English README](../../README.en.md) for purpose, features and limitations, then [Architecture](ARCHITECTURE.en.md) and [Deployment](DEPLOYMENT.en.md). Dated reviews retain their dates and are not a current open-issues list. Untracked reports, `output/` and local archived evidence are excluded from this documentation publication.
+Start with the [Chinese README](../../README.md) or [English README](../../README.en.md) for purpose, features and limitations, then [Architecture](ARCHITECTURE.en.md) and [Deployment](DEPLOYMENT.en.md). Dated reviews retain their dates and are not a current open-issues list. Untracked reports, `output/` and local archived evidence are excluded from this feature release.
 
 Remaining limitations:
 
@@ -17,6 +17,8 @@ Remaining limitations:
 - The 351 final integration checks and related PostgreSQL, cross-process concurrency and browser results belong to the previous repair round. Health/sign-in checks do not establish complete production-account acceptance, physical-device Safari compatibility or all-model quality.
 
 ## Future maintenance and releases
+
+13 November 2026, this release: Help now includes What's new, with a jump link in the opening card, recent feature and fix highlights, and the full GitHub Releases history in a new tab. Chinese and English highlights live in `account_pages.py` (`HELP_UPDATES`) and ship with the application, without a runtime GitHub request. Documentation-only versions are not shown as application feature updates. See [Releases](../../docs/RELEASES.en.md) for maintenance. All 9 existing Help checks passed, along with Chinese and English browser checks at 1440×1200 and 390×844 (not a physical iPhone). The launcher was rebuilt without launching it. Publication reuses the existing checks without repeating model or database acceptance. After deployment, verify the running SHA, bilingual Help and health responses.
 
 Read this handoff and [AGENTS.md](../AGENTS.md) first; read [DESIGN.md](../DESIGN.md) before UI changes. Protect configuration, real records and owner corrections. Choose checks for the actual issue and reuse valid evidence. Application code changes follow the desktop/phone and launcher-rebuild requirements.
 

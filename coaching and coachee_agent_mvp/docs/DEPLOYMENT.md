@@ -38,7 +38,7 @@ GitHub Release 记录源码，不会自动更新线上 Space。每次发布按[�
 
 发布清单仅上传应用 README.md，其中保留英文入口；完整英文 README 在 GitHub。等待构建完成后，还应确认实际运行 SHA 与本次部署提交一致。健康页不能证明模型语义或业务流程正确。
 
-截至 2026-11-13，最近一次已记录应用部署为 [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879)，对应 GitHub v2.7.4；此前已记录运行 SHA、健康及中英文登录核对。本轮文档更新仅发布 GitHub。
+v2.8.0 的发布前线上基线为 [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879)，对应 GitHub v2.7.4。本轮已获授权发布并部署帮助页更新；新部署及源码引用见 [Space 提交记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)。部署完成需核对运行 SHA、健康及中英文帮助页。
 
 ## Docker 与数据库
 
@@ -46,4 +46,4 @@ GitHub Release 记录源码，不会自动更新线上 Space。每次发布按[�
 
 启动会创建缺少的表。以后修改已有表结构时，需要单独设计数据库迁移和回退步骤。备份和恢复由托管数据库或本地运维负责，升级时保留原数据库和签名密钥。
 
-当前洞察和下次练习目标沿用画像 JSON，不需要新表。代码回退不应覆盖真实数据和用户更正。v2.7.4 的上一应用版本为 GitHub v2.7.3 / `9fb6392`、Space `d51bdc1ca859bc4fe0c961db59926fb1651272fc`；回退前重新判断数据兼容性。本轮文档与发布流程变化不涉及应用数据迁移。
+当前洞察和下次练习目标沿用画像 JSON，不需要新表。代码回退不应覆盖真实数据和用户更正。v2.7.4 的上一应用版本为 GitHub v2.7.3 / `9fb6392`、Space `d51bdc1ca859bc4fe0c961db59926fb1651272fc`；回退前重新判断数据兼容性。v2.8.0 帮助页更新不涉及应用数据迁移；其线上回退基线为上述 v2.7.4 / Space `4932350`。

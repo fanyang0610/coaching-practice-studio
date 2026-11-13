@@ -247,6 +247,8 @@ T = {
         "help_eyebrow": "Getting started",
         "help_title": "How Coaching Practice Studio works",
         "help_intro": "A free place to be coached by AI, or to practise coaching an AI client. Here is everything you need for your first session.",
+        "help_updates_title": "What's new",
+        "help_updates_all": "Full update history on GitHub",
         "help_join_title": "Joining",
         "help_steps": [
             "Open the invite link you were sent. Invite links expire, usually after 14 days, so use yours soon.",
@@ -523,6 +525,8 @@ T = {
         "help_eyebrow": "使用指南",
         "help_title": "教练练习室怎么用",
         "help_intro": "一个免费的地方：可以让 AI 为你做教练，也可以练习给 AI 学员做教练。下面是第一次使用需要知道的全部内容。",
+        "help_updates_title": "更新动态",
+        "help_updates_all": "查看完整更新记录（GitHub）",
         "help_join_title": "加入",
         "help_steps": [
             "打开你收到的邀请链接。邀请链接有有效期（通常 14 天），请尽快使用。",
@@ -591,6 +595,42 @@ T = {
         },
     },
 }
+
+# Keep these user-facing highlights with the application they describe. Do not
+# fetch the latest GitHub release at runtime: it may not be deployed here yet.
+HELP_UPDATES = [
+    ("2026-11-13", "v2.7.3–v2.7.4", {
+        "zh": [
+            "修正被教练会话的洞察归属；翻译异常时保留原对话。",
+            "重新打开会话时保留已保存的评价；管理员可以翻看更早的邀请记录。",
+        ],
+        "en": [
+            "Corrected insight attribution in Be coached sessions; original conversations are kept when translation fails.",
+            "Saved session ratings are restored when reopening a conversation; admins can browse older invitations.",
+        ],
+    }),
+    ("2026-11-11", "v2.7.0–v2.7.2", {
+        "zh": [
+            "账户功能分组展示，可以翻看更早的会话记录。",
+            "修复 AI 回复或推进阶段时草稿丢失、旧洞察覆盖本人修改的问题，并改进额度恢复时间提示。",
+        ],
+        "en": [
+            "Account tools are grouped by task, with navigation to older conversations.",
+            "Fixed lost drafts during AI replies or stage changes and late insight analysis overwriting your edits; improved allowance recovery estimates.",
+        ],
+    }),
+    ("2026-11-10", "v2.4.0–v2.6.0", {
+        "zh": [
+            "可以逐条编辑或移除 AI 洞察，并设置、修改或清空一个下次练习目标。",
+            "行动卡生成或保存失败后可从本人历史记录重试；长对话保留完整输入，练习总分按五阶段分项相加。",
+        ],
+        "en": [
+            "Edit or remove individual AI insights, and set, change or clear a goal for your next practice.",
+            "Retry failed action cards from your own history; long conversations retain their full input, and practice totals add up the five stage scores.",
+        ],
+    }),
+]
+
 
 ROLE_LABELS = {
     "en": {"user": "member", "trainer": "mentor", "admin": "admin"},
@@ -1150,14 +1190,22 @@ def build_router(get_store: Callable[[], db.Store], settings: PageSettings, *,
         if settings.contact:
             faq_items.append([T[lang]["help_contact_q"], text(lang, "help_contact_a", contact=settings.contact)])
         faq = "".join(f'<div class="faq"><b>{_e(question)}</b><p>{_e(answer)}</p></div>' for question, answer in faq_items)
+        updates = "".join(
+            f'<div class="faq"><b>{_e(date)} · {_e(versions)}</b><ul class="steps">'
+            + "".join(f"<li>{_e(item)}</li>" for item in highlights[lang]) + "</ul></div>"
+            for date, versions, highlights in HELP_UPDATES
+        )
         body = f"""<div class="card"><div class="eyebrow">{_e(T[lang]['help_eyebrow'])}</div><h1>{_e(T[lang]['help_title'])}</h1>
-<p class="hint">{_e(T[lang]['help_intro'])}</p><p class="hint">{_e(T[lang]['independent'])}</p></div>
+<p class="hint">{_e(T[lang]['help_intro'])}</p><p class="hint">{_e(T[lang]['independent'])}</p>
+<a href="#whats-new">{_e(T[lang]['help_updates_title'])}</a></div>
 <div class="card"><h2>{_e(T[lang]['help_join_title'])}</h2><ol class="steps">{steps}</ol></div>
 <div class="grid2"><div class="card"><h2>{_e(T[lang]['module_coach'])}</h2><p>{_e(T[lang]['help_coach_mode'])}</p></div>
 <div class="card"><h2>{_e(T[lang]['module_coachee'])}</h2><p>{_e(T[lang]['help_coachee_mode'])}</p></div></div>
 <div class="card"><h2>{_e(T[lang]['help_session_title'])}</h2><ul class="steps">{session_items}</ul></div>
 <div class="card"><h2>{_e(T[lang]['help_limits_title'])}</h2><p>{_e(text(lang, 'help_limits', coach=allowance(limits['coach']), coachee=allowance(limits['coachee']), messages=quota.MESSAGES_PER_CONVERSATION, warning=quota.MESSAGES_LEFT_WARNING))}</p></div>
 <div class="card"><h2>{_e(T[lang]['help_faq_title'])}</h2>{faq}<p class="hint"><a href="/voices">{_e(T[lang]['voices_link'])}</a></p></div>
+<section class="card" id="whats-new" aria-labelledby="whats-new-title"><h2 id="whats-new-title">{_e(T[lang]['help_updates_title'])}</h2>{updates}
+<p><a href="https://github.com/fanyang0610/coaching-practice-studio/releases" target="_blank" rel="noopener noreferrer">{_e(T[lang]['help_updates_all'])}</a></p></section>
 {'' if user else f'<p><a class="button full" href="/login">{_e(T[lang]["help_cta"])}</a></p>'}"""
         return render(request, lang, T[lang]["help"], body, user=user)
 

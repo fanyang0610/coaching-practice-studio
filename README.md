@@ -13,7 +13,7 @@
 
 ## 当前功能与状态
 
-截至 **2026-11-13**，应用功能已发布至 [v2.7.4](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.4)。本轮文档和发布流程更新不改变应用功能；后续源码版本见 [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases)。
+本次功能版本 [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0) 在帮助页增加中英文“更新动态”：近期功能与修复摘要、页首直达入口及 GitHub 完整更新记录链接。摘要随应用交付；完整源码版本见 [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases)。
 
 - **继续与恢复**：两种模式各自恢复进度；新开会话成功后再切换。结束时区分未提取到行动、生成失败和保存失败；符合条件的缺失行动卡可由本人从历史恢复，失败的练习点评也可重试。
 - **洞察由本人控制**：账户页可逐条编辑、移除或清除 AI 洞察。被教练模式记录来访者表达的观察、资源和问题；陪练模式记录教练练习观察。后续使用读取当前保存内容，近义表述仍可能再次出现。
@@ -29,7 +29,7 @@
 
 打开[教练练习室](https://fanyang0610-coaching-practice-studio.hf.space)，用邀请链接注册后登录。在页面顶部切换模式，在[帮助](https://fanyang0610-coaching-practice-studio.hf.space/help?lang=zh)中查看使用与隐私规则。
 
-GitHub Release 记录源码版本，线上版本由 Hugging Face 单独部署。最近一次已记录的应用部署为 [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879)，对应 v2.7.4；文档更新不会自动部署线上应用。
+GitHub Release 记录源码版本，线上版本由 Hugging Face 单独部署。实际部署及对应源码说明见 [Space 提交记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)；文档更新不会自动部署线上应用。
 
 ## 本地运行
 

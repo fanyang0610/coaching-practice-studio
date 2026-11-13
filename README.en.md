@@ -13,7 +13,7 @@ Both modes show five-stage progress and save conversations independently. Sign i
 
 ## Current features and status
 
-As of **13 November 2026**, application features are released through [v2.7.4](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.4). This documentation and release-process update does not change application behavior. See [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases) for subsequent source versions.
+Feature release [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0) adds bilingual What's new to Help: recent feature and fix highlights, a jump link near the top and the full GitHub history. Highlights ship with the application. See [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases) for source versions.
 
 - **Resume and recover**: each mode restores its own progress; a new conversation replaces the current one only after it succeeds. Ending distinguishes no extracted action, generation failure and save failure. Owners can recover eligible missing action cards from history and retry failed practice reviews.
 - **Owner-controlled insights**: edit or remove individual AI insights, or clear them. Be coached records observations, resources and questions expressed by the human client; practice mode records observations about coaching practice. Later use reads the currently saved content. Similar wording may still appear as a new observation.
@@ -29,7 +29,7 @@ This is a practice tool. The program adds the five stage scores, but stage judgm
 
 Open the [studio](https://fanyang0610-coaching-practice-studio.hf.space), register through an invitation link and sign in. Switch modes at the top of the page. See [Help](https://fanyang0610-coaching-practice-studio.hf.space/help?lang=en) for use and privacy rules.
 
-GitHub Releases identify source versions; Hugging Face deployments are separate. The latest recorded application deployment is [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879), corresponding to v2.7.4. Updating documentation does not automatically deploy the hosted application.
+GitHub Releases identify source versions; Hugging Face deployments are separate. See the [Space commit history](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main) for actual deployments and their source references. Updating documentation does not automatically deploy the hosted application.
 
 ## Run locally
 

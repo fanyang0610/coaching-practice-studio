@@ -38,7 +38,7 @@ Capacity rules are in [coaching_core.py](../coaching_core.py). Some limits are r
 
 Only application README.md is uploaded, so it retains an English entry point; the complete English README stays on GitHub. Also verify the running SHA matches the deployment commit. Health responses do not establish model or business-flow correctness.
 
-As of 13 November 2026, the latest recorded application deployment is [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879), corresponding to GitHub v2.7.4. Running SHA, health and bilingual sign-in checks were previously recorded. This documentation update is published only to GitHub.
+The hosted baseline before v2.8.0 is [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879), corresponding to GitHub v2.7.4. Publication and deployment of this Help update are authorized. See the [Space commit history](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main) for the new deployment and source reference. Verify the running SHA, health and bilingual Help after deployment.
 
 ## Docker and databases
 
@@ -46,4 +46,4 @@ The application [Dockerfile](../Dockerfile) uses the application directory as bu
 
 Startup creates missing tables. Changes to existing schemas need separately designed migrations and rollback. Database-platform or local operations own backup and restore; retain the existing database and signing key during upgrades.
 
-Current insights and practice goals use the existing profile JSON and need no new tables. Reverting code must not overwrite real data or user corrections. The application version before v2.7.4 is GitHub v2.7.3 / `9fb6392`, Space `d51bdc1ca859bc4fe0c961db59926fb1651272fc`. Reassess data compatibility before rollback. This documentation and release-process update involves no application data migration.
+Current insights and practice goals use the existing profile JSON and need no new tables. Reverting code must not overwrite real data or user corrections. The application version before v2.7.4 is GitHub v2.7.3 / `9fb6392`, Space `d51bdc1ca859bc4fe0c961db59926fb1651272fc`. Reassess data compatibility before rollback. The v2.8.0 Help update involves no application data migration; its hosted rollback baseline is v2.7.4 / Space `4932350` above.
