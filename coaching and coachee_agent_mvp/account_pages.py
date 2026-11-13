@@ -598,7 +598,18 @@ T = {
 
 # Keep these user-facing highlights with the application they describe. Do not
 # fetch the latest GitHub release at runtime: it may not be deployed here yet.
+# Include the release being shipped, including changes to Help itself.
 HELP_UPDATES = [
+    ("2026-11-13", "v2.7.4–v2.8.1", {
+        "zh": [
+            "新增“更新动态”，按日期和版本查看近期功能与修复，页首可直达。",
+            "修复更新动态遗漏最新版本的问题；完整更新记录可在 GitHub 另页查看。",
+        ],
+        "en": [
+            "What's new lists recent features and fixes by date and version, with a jump link near the top of Help.",
+            "Fixed the latest release being missing from these highlights; open GitHub in a new tab for the full history.",
+        ],
+    }),
     ("2026-11-13", "v2.7.3–v2.7.4", {
         "zh": [
             "修正被教练会话的洞察归属；翻译异常时保留原对话。",

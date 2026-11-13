@@ -32,6 +32,7 @@
 | [v2.7.4](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.4) | 2026-11-13 | `4fb3a63` | 管理员并发保护、旧邀请翻页、评价恢复和支持提示。 |
 | [v2.7.5](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.5) | 2026-11-13 | `v2.7.5` | 双语文档与历史 release 说明，发版前文档核对；应用功能不变。 |
 | [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0) | 2026-11-13 | `v2.8.0` | 帮助页更新动态、中英文近期摘要及 GitHub 完整记录链接。 |
+| [v2.8.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.1) | 2026-11-13 | `v2.8.1` | 补齐更新动态遗漏的最新版本，中英文首条摘要覆盖至 v2.8.1。 |
 
 v1.0.0 取自首个明确标注的完整 MVP 源码里程碑，十个核心运行文件与 5 月 7 日 Space 部署一致。随后添加根 README 的 v1.0.1 与原 legacy-mvp 标签同源。源码提交日期与部署日期分别记录。
 
@@ -40,7 +41,7 @@ v1.0.0 取自首个明确标注的完整 MVP 源码里程碑，十个核心运�
 1. 核对本次改动是否影响项目目的、使用步骤、功能、权限、数据、限制、配置或部署。检查根 README、应用/Space README、ARCHITECTURE、DEPLOYMENT、HANDOFF 和本文；DESIGN 与 AGENTS 在规则变化时再更新。带日期的旧审查记录保留历史语境。
 2. 受影响文档同步更新中文和英文，并保留互相切换的链接。没有必要更新的文档不为发版而重写，但必须记录具体原因。不要把局部检查写成全部验收，不把源码发布写成线上部署。
 3. 更新 `.github/release-notes.json`：`zh`、`en` 为本版的实际说明，`documentation_zh`、`documentation_en` 记录文档核对结果、改动文件或不更新原因。两种语言覆盖相同事实与限制，不能只有双语标题或直接复用未翻译提交标题。该文件是当前版说明，历史全文由 GitHub Releases 保存。
-   应用功能或用户可见修复同时维护 `account_pages.py` 的 `HELP_UPDATES` 中英文摘要，保持日期倒序、内容简短，只描述随该应用一起交付的变化。帮助页保留近期摘要，完整历史链接到 GitHub Releases；纯文档或内部维护通常不进入摘要。GitHub 新版不一定已部署，因此帮助页不实时抓取最新 Release。
+   应用功能或用户可见修复同时维护 `account_pages.py` 的 `HELP_UPDATES` 中英文摘要，保持日期倒序、内容简短，只描述随该应用一起交付的变化。核对首条摘要是否覆盖本次版本和用户可见变化，帮助页本身的更新也需纳入。帮助页保留近期摘要，完整历史链接到 GitHub Releases；纯文档或内部维护通常不进入摘要。GitHub 新版不一定已部署，因此帮助页不实时抓取最新 Release。
 4. 用 Conventional Commits 提交并完成适用检查，将本版所有必要提交一次推送 main。发布脚本要求相对上一版本更新说明文件，并拒绝空字段、缺少语言内容及 TODO/TBD 等占位内容；它不能判断翻译质量或文档是否真实准确，仍需人工核对。
 
 ## 自动发布规则

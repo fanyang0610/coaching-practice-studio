@@ -4,7 +4,7 @@
 
 ## 当前状态 · 2026-11-13
 
-本次功能版本为 [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0)，新增帮助页“更新动态”。发布前线上基线为 v2.7.4 / GitHub `4fb3a63`、Space [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879)。用户已授权本轮提交、GitHub 发布和 Space 部署；实际部署与源码引用见 [Space 提交记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)。下方旧轮次的停止、待发布和本地补记仅描述当时。
+本次修订版为 [v2.8.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.1)，补齐帮助页遗漏的 v2.8.0 功能摘要，并纳入本次修正。首条区间为 v2.7.4–v2.8.1。发布前线上基线为 v2.8.0 / GitHub `ff01d17`、Space [3cc22cc](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/3cc22cca953c5457823b48aa0e01f852ba4a22cf)。用户已授权本轮提交、GitHub 发布和 Space 部署；实际部署与源码引用见 [Space 提交记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)。下方旧轮次的停止、待发布和本地补记仅描述当时。
 
 项目目的、功能和限制以[中文首页](../../README.md)、[英文首页](../../README.en.md)为入口；实现与配置见[架构](ARCHITECTURE.md)和[部署](DEPLOYMENT.md)。历史审查文件保留原日期，不作为当前未解决事项清单。未跟踪报告、`output/` 和本地封存证据不随本次功能发布。
 

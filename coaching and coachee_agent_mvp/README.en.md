@@ -9,7 +9,7 @@ An independent, free, non-commercial coaching practice space in English and Simp
 - Each mode saves its own conversation. The account page offers history, eligible action-card recovery, failed-review retries, individual insight corrections and one user-chosen next practice goal.
 - Assigned mentors can view practice records. Be coached conversations stay private unless you share them. You can download your data, delete conversations or delete your account.
 
-Application feature version v2.8.0 adds What's new to Help. Source releases and hosted deployments are recorded separately. Updating GitHub documentation does not automatically update this Space.
+Application version v2.8.1 fills in the latest release highlights in What's new. Source releases and hosted deployments are recorded separately. Updating GitHub documentation does not automatically update this Space.
 
 AI scores, feedback and insights are practice references; stable scoring and training effectiveness have not been established. The next practice goal informs a new case without automatically assessing improvement. This app does not provide professional certification, therapy or crisis support. Speech input and read-aloud depend on the device and browser.
 
