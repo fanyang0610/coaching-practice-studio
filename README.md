@@ -13,7 +13,7 @@
 
 ## 当前功能与状态
 
-本次功能版本 [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0) 在帮助页增加中英文“更新动态”：近期功能与修复摘要、页首直达入口及 GitHub 完整更新记录链接。摘要随应用交付；完整源码版本见 [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases)。
+当前线上应用版本为 **[v2.8.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.1)**（2026-11-13 已核对）。帮助页提供中英文“更新动态”、页首直达入口及 GitHub 完整更新记录链接；最新摘要覆盖 v2.7.4–v2.8.1，已补齐此前遗漏的发布内容。[最新源码发布](https://github.com/fanyang0610/coaching-practice-studio/releases/latest)同时包含后续纯文档更新，与线上应用版本分别记录。
 
 - **继续与恢复**：两种模式各自恢复进度；新开会话成功后再切换。结束时区分未提取到行动、生成失败和保存失败；符合条件的缺失行动卡可由本人从历史恢复，失败的练习点评也可重试。
 - **洞察由本人控制**：账户页可逐条编辑、移除或清除 AI 洞察。被教练模式记录来访者表达的观察、资源和问题；陪练模式记录教练练习观察。后续使用读取当前保存内容，近义表述仍可能再次出现。

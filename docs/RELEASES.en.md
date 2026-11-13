@@ -4,7 +4,7 @@ English · [简体中文](RELEASES.md)
 
 ## Stable versions
 
-Dates are source-commit dates in Beijing time. Historical versions were backfilled. Every GitHub release has Chinese and English notes. v2.7.5 changed documentation and the release process only; v2.8.0 adds What's new to Help.
+Dates are source-commit dates in Beijing time. Historical versions were backfilled. Every GitHub release has Chinese and English notes. v2.8.2 synchronizes documentation; the deployed application remains v2.8.1. v2.8.0 added What's new to Help.
 
 | Version | Date | Source ref | Main changes |
 | --- | --- | --- | --- |
@@ -33,13 +33,14 @@ Dates are source-commit dates in Beijing time. Historical versions were backfill
 | [v2.7.5](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.5) | 2026-11-13 | `v2.7.5` | Bilingual guides and historical release notes; pre-release documentation review; no app behavior change. |
 | [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0) | 2026-11-13 | `v2.8.0` | What's new in Help, bilingual recent highlights and full GitHub history link. |
 | [v2.8.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.1) | 2026-11-13 | `v2.8.1` | Fill in missing latest-release highlights; the first bilingual entry now covers through v2.8.1. |
+| [v2.8.2](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.2) | 2026-11-13 | `v2.8.2` | Synchronize both GitHub homepages and deployed v2.8.1 status; add update synchronization instructions. Documentation only; app version unchanged. |
 
 v1.0.0 is the first explicitly identified complete MVP source milestone. Its ten core runtime files match the 7 May Space deployment. The later root-README release v1.0.1 shares its source with the original legacy-mvp tag. Source and deployment dates are recorded separately.
 
 ## Before every release
 
 1. Determine whether changes affect purpose, usage, features, permissions, data, limitations, configuration or deployment. Review the root README, application/Space README, ARCHITECTURE, DEPLOYMENT, HANDOFF and this guide. Update DESIGN and AGENTS when their rules change. Dated reviews retain their historical context.
-2. Update affected documents in Chinese and English, retaining language-switch links. Do not rewrite unaffected documents just for a release; record a specific reason. Do not describe partial checks as complete acceptance or source publication as hosted deployment.
+2. Update affected documents in Chinese and English, retaining language-switch links. The root README current status must reflect the actual current version; an accurate older feature milestone is insufficient. Check consistency across the GitHub homepage, application/Space introduction, Help highlights, release notes and maintenance/deployment status. Do not rewrite unaffected documents just for a release; record a specific reason. Do not describe partial checks as complete acceptance or source publication as hosted deployment.
 3. Update `.github/release-notes.json`: `zh` and `en` contain the release's substantive notes; `documentation_zh` and `documentation_en` record the documentation decision, changed files or reasons no update is needed. Both languages cover the same facts and limits. Bilingual headings or untranslated commit titles are insufficient. This file holds the current release's notes; GitHub Releases retain historical bodies.
    For application features or user-visible fixes, also maintain the concise Chinese and English `HELP_UPDATES` highlights in `account_pages.py`, newest first, describing only changes delivered with that application. Check that the first entry covers the version being shipped and its user-visible changes, including changes to Help itself. Help keeps recent highlights and links to GitHub Releases for the full history; documentation-only and internal maintenance changes usually do not need highlights. Help does not fetch the latest release at runtime because it may not be deployed yet.
 4. Use Conventional Commits, complete relevant checks and push the necessary release commits together to main. The script requires the notes file to differ from the previous version and rejects empty fields, missing language content and TODO/TBD placeholders. It cannot assess translation quality or factual accuracy, which still require maintainer review.

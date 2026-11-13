@@ -13,7 +13,7 @@ Both modes show five-stage progress and save conversations independently. Sign i
 
 ## Current features and status
 
-Feature release [v2.8.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.0) adds bilingual What's new to Help: recent feature and fix highlights, a jump link near the top and the full GitHub history. Highlights ship with the application. See [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases) for source versions.
+The currently deployed application is **[v2.8.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.1)** (verified on 13 November 2026). Help includes bilingual What's new, a jump link near the top and the full GitHub history. The latest highlights cover v2.7.4–v2.8.1, including the previously missing release content. The [latest source release](https://github.com/fanyang0610/coaching-practice-studio/releases/latest) also includes subsequent documentation-only updates and is recorded separately from the deployed application.
 
 - **Resume and recover**: each mode restores its own progress; a new conversation replaces the current one only after it succeeds. Ending distinguishes no extracted action, generation failure and save failure. Owners can recover eligible missing action cards from history and retry failed practice reviews.
 - **Owner-controlled insights**: edit or remove individual AI insights, or clear them. Be coached records observations, resources and questions expressed by the human client; practice mode records observations about coaching practice. Later use reads the currently saved content. Similar wording may still appear as a new observation.

@@ -4,9 +4,9 @@
 
 ## 当前状态 · 2026-11-13
 
-本次修订版为 [v2.8.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.1)，补齐帮助页遗漏的 v2.8.0 功能摘要，并纳入本次修正。首条区间为 v2.7.4–v2.8.1。发布前线上基线为 v2.8.0 / GitHub `ff01d17`、Space [3cc22cc](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/3cc22cca953c5457823b48aa0e01f852ba4a22cf)。用户已授权本轮提交、GitHub 发布和 Space 部署；实际部署与源码引用见 [Space 提交记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)。下方旧轮次的停止、待发布和本地补记仅描述当时。
+当前线上应用为 [v2.8.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.8.1) / GitHub `731a880`、Space [f8aa9f7](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/f8aa9f73ecdc1156ae796b44c68606acc8c1c187)，已确认 RUNNING 且运行 SHA 一致；中英文手机端帮助页首条为 v2.7.4–v2.8.1，健康检查正常。本次 v2.8.2 仅同步文档与项目规则，不改变线上应用。最新源码发布和线上部署分别以 [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases/latest) 与 [Space 提交记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)为准。下方旧轮次的停止、待发布和本地补记仅描述当时。
 
-项目目的、功能和限制以[中文首页](../../README.md)、[英文首页](../../README.en.md)为入口；实现与配置见[架构](ARCHITECTURE.md)和[部署](DEPLOYMENT.md)。历史审查文件保留原日期，不作为当前未解决事项清单。未跟踪报告、`output/` 和本地封存证据不随本次功能发布。
+项目目的、功能和限制以[中文首页](../../README.md)、[英文首页](../../README.en.md)为入口；实现与配置见[架构](ARCHITECTURE.md)和[部署](DEPLOYMENT.md)。历史审查文件保留原日期，不作为当前未解决事项清单。未跟踪报告、`output/` 和本地封存证据不随本次文档发布。
 
 当前仍需知道的限制：
 
@@ -18,7 +18,9 @@
 
 ## 后续维护与发布
 
-2026-11-13 本次发布：帮助页增加“更新动态 / What's new”，页首卡片可跳到近期功能与修复摘要，并另开 GitHub Releases 查看完整历史。摘要为应用内中英文内容（`account_pages.py` 的 `HELP_UPDATES`），随应用交付，不实时请求 GitHub；纯文档版本不作为应用功能更新展示。维护方式见[版本与发布](../../docs/RELEASES.md)。帮助页 9 项既有检查通过，中英文 1440×1200 和 390×844 浏览器检查通过（非 iPhone 真机），启动器已重编译且未启动。发布沿用已有验证，不重新开展模型或数据库验收；部署后核对运行 SHA、中英文帮助页和健康检查。
+2026-11-13 文档同步：根 README 中英文“当前状态”改为实际线上 v2.8.1，并明确最新源码发布可包含纯文档更新。根 AGENTS.md 要求每次更新一并核对相关中英文首页、帮助摘要、发布说明及维护/部署状态，不等待用户逐项提醒。应用/Space README 与帮助摘要已对应 v2.8.1；本次未改运行文件。
+
+2026-11-13，v2.8.0–v2.8.1 应用发布：帮助页增加“更新动态 / What's new”，页首卡片可跳到近期功能与修复摘要，并另开 GitHub Releases 查看完整历史。摘要为应用内中英文内容（`account_pages.py` 的 `HELP_UPDATES`），随应用交付，不实时请求 GitHub；纯文档版本不作为应用功能更新展示。维护方式见[版本与发布](../../docs/RELEASES.md)。帮助页 9 项既有检查通过，中英文 1440×1200 和 390×844 浏览器检查通过（非 iPhone 真机），启动器已重编译且未启动。两次应用发布均已完成运行 SHA、中英文帮助页与健康检查核对；这些检查不代表新的模型或数据库验收。
 
 先阅读本文和 [AGENTS.md](../AGENTS.md)；UI 修改阅读 [DESIGN.md](../DESIGN.md)。保护现有配置、真实记录及用户更正。按实际问题选择验证，复用有效证据；应用代码变化遵守双端检查和启动器重编译要求。
 
