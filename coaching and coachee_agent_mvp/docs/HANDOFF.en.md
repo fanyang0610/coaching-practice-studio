@@ -1,0 +1,55 @@
+# Maintenance handoff
+
+English · [简体中文](HANDOFF.md)
+
+## Current state · 13 November 2026
+
+The application feature baseline is GitHub [v2.7.4](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.4) / `4fb3a63`. The latest recorded Space deployment is [4932350](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commit/4932350d83865ee343e8371ec8a9bcfc5cb37879). All six fixes and both application release batches are complete. Earlier stop instructions, pending-release statements and local follow-up notes below describe their own time. This documentation and GitHub release-process update does not change the application or deploy the Space.
+
+Start with the [Chinese README](../../README.md) or [English README](../../README.en.md) for purpose, features and limitations, then [Architecture](ARCHITECTURE.en.md) and [Deployment](DEPLOYMENT.en.md). Dated reviews retain their dates and are not a current open-issues list. Untracked reports, `output/` and local archived evidence are excluded from this documentation publication.
+
+Remaining limitations:
+
+- Five-stage total arithmetic is fixed, but stage scores, stage detection and insight accuracy are not generally validated. Cross-session comparability and training effectiveness have not been established.
+- Be coached insight attribution is fixed; historical incorrect profiles were not cleaned in bulk. Owners can correct individual items. Similar observations may reappear after original wording is removed.
+- The next practice goal informs a new case without assessing achievement. Fresh Be coached sessions retain the boundary of the current topic.
+- Previously recorded gaps include other unused reset links potentially remaining valid after a password change, disabling automatic read-aloud not necessarily stopping current playback, and some inputs needing clearer accessible names. They are not promised fixes in this update.
+- The 351 final integration checks and related PostgreSQL, cross-process concurrency and browser results belong to the previous repair round. Health/sign-in checks do not establish complete production-account acceptance, physical-device Safari compatibility or all-model quality.
+
+## Future maintenance and releases
+
+Read this handoff and [AGENTS.md](../AGENTS.md) first; read [DESIGN.md](../DESIGN.md) before UI changes. Protect configuration, real records and owner corrections. Choose checks for the actual issue and reuse valid evidence. Application code changes follow the desktop/phone and launcher-rebuild requirements.
+
+**Every new release must consider whether documentation needs updating**: review the README/Space introduction; features, permissions, data and limitations; configuration/deployment steps; maintenance status; and coverage of the release itself. Update affected documents in both Chinese and English. Record a reason when no update is needed. Dated historical evidence normally stays unchanged.
+
+Use Conventional Commits and update both languages and the documentation decision in [release-notes.json](../../.github/release-notes.json). The release script requires an updated notes file within the release range and refuses incomplete content. Maintainers still review language quality and document accuracy. See [Releases](../../docs/RELEASES.en.md) for the full rules. GitHub publication and Space deployment are authorized and executed separately.
+
+---
+
+# Preserved historical handoff
+
+**13 November 2026:** all six sequential fixes and both release batches completed. Batch one was v2.7.3; batch two was GitHub `4fb3a63` / v2.7.4 and Hugging Face `4932350`, confirmed RUNNING with matching runtime SHA. Changes fixed insight attribution, original-text preservation on invalid translation, concurrent administrator protection, older-invitation pagination, restored ratings, and support replies despite logging failure. All 351 final integration checks passed, with relevant temporary PostgreSQL, cross-process and desktop/phone checks. The launcher was rebuilt without being launched. Evidence, limitations and rollback points are in the [six-fix handoff](../../docs/SIX_FIXES_HANDOFF_20261111.md). Existing local changes were retained. Post-release notes stayed local to avoid a third release. That round ended without automatically expanding scope.
+
+**11 November 2026 (latest at that time):** five sequential fixes and integration follow-ups released together as GitHub `a3f2527` / [v2.7.2](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.2), Space `c8bf123`, confirmed RUNNING with matching SHA. Changes covered drafts during replies/manual advancement, late insight writes after clearing, older account/mentor history, goal-only action cards and allowance recovery time. All 331 integration checks passed, along with per-item browser and necessary PostgreSQL checks. Existing local changes were retained. See the [five-fix handoff](../../docs/FIVE_FIXES_HANDOFF_20261111.md) for results, limitations and rollback. The round ended without further automatic improvements.
+
+**10 November 2026:** with the owner's agreement, daily application code was restored to `718b7a9` (5 November). Five candidate improvements and available evidence were archived locally in `local-archives/2026-11-10-five-improvements/README.md`, which is not published with source. The candidate failed overall acceptance. Work stopped without automatically repairing, extracting features or deploying it. Configuration and real data were retained; the hosted app was unchanged.
+
+**Later that day, item 1:** separately authorized action-card failure messages and history recovery shipped as GitHub main `93c0215` / v2.4.0, with the new Space deployment confirmed running. Original conversations and existing cards were preserved; only the owner can recover a card. Validation, deployment and rollback records are in local `docs/NEXT_SESSION_HANDOFF.md`, not published with source. The other four items were not merged at that point; work did not automatically continue.
+
+**Item 2:** full-history long conversations shipped separately on that baseline as GitHub `a0d5fe4` / v2.4.1, Space `17555b3`, confirmed running. Continuations and related generation no longer truncate original text; approaching capacity prompts wrap-up. Capacity was designed around the owner's intended direct DeepSeek V4.1 Flash 1M configuration while retaining 128K protection for the current OpenRouter test model; actual configuration was not switched. There were 33 targeted checks, two real test-model continuations and desktop/phone page checks. The Chinese sample missed a detail question: full input does not guarantee correct understanding. Evidence and rollback are in the local handoff. Work stopped before the next item.
+
+**Item 3:** scoring arithmetic shipped on `a0d5fe4` as GitHub `95b30ef` / v2.4.2 and Space `241a0ef`, confirmed running. New AI reviews sum five valid stage components in code and remove turn-count caps and the single-question maximum of six. Review format, old reviews and save/retry paths were retained. Validation included 23 targeted checks, two fictional real-model samples, bilingual desktop/phone pages and a rebuilt, unlaunched launcher. Model component judgments still varied; this item fixed arithmetic consistency only. Evidence and rollback are in the local handoff. Insights and ongoing training were not advanced automatically.
+
+**Item 4:** individual insight correction/removal shipped on `95b30ef` as GitHub `e28bdac` / v2.5.0, Space `24cf48d`, confirmed running. Owners can edit/remove entries; displays and later use read the same current profile. Original-text exclusions and retained edits prevent automatic merging from directly undoing corrections. Save failure and conflicts have explicit messages. There were 20 targeted checks, 10 temporary PostgreSQL checks and bilingual desktop/phone checks, with no real-model calls. The launcher was rebuilt without launching it. Similar observations may reappear; existing role-use boundaries and history remain. See the local handoff. Ongoing training was not started.
+
+**Item 5:** the user-controlled next practice goal shipped on `e28bdac` as GitHub `77351f8` / v2.6.0, Space `90e9cd9`, confirmed running. Owners can choose from practice challenge insights or write, edit and clear one goal. Practice settings display the same saved value, used when preparing new AI coachee cases. Existing profile JSON/version storage, history and role boundaries remain; there is no automatic achievement or progress judgment. Twelve targeted checks and eight temporary PostgreSQL checks passed; affected bilingual desktop/phone pages were checked. Real-model calls: zero. The launcher was rebuilt without launching it. Publication reused those checks; hosted health and bilingual sign-in were normal. Models, configuration and data were unchanged. See the local handoff. That item ended after release.
+
+**11 November 2026:** a full-application self-review and authorized fixes shipped as GitHub `4174f0f` / v2.7.1, Space `347c797`, confirmed RUNNING with matching SHA. The release reused 311 project tests, 12 isolated PostgreSQL checks and desktop/phone browser checks. Fixes covered capacity wrap-up, drafts, reviews/insights, mentor sharing, invitation/reset transactions, speech language and local tools. Hosted health and bilingual sign-in were normal. See the local handoff.
+
+The studio is an independent, non-commercial bilingual coaching practice app with Be coached and Practise coaching modes. Start at the [repository README](../../README.en.md).
+
+- The GitHub default branch main shows the maintained source. Old MVP versions are in Releases. Hosted versions follow [Space commits](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main); source merging and deployment are separate.
+- Hosting uses Hugging Face and PostgreSQL; local storage defaults to SQLite. See [Deployment](DEPLOYMENT.en.md) for configuration, upload list and upgrade compatibility.
+- Each mode saves independently. A fresh AI coach session starts with the current topic; generation/save failure lets the previous conversation continue. Failed practice reviews can be retried from the account page.
+- See [Architecture](ARCHITECTURE.en.md) for session, account, permission and model entry points. Read [DESIGN.md](../DESIGN.md) before page changes and follow [AGENTS.md](../AGENTS.md) for browser checks.
+- Earlier handoff and debugging records remain in the [pre-cleanup commit](https://github.com/fanyang0610/coaching-practice-studio/blob/b8957a9ef15f7aa435333ff824274ae8ace5781d/coaching%20and%20coachee_agent_mvp/docs/HANDOFF.md).

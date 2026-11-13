@@ -1,38 +1,59 @@
-# 版本历史与自动发布
+# 版本历史与双语发布
+
+[English](RELEASES.en.md) · 简体中文
 
 ## 正式版本
 
-日期是对应的 GitHub 源码提交日期，使用北京时间。历史版本在整理时补发。
+日期为对应源码提交的北京时间，历史版本曾整理补发。每个 GitHub release 均提供中文与英文说明。v2.7.5 为本轮文档与发布流程版本，应用功能基线仍为 v2.7.4。
 
-| 版本 | 日期 | 对应提交或分支 | 主要变化 |
+| 版本 | 日期 | 源码引用 | 主要变化 |
 | --- | --- | --- | --- |
-| [v1.0.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.0) | 2026-05-10 | `996c9e3`，首个 MVP 里程碑 | 首个完整 MVP 源码归档，核心运行文件与 5 月 7 日的线上版本一致。 |
-| [v1.0.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.1) | 2026-05-10 | `85063f1`，原默认分支 | 添加仓库根 README。 |
+| [v1.0.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.0) | 2026-05-10 | `996c9e3` | 首个完整 MVP 源码里程碑；核心运行文件与 5 月 7 日线上版一致。 |
+| [v1.0.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.1) | 2026-05-10 | `85063f1` | 添加仓库根 README；与 legacy-mvp 标签同源。 |
 | [v1.0.2](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.2) | 2026-05-13 | `842e6f4` | 改进隔离浏览器检查与布局测试。 |
 | [v1.0.3](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v1.0.3) | 2026-05-23 | `34461bf` | 增加 Hugging Face 上传判断工具与检查。 |
-| [v2.0.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.0.0) | 2026-10-14 | `68b1f12`，首次改名提交 | 改名为教练练习室，更新图标与界面，纳入账号与导师功能。 |
-| [v2.1.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.1.0) | 2026-10-19 | `30c5b33`，`scale/phase-0-1` | 自选练习议题、手机布局、朗读和会话收尾。 |
-| [v2.2.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.2.0) | 2026-11-04 | `53051b5`，`codex/coach-fresh-session` | AI 教练显式新开会话。 |
-| [v2.3.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.0) | 2026-11-05 | `b8957a9`，`codex/resume-and-review-retry` | 两个模式各自恢复会话，失败点评可重试。 |
-| [v2.3.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.1) | 2026-11-05 | `b3d749c`，`main` | 重写仓库说明、清理命名并收紧发布文件。 |
+| [v2.0.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.0.0) | 2026-10-14 | `68b1f12` | 改名、更新图标和界面，纳入账户、导师与额度。 |
+| [v2.1.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.1.0) | 2026-10-19 | `30c5b33` | 自选议题、手机布局、朗读和会话收尾。 |
+| [v2.2.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.2.0) | 2026-11-04 | `53051b5` | 显式新开 AI 教练会话。 |
+| [v2.3.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.0) | 2026-11-05 | `b8957a9` | 各模式独立恢复进度，失败点评可重试。 |
+| [v2.3.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.1) | 2026-11-05 | `b3d749c` | 重写说明，兼容旧配置，收紧发布文件。 |
+| [v2.3.2](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.2) | 2026-11-05 | `595a19b` | 自动创建 Release，补录 GitHub 与早期 Space 历史。 |
+| [v2.3.3](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.3) | 2026-11-05 | `8098675` | 将 MVP 基准定位到首个源码里程碑。 |
+| [v2.3.4](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.3.4) | 2026-11-05 | `718b7a9` | AI 教练自然、多样的开场。 |
+| [v2.4.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.4.0) | 2026-11-10 | `93c0215` | 行动卡失败提示与本人历史恢复。 |
+| [v2.4.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.4.1) | 2026-11-10 | `a0d5fe4` | 完整长对话输入及容量收尾提示。 |
+| [v2.4.2](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.4.2) | 2026-11-10 | `95b30ef` | 五阶段分项求和，移除发言次数封顶。 |
+| [v2.5.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.5.0) | 2026-11-10 | `e28bdac` | 本人可逐条编辑和移除洞察。 |
+| [v2.6.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.6.0) | 2026-11-10 | `77351f8` | 用户选择、编辑或清空一个下次练习目标。 |
+| [v2.7.0](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.0) | 2026-11-11 | `a4f2215` | 账户页面分组，简化教练控件。 |
+| [v2.7.1](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.1) | 2026-11-11 | `4174f0f` | 全应用修复：长对话收尾、保存、权限及本地工具等。 |
+| [v2.7.2](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.2) | 2026-11-11 | `a3f2527` | 草稿、洞察并发、历史翻页、行动卡和额度恢复。 |
+| [v2.7.3](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.3) | 2026-11-13 | `9fb6392` | 修正洞察归属，异常翻译保留原文。 |
+| [v2.7.4](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.4) | 2026-11-13 | `4fb3a63` | 管理员并发保护、旧邀请翻页、评价恢复和支持提示。 |
+| [v2.7.5](https://github.com/fanyang0610/coaching-practice-studio/releases/tag/v2.7.5) | 2026-11-13 | `v2.7.5` | 双语文档与历史 release 说明，发版前文档核对；应用功能不变。 |
 
-`v1.0.0` 取自首个明确标注为 MVP 里程碑的 GitHub 提交。该提交与 5 月 7 日 Space 部署的十个核心运行文件一致。随后补根 README 的提交是 `v1.0.1`，所以源码归档日期与较早的线上部署日期分别记录。
+v1.0.0 取自首个明确标注的完整 MVP 源码里程碑，十个核心运行文件与 5 月 7 日 Space 部署一致。随后添加根 README 的 v1.0.1 与原 legacy-mvp 标签同源。源码提交日期与部署日期分别记录。
 
-后续版本见 [GitHub Releases](https://github.com/fanyang0610/coaching-practice-studio/releases)。原 `legacy-mvp` 标签与 `v1.0.1` 指向同一个提交。
+## 每次发版前
 
-## 以后怎么发版
+1. 核对本次改动是否影响项目目的、使用步骤、功能、权限、数据、限制、配置或部署。检查根 README、应用/Space README、ARCHITECTURE、DEPLOYMENT、HANDOFF 和本文；DESIGN 与 AGENTS 在规则变化时再更新。带日期的旧审查记录保留历史语境。
+2. 受影响文档同步更新中文和英文，并保留互相切换的链接。没有必要更新的文档不为发版而重写，但必须记录具体原因。不要把局部检查写成全部验收，不把源码发布写成线上部署。
+3. 更新 `.github/release-notes.json`：`zh`、`en` 为本版的实际说明，`documentation_zh`、`documentation_en` 记录文档核对结果、改动文件或不更新原因。两种语言覆盖相同事实与限制，不能只有双语标题或直接复用未翻译提交标题。该文件是当前版说明，历史全文由 GitHub Releases 保存。
+4. 用 Conventional Commits 提交并完成适用检查，将本版所有必要提交一次推送 main。发布脚本要求相对上一版本更新说明文件，并拒绝空字段、缺少语言内容及 TODO/TBD 等占位内容；它不能判断翻译质量或文档是否真实准确，仍需人工核对。
 
-推送到 `main` 后，GitHub Actions 从上一个版本起检查提交说明，为这次推送生成一个 Release。一次推送有多条提交时，按其中最大的改动升级。开发分支在合入 `main` 时纳入正式版本。
+## 自动发布规则
 
-| 提交说明 | 版本变化 | 从 `2.3.1` 出发 |
+推送 main 后，GitHub Actions 从最近的稳定版本标签到本次提交检查提交说明，生成一个 Release；一次推送有多个提交时按最大的变化升级。开发分支在合入 main 时纳入。相同提交重跑不会重复发布；未更新本版双语说明或文档结论时工作流失败，不创建 release，修正后再发布，不绕过检查发布单语说明。
+
+| 提交说明 | 版本变化 | 从 2.7.4 出发 |
 | --- | --- | --- |
-| `feat!:`、`fix!:` 等带 `!` 的前缀，或 `BREAKING CHANGE:` 说明 | 升主版本 | `3.0.0` |
-| `feat:` 或 `feat(模块):` | 升次版本 | `2.4.0` |
-| `fix:`、文档、维护和其他提交 | 升修订号 | `2.3.2` |
+| feat!:、fix!: 等带 ! 的前缀，或 BREAKING CHANGE: 正文 | 主版本 | 3.0.0 |
+| feat: 或 feat(模块): | 次版本 | 2.8.0 |
+| fix:、docs:、维护和其他提交 | 修订号 | 2.7.5 |
 
-提交前请标明改动类型。若合并时会把多个提交压成一条，最终的合并提交标题也要保留正确类型。Release 会附上这一版的提交清单和完整差异。同一个提交重复运行不会重复发布。
+压缩合并时保留正确的最终提交前缀。Release 正文含中文、英文和两种语言的文档核对结果，附完整差异及原始提交记录。手动创建或编辑 release 也遵守相同双语要求。版本与标签不因补译而重建，旧版本仍描述当时的功能。
 
-GitHub Release 记录仓库源码。线上体验版对应 [Hugging Face 的部署记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)，按[部署说明](../coaching%20and%20coachee_agent_mvp/docs/DEPLOYMENT.md)单独发布。
+GitHub 记录源码，[Hugging Face 部署记录](https://huggingface.co/spaces/fanyang0610/Coaching-Practice-Studio/commits/main)记录线上。部署按[配置与部署](../coaching%20and%20coachee_agent_mvp/docs/DEPLOYMENT.md)单独执行；本轮未部署 Space。
 
 ## 可核对的历史部署
 
